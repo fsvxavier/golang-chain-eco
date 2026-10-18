@@ -6,3 +6,4 @@ bun.lock
 yarn.lock
 agent-manager.json
 .kilo/*
+_old/*
