@@ -1,0 +1,49 @@
+# Manual de utilização — golang-chain-eco
+
+Manual completo para usar o `golang-chain-eco`: um port em Go do ecossistema LangChain (langchain-core, LangGraph, `create_agent` com middleware, Deep Agents, cliente MCP, RemoteGraph e tracing).
+
+Público: desenvolvedores Go que querem construir chains, agents e workflows com LLMs. Não é preciso conhecer a versão Python.
+
+## Como ler
+
+- Primeira vez: leia os capítulos 1 e 2 e rode o exemplo do capítulo 1.
+- Quer só um agent funcionando: capítulos 3, 5 e 9.
+- Quer RAG: capítulos 3, 4 e 6.
+- Quer fluxos duráveis com aprovação humana: capítulos 7 e 8.
+- Vai para produção: capítulos 12 e 14.
+- Procurando um código pronto: capítulo 15.
+
+## Índice
+
+| # | Capítulo | Conteúdo |
+|---|---|---|
+| 1 | [Introdução e instalação](01-introducao-e-instalacao.md) | Requisitos, instalação, primeiro agent, variáveis de ambiente, rodando offline |
+| 2 | [Conceitos fundamentais](02-conceitos.md) | Camadas, `Runnable`, mensagens, estado, canais, contexto e configuração |
+| 3 | [Modelos e provedores](03-modelos-e-provedores.md) | `chatmodels.Init`, provedores nativos e compatíveis, embeddings, cache, rate limit, modelo fake |
+| 4 | [Prompts, chains e parsers](04-chains-prompts-parsers.md) | Templates, `Pipe`, combinadores, retry, fallbacks, saída estruturada, histórico de chat |
+| 5 | [Tools](05-tools.md) | Criar tools tipadas, schema, erros, tools terminais, artefatos, `Command` |
+| 6 | [RAG](06-rag.md) | Loaders, splitters, embeddings, vector stores, retrievers, RAG agêntico |
+| 7 | [LangGraph: StateGraph](07-langgraph.md) | Schema, nós, arestas, paralelismo, `Send`, `Command`, subgrafos, API funcional |
+| 8 | [Persistência, human-in-the-loop e streaming](08-persistencia-hitl-streaming.md) | Checkpointers, threads, `Interrupt`, time travel, store, streaming |
+| 9 | [Agents e middleware](09-agents-e-middleware.md) | `agents.Create`, middlewares prontos, middleware próprio, saída estruturada |
+| 10 | [Deep Agents](10-deep-agents.md) | Planejamento, filesystem virtual, subagents, backends, permissões, rubrica, async |
+| 11 | [MCP, servidor e graphs remotos](11-mcp-remote-servidor.md) | Cliente MCP, `remote.Client`, `remote.Graph`, `remote/server`, AG-UI |
+| 12 | [Observabilidade](12-observabilidade.md) | Callbacks, LangSmith, Langfuse, OpenTelemetry, logs |
+| 13 | [Integrações](13-integracoes.md) | Vector stores, bancos, busca na web, loaders, permissões, sandboxes |
+| 14 | [Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) | Checklist, riscos, testes, erros comuns, limitações |
+| 15 | [Exemplos e receitas](15-exemplos-e-receitas.md) | Catálogo dos 42 exemplos, receitas, equivalência com Python, glossário |
+
+## Documentos relacionados
+
+- [README do projeto](../../README.md) — visão geral e início rápido
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — decisões de design
+- [INTEGRATIONS.md](../INTEGRATIONS.md) — integrações e nível de verificação de cada uma
+- [PROVIDERS.md](../PROVIDERS.md) e [PROVIDERS-ANALISE.md](../PROVIDERS-ANALISE.md) — cobertura dos 504 provedores da LangChain
+- [examples/README.md](../../examples/README.md) — índice dos exemplos executáveis
+
+## Convenções do manual
+
+- Os trechos usam os imports reais do módulo `github.com/fsvxavier/golang-chain-eco/...`. Para encurtar, imports repetidos podem ser omitidos.
+- `ctx` é um `context.Context` e `m` é um `models.ChatModel`, salvo indicação contrária.
+- Erros são tratados com `log.Fatal` nos exemplos de `main`; em código real, trate-os.
+- Avisos de **segurança** e de **comportamento surpreendente** aparecem em blocos "Atenção".
