@@ -7,8 +7,11 @@ Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent 
 - Concorrência nativa: nós de um grafo rodam em goroutines, streaming usa `iter.Seq2`.
 - Todo exemplo roda offline com um modelo fake; basta definir `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` para usar um provedor real.
 
+> **Manual completo de utilização:** [docs/manual/](docs/manual/README.md) — 15 capítulos, da instalação à produção.
+
 ## Sumário
 
+- [Manual de utilização](#manual-de-utilização)
 - [Instalação](#instalação)
 - [Mapa de pacotes](#mapa-de-pacotes)
 - [Início rápido](#início-rápido)
@@ -32,6 +35,28 @@ Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent 
 - [Testes](#testes)
 - [Equivalência com as libs Python](#equivalência-com-as-libs-python)
 - [Limitações](#limitações)
+
+## Manual de utilização
+
+Guia detalhado em português, com exemplos e troubleshooting: [docs/manual/README.md](docs/manual/README.md).
+
+| # | Capítulo |
+|---|---|
+| 1 | [Introdução e instalação](docs/manual/01-introducao-e-instalacao.md) |
+| 2 | [Conceitos fundamentais](docs/manual/02-conceitos.md) |
+| 3 | [Modelos e provedores](docs/manual/03-modelos-e-provedores.md) |
+| 4 | [Prompts, chains e parsers](docs/manual/04-chains-prompts-parsers.md) |
+| 5 | [Tools](docs/manual/05-tools.md) |
+| 6 | [RAG](docs/manual/06-rag.md) |
+| 7 | [LangGraph: StateGraph](docs/manual/07-langgraph.md) |
+| 8 | [Persistência, human-in-the-loop e streaming](docs/manual/08-persistencia-hitl-streaming.md) |
+| 9 | [Agents e middleware](docs/manual/09-agents-e-middleware.md) |
+| 10 | [Deep Agents](docs/manual/10-deep-agents.md) |
+| 11 | [MCP, servidor e graphs remotos](docs/manual/11-mcp-remote-servidor.md) |
+| 12 | [Observabilidade](docs/manual/12-observabilidade.md) |
+| 13 | [Integrações](docs/manual/13-integracoes.md) |
+| 14 | [Produção, segurança e troubleshooting](docs/manual/14-producao-seguranca-troubleshooting.md) |
+| 15 | [Exemplos e receitas](docs/manual/15-exemplos-e-receitas.md) |
 
 ## Instalação
 
