@@ -140,7 +140,7 @@ docker run -d -p 6379:6379 redis/redis-stack-server        # REDIS_ADDR=localhos
 docker run -d -p 27017:27017 mongo:7                       # MONGO_ADDR=localhost:27017 (MONGO_USER/MONGO_PASS para SCRAM)
 docker run -d -p 8000:8000 amazon/dynamodb-local           # DYNAMODB_ENDPOINT=http://localhost:8000
 docker run -d -e POSTGRES_PASSWORD=pw -p 5432:5432 pgvector/pgvector:pg16
-(cd internal/pgtest && PG_DSN=postgres://postgres:pw@localhost:5432/postgres go test ./...)   # módulo à parte (driver pgx)
+PG_DSN=postgres://postgres:pw@localhost:5432/postgres go test ./internal/pgtest/...   # driver pgx (só de teste)
 ```
 
 Verificado contra serviços reais: ClickHouse, CrateDB, CockroachDB, Oracle Free 23ai, Solr, ArcadeDB, Infinispan, Couchbase, Memgraph, Zenko CloudServer (S3), SpiceDB, Jenkins, k3s, Redis Stack, MongoDB 7 (sem e com autenticação), DynamoDB Local, PostgreSQL 16 + pgvector

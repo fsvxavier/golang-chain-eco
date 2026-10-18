@@ -17,14 +17,14 @@
 
 Características de projeto:
 
-- **Zero dependências de terceiros**: só a biblioteca padrão do Go. Bancos SQL exigem que você traga o driver.
+- **Código de produção só com a stdlib**: nenhum pacote da biblioteca importa dependência de terceiros. Os drivers SQL listados no `go.mod` (`pgx`, `mysql`, `go-ora`, `modernc.org/sqlite`) são usados só pelos testes; bancos SQL exigem que você traga o driver.
 - **Tipagem com generics**: `Runnable[I, O]`, `Structured[T]`, `tools.New[Args]`.
 - **Concorrência nativa**: nós de um grafo rodam em goroutines; streaming usa `iter.Seq2`.
 - **Offline por padrão nos testes e exemplos**: um modelo fake permite rodar tudo sem chave de API.
 
 ## 1.2 Requisitos
 
-- Go 1.23 ou superior (usa `iter.Seq2` e generics).
+- Go 1.27 ou superior (versão declarada no `go.mod`; usa `iter.Seq2` e generics).
 - Para usar um LLM real: uma chave de API do provedor, ou um servidor local (Ollama, vLLM, LM Studio).
 - Para persistência em banco: o driver `database/sql` de sua escolha (SQLite, Postgres) ou o serviço correspondente (Redis, MongoDB, DynamoDB, S3).
 

@@ -59,8 +59,8 @@ todo list, PII scrubbing, human-in-the-loop.
   types with `checkpoint.Register` (messages, `graph.Send`, files, todos, async
   tasks and rubric evaluations are pre-registered). Whole numbers come back as
   `int`, other numbers as `float64`.
-  `internal/sqlitetest` is a separate module that runs the saver on real SQLite
-  (`cd internal/sqlitetest && go test ./...`).
+  `internal/sqlitetest` runs the saver on real SQLite
+  (`go test ./internal/sqlitetest/...`; the driver is a test-only dependency).
 * **Node cache**: `graph.WithCachePolicy` on a node + `graph.WithCache(graph.NewMemoryCache())`.
 * **Deferred nodes**: `graph.Deferred()` runs a node only when no other task is pending.
 * **LangSmith**: `tracing/langsmith` is a `callbacks.Handler` that posts runs
@@ -85,8 +85,8 @@ todo list, PII scrubbing, human-in-the-loop.
   reused by DynamoDB, S3, Kendra, Lambda). SQL backends take a `*sql.DB`; the driver is the caller's choice.
 * **One conformance suite** (`internal/conformance`: `Saver`, `Store`, `Vector`) is run against every backend,
   in-memory or real, so they all behave like the reference implementations. Tests that need a real service
-  are env-gated and skip themselves; the ones needing a SQL driver live in the separate `internal/pgtest` module
-  to keep the main module dependency-free.
+  are env-gated and skip themselves; the ones needing a SQL driver live in the `internal/pgtest` package (test-only driver dependencies)
+  to keep the library code itself free of third-party imports.
 * **`openai.Chat` is also the base for dialects** of the Chat Completions API. `Path`, `StreamPath`, `Query`,
   `TokenFunc` (per-request OAuth/IAM token) and `Rewrite` (edit the body) let IBM watsonx.ai reuse the whole
   request/stream/tool-call pipeline instead of duplicating it.

@@ -2,7 +2,7 @@
 
 Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent com middleware (`create_agent`), **Deep Agents**, cliente **MCP**, **RemoteGraph** e tracing **LangSmith**.
 
-- Biblioteca com **zero dependências de terceiros** (apenas a stdlib, Go 1.23+).
+- O código da biblioteca usa **só a stdlib**: nenhum pacote de produção importa dependência de terceiros. O `go.mod` lista drivers SQL (`pgx`, `mysql`, `go-ora`, `modernc.org/sqlite`), mas eles são usados apenas pelos testes em `internal/pgtest` e `internal/sqlitetest`; quem usa a biblioteca traz o driver que quiser.
 - Tipado com generics: `Runnable[I, O]`, `Structured[T]`, `tools.New[Args]`.
 - Concorrência nativa: nós de um grafo rodam em goroutines, streaming usa `iter.Seq2`.
 - Todo exemplo roda offline com um modelo fake; basta definir `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` para usar um provedor real.
@@ -64,7 +64,7 @@ Guia detalhado em português, com exemplos e troubleshooting: [docs/manual/READM
 go get github.com/fsvxavier/golang-chain-eco@latest
 ```
 
-Requer Go 1.23 ou superior. Para desenvolver neste repositório:
+Requer Go 1.27 ou superior (versão declarada no `go.mod`). Para desenvolver neste repositório:
 
 ```bash
 git clone https://github.com/fsvxavier/golang-chain-eco
@@ -713,15 +713,15 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com mod
 ## Testes
 
 ```bash
-go test -race ./...                                  # módulo principal (sem rede, sem dependências)
-cd internal/sqlitetest && go test ./...              # sqlsaver contra SQLite real (módulo separado)
-cd internal/pgtest && PG_DSN=... go test ./...       # PostgreSQL, MariaDB, CockroachDB, Oracle (módulo separado)
+go test -race ./...                                  # tudo; testes de serviços reais se pulam sozinhos (sem rede)
+go test ./internal/sqlitetest/...                    # sqlsaver contra SQLite real (driver modernc.org/sqlite)
+PG_DSN=... go test ./internal/pgtest/...             # PostgreSQL, MariaDB, CockroachDB, Oracle (drivers pgx, mysql, go-ora)
 ```
 
 Os testes dos provedores usam `httptest`; nenhum teste chama APIs externas. Os testes de integração com bancos e serviços
 rodam contra o serviço real e **se pulam sozinhos** quando a variável de ambiente não está definida (`REDIS_ADDR`, `MONGO_ADDR`,
 `DYNAMODB_ENDPOINT`, `S3_ENDPOINT`, `SOLR_URL`, `CLICKHOUSE_URL`, `K8S_SERVER`, ...). Todos usam a suíte comum de
-`internal/conformance`. Os que precisam de um driver SQL ficam no módulo `internal/pgtest` (pgvector, MariaDB, CockroachDB, Oracle,
+`internal/conformance`. Os que precisam de um driver SQL ficam no pacote `internal/pgtest` (pgvector, MariaDB, CockroachDB, Oracle,
 `sqlsaver`, `sqlstore`). Exemplos de como subir cada serviço: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md#testes-contra-serviços-reais).
 
 ## Equivalência com as libs Python

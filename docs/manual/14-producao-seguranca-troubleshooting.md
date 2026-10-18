@@ -96,9 +96,9 @@ Conteúdo vindo de páginas web, documentos, resultados de tools ou e-mails pode
 ## 14.6 Testes
 
 ```bash
-go test -race ./...                                 # módulo principal: sem rede, sem dependências
-cd internal/sqlitetest && go test ./...             # sqlsaver contra SQLite real (módulo separado)
-cd internal/pgtest && PG_DSN=postgres://... go test ./...   # PostgreSQL, MariaDB, CockroachDB, Oracle
+go test -race ./...                                 # tudo; testes de serviços reais se pulam sozinhos (sem rede)
+go test ./internal/sqlitetest/...                   # sqlsaver contra SQLite real (driver modernc.org/sqlite)
+PG_DSN=postgres://... go test ./internal/pgtest/... # PostgreSQL, MariaDB, CockroachDB, Oracle
 ```
 
 Os testes que precisam de serviços reais **se pulam sozinhos** quando a variável de ambiente não está definida (`REDIS_ADDR`, `MONGO_ADDR`, `DYNAMODB_ENDPOINT`, `S3_ENDPOINT`, `SOLR_URL`, `CLICKHOUSE_URL`, `K8S_SERVER`...). Para subir os serviços, veja [INTEGRATIONS.md](../INTEGRATIONS.md#testes-contra-serviços-reais).
@@ -147,6 +147,6 @@ Para os **seus** testes:
 
 ## 14.9 Evolução e compatibilidade
 
-O módulo exige Go 1.23+ e não tem dependências de terceiros, então atualizar é trocar a versão em `go.mod` (`go get github.com/fsvxavier/golang-chain-eco@latest`) e rodar `go build ./... && go test -race ./...`. Leia o histórico do repositório antes de atualizações maiores, pois a API acompanha o ecossistema Python, que evolui rapidamente.
+O módulo exige Go 1.27+ e o código de produção não importa dependências de terceiros (os drivers do `go.mod` são só de teste), então atualizar é trocar a versão em `go.mod` (`go get github.com/fsvxavier/golang-chain-eco@latest`) e rodar `go build ./... && go test -race ./...`. Leia o histórico do repositório antes de atualizações maiores, pois a API acompanha o ecossistema Python, que evolui rapidamente.
 
 Próximo: [15. Exemplos e receitas](15-exemplos-e-receitas.md).
