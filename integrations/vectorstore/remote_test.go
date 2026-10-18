@@ -3,7 +3,9 @@ package vectorstore_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -97,4 +99,78 @@ func TestTypesenseImportError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "bad doc") {
 		t.Fatal(err)
 	}
+}
+
+// ClickHouse / CrateDB / Solr / ArcadeDB real-service tests.
+func TestClickHouseReal(t *testing.T) {
+	conformance.Vector(t, &vectorstore.ClickHouse{URL: need(t, "CLICKHOUSE_URL"), Username: os.Getenv("CLICKHOUSE_USER"), Password: os.Getenv("CLICKHOUSE_PASS"),
+		Table: fmt.Sprintf("t%d", time.Now().UnixNano())})
+}
+
+func TestCrateDBReal(t *testing.T) {
+	conformance.Vector(t, &vectorstore.CrateDB{URL: need(t, "CRATEDB_URL"), Table: fmt.Sprintf("t%d", time.Now().UnixNano())})
+}
+
+func TestSolrReal(t *testing.T) {
+	conformance.Vector(t, &vectorstore.Solr{URL: need(t, "SOLR_URL"), Core: os.Getenv("SOLR_CORE")})
+}
+
+func TestArcadeDBReal(t *testing.T) {
+	conformance.Vector(t, &vectorstore.ArcadeDB{URL: need(t, "ARCADEDB_URL"), Database: fmt.Sprintf("d%d", time.Now().UnixNano()),
+		Username: "root", Password: os.Getenv("ARCADEDB_PASS")})
+}
+
+func TestInfinispanReal(t *testing.T) {
+	conformance.Vector(t, &vectorstore.Infinispan{URL: need(t, "INFINISPAN_URL"), Username: os.Getenv("INFINISPAN_USER"), Password: os.Getenv("INFINISPAN_PASS"),
+		Cache: fmt.Sprintf("c%d", time.Now().UnixNano())})
+}
+
+// COUCHBASE_URL=http://localhost:8091 (admin API) with COUCHBASE_USER/PASS; the test initialises a
+// fresh Community node (services, credentials, bucket) and queries port 8093.
+func TestCouchbaseReal(t *testing.T) {
+	admin := need(t, "COUCHBASE_URL")
+	user, pass := os.Getenv("COUCHBASE_USER"), os.Getenv("COUCHBASE_PASS")
+	form := func(path string, kv ...string) {
+		t.Helper()
+		v := url.Values{}
+		for i := 0; i+1 < len(kv); i += 2 {
+			v.Set(kv[i], kv[i+1])
+		}
+		req, _ := http.NewRequest("POST", admin+path, strings.NewReader(v.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.SetBasicAuth(user, pass)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode/100 != 2 && !strings.Contains(string(b), "already exists") && !strings.Contains(string(b), "Unauthorized") && !strings.Contains(string(b), "is provisioned") { // re-runs hit already-initialised nodes
+			t.Fatalf("%s: %d %s", path, resp.StatusCode, b)
+		}
+	}
+	form("/pools/default", "memoryQuota", "256", "indexMemoryQuota", "256")
+	form("/node/controller/setupServices", "services", "kv,n1ql,index")
+	form("/settings/indexes", "storageMode", "forestdb") // required before any GSI index; Community only allows forestdb
+	form("/settings/web", "port", "8091", "username", user, "password", pass)
+	if r, err := http.Get(strings.Replace(admin, "://", "://"+user+":"+pass+"@", 1) + "/pools/default/buckets/lcg"); err != nil || r.StatusCode != 200 {
+		form("/pools/default/buckets", "name", "lcg", "ramQuota", "128", "flushEnabled", "1")
+	}
+	be := &vectorstore.Couchbase{QueryURL: strings.Replace(admin, ":8091", ":8093", 1), Username: user, Password: pass, Keyspace: "lcg"}
+	if u := os.Getenv("COUCHBASE_QUERY_URL"); u != "" {
+		be.QueryURL = u
+	}
+	// the bucket takes a moment to become queryable
+	var err error
+	for range 40 {
+		if err = be.Upsert(context.Background(), []vectorstore.Record{{ID: "warm", Vector: []float32{1, 0, 0}}}); err == nil {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = be.Delete(context.Background(), []string{"warm", "a", "x", "y", "z"}) // leftovers of earlier runs
+	conformance.Vector(t, be)
 }

@@ -6,6 +6,7 @@ require (
 	github.com/fsvxavier/golang-chain-eco v0.0.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/sijms/go-ora/v2 v2.9.0
 )
 
 require (

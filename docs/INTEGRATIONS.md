@@ -54,6 +54,15 @@ Todos implementam `vectorstores.VectorStore` (busca por similaridade com score, 
 | SurrealDB | `vectorstore.SurrealDB` | HTTP `/sql`, busca exata por cosseno; testado contra SurrealDB real |
 | MariaDB 11.7+ | `vectorstore.MariaDB` | `database/sql` + `VECTOR INDEX`; ids ASCII ≤ 64 bytes; testado contra MariaDB 11.8 real |
 | FalkorDB | `redis.FalkorDB` | grafo sobre Redis, índice vetorial nativo; testado contra FalkorDB real |
+| ClickHouse / chDB | `vectorstore.ClickHouse` | HTTP, `cosineDistance` exato; testado contra ClickHouse 24.8 |
+| CrateDB | `vectorstore.CrateDB` | HTTP `/_sql`, `knn_match` (euclidiano); testado contra CrateDB 5.9 |
+| CockroachDB | `vectorstore.CockroachDB` | `database/sql`, tipo `VECTOR` nativo, `<=>` exato; testado contra CockroachDB |
+| Oracle AI Database 23ai | `vectorstore.Oracle` | `database/sql` (go-ora), `VECTOR_DISTANCE`; testado contra Oracle Free 23ai; hits sem embedding |
+| Apache Solr / Opensolr | `vectorstore.Solr` | `DenseVectorField` + `{!knn}`; testado contra Solr 9.7 |
+| ArcadeDB | `vectorstore.ArcadeDB` | HTTP, `vectorCosineSimilarity` exato; testado contra ArcadeDB |
+| Infinispan | `vectorstore.Infinispan` | REST + Digest + Protobuf `@Vector`, `<->`; testado contra Infinispan 15; hits sem embedding |
+| Couchbase | `vectorstore.Couchbase` | SQL++ com aritmética de arrays (cosseno exato, sem índice vetorial); testado contra Couchbase Community |
+| Memgraph | `memgraph.Vector` | cliente Bolt próprio + `vector_search`; testado contra Memgraph 3 |
 | FAISS (equivalente) | `vectorstore.Flat` | índice exato em Go puro, `Save`/`LoadFlat`; não é binding do FAISS |
 | Annoy (equivalente) | `vectorstore.Annoy` | floresta de árvores de projeção aleatória, Go puro; recall medido em teste |
 
@@ -63,6 +72,18 @@ Para um banco novo, implemente `Upsert`, `Query` e `Delete` (3 métodos) e use `
 FAISS e Annoy reais são bibliotecas C++ (exigiriam cgo); `Flat` e `Annoy` cobrem o mesmo uso em Go puro, sem ler arquivos de índice
 nativos desses projetos.
 Alternativas sem servidor: `core/vectorstores.Memory` (com `Save`/`Load`) e `integrations/retrieval.BM25`.
+
+## Objetos, permissões, CI, sandboxes e protocolos
+
+| Pacote | O que faz | Teste real |
+|---|---|---|
+| `integrations/s3` | cliente S3 (SigV4) + `checkpoint.Saver`, `store.Store` e loader; serve AWS S3, Tigris, XNS, R2, MinIO... | Zenko CloudServer (valida a assinatura) |
+| `integrations/spicedb` | cliente HTTP do SpiceDB + `FilterRetriever` que só devolve documentos que o usuário pode ver | SpiceDB |
+| `integrations/jenkins` | disparar build, status, console; 3 tools de agente | Jenkins LTS |
+| `integrations/kubernetes` | cliente da API (pods, logs, exec por WebSocket) e `Sandbox`: um pod descartável vira backend do deepagents | k3s |
+| `deepagents/backends.Remote` | transforma qualquer "executar comando" num backend completo (arquivos + shell); base para Docker, SSH e sandboxes em nuvem | shell local + k3s |
+| `integrations/graphretriever` | retriever de travessia em grafo de metadados (Graph RAG) sobre qualquer vector store | offline |
+| `integrations/agui` | serve um grafo pelo protocolo AG-UI (SSE) para CopilotKit, assistant-ui e outros | `httptest` |
 
 ## Busca e web (`integrations/search`)
 
@@ -102,7 +123,7 @@ docker run -d -e POSTGRES_PASSWORD=pw -p 5432:5432 pgvector/pgvector:pg16
 (cd internal/pgtest && PG_DSN=postgres://postgres:pw@localhost:5432/postgres go test ./...)   # módulo à parte (driver pgx)
 ```
 
-Verificado contra serviços reais: Redis Stack, MongoDB 7 (sem e com autenticação), DynamoDB Local, PostgreSQL 16 + pgvector
+Verificado contra serviços reais: ClickHouse, CrateDB, CockroachDB, Oracle Free 23ai, Solr, ArcadeDB, Infinispan, Couchbase, Memgraph, Zenko CloudServer (S3), SpiceDB, Jenkins, k3s, Redis Stack, MongoDB 7 (sem e com autenticação), DynamoDB Local, PostgreSQL 16 + pgvector
 (inclui `sqlsaver`/`sqlstore`), Neo4j 5, SurrealDB e MariaDB 11.8. **Não verificado contra o serviço real**: Atlas `$vectorSearch`, Astra DB (só `httptest`), Qdrant, Chroma,
 Pinecone, Elasticsearch, Weaviate, Milvus, Typesense, Upstash, Astra, provedores de LLM e tracers (só `httptest`).
 

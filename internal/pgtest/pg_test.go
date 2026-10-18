@@ -53,3 +53,18 @@ func TestStore(t *testing.T) {
 	}
 	conformance.Store(t, s)
 }
+
+// COCKROACH_DSN=postgres://root@localhost:26257/defaultdb?sslmode=disable
+func TestCockroachDB(t *testing.T) {
+	dsn := os.Getenv("COCKROACH_DSN")
+	if dsn == "" {
+		t.Skip("COCKROACH_DSN not set")
+	}
+	d, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	d.Exec(`DROP TABLE IF EXISTS lcg_crdb_test`)
+	conformance.Vector(t, &vectorstore.CockroachDB{DB: d, Table: "lcg_crdb_test"})
+}

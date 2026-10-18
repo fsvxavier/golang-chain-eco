@@ -1,4 +1,4 @@
-# Análise dos 418 provedores restantes
+# Análise dos 402 provedores restantes
 
 Fonte dos nomes e descrições: cartões de <https://docs.langchain.com/oss/python/integrations/providers/all_providers>.
 Critério de "não é de terceiros": produto de empresa estabelecida ou projeto aberto conhecido, com API/protocolo público e documentado, e
@@ -8,32 +8,16 @@ Critério de "pode ser implementado": dá para escrever o cliente em Go com a st
 
 | Grupo | Qtde | O que significa |
 |---|---|---|
-| **A. Implementável e testável de verdade** | 16 | serviço open source/emulador em Docker, ou adaptador offline |
+| **A. Implementável e testável de verdade** | 0 | serviço open source/emulador em Docker, ou adaptador offline |
 | **B. Produto/vendor com API pública** | 134 | implementável, mas só com teste `httptest`, ou exige licença/conta/driver |
 | **C. Gateways OpenAI-compatíveis** | 23 | 1 linha na tabela `OpenAICompatible`, com `$<PROVEDOR>_BASE_URL` (URL oficial não verificada) |
 | **D. Presos a uma linguagem/plataforma** | 24 | biblioteca Python/Rust/Swift ou frontend; não há o que portar |
 | **E. Comunitários/nicho** | 221 | descartados |
 
-## A. Implementáveis e testáveis (16)
+## A. Implementáveis e testáveis (0 pendentes; 16 já implementados: ArcadeDB, CrateDB, chDB, CockroachDB, Oracle AI Database, Infinispan, Opensolr, Memgraph, Couchbase, Tigris, XNS, SpiceDB, Jenkins, Kubernetes, AG-UI Protocol, Graph RAG)
 
 | Provedor | Esforço | Como testar | Observação |
 |---|---|---|---|
-| ArcadeDB | M | docker arcadedata/arcadedb | HTTP /api/v1/command; índice vetorial LSM_VECTOR; Cypher/SQL |
-| CrateDB | S | docker crate | HTTP /_sql; KNN_MATCH / vector_similarity |
-| chDB | S | docker clickhouse-server | chDB é ClickHouse in-process; a mesma SQL (cosineDistance) via HTTP serve o ClickHouse real |
-| CockroachDB | S | docker cockroachdb | tipo VECTOR nativo e operadores <=>; DDL diferente do pgvector (sem CREATE EXTENSION) |
-| Oracle AI Database | M | docker gvenzl/oracle-free | VECTOR_DISTANCE via database/sql com driver go-ora (submódulo de teste) |
-| Infinispan | M | docker infinispan/server | REST + consulta Ickle com KNN |
-| Opensolr | M | docker solr | Opensolr é Solr gerenciado; implementa-se o Solr: campo DenseVectorField + {!knn} |
-| Memgraph | M | docker memgraph/memgraph | exige protocolo Bolt (PackStream binário) próprio; índice vetorial nativo |
-| Couchbase | L | docker couchbase (init de cluster) | SQL++ HTTP + Search/FTS com vetores; setup de cluster é o custo |
-| Tigris | M | docker minio (S3) | S3-compatível: cliente S3 com SigV4 já cobre Saver/Store/loader de objetos |
-| XNS | M | docker minio (S3) | mesmo cliente S3: loader e byte store |
-| SpiceDB | M | docker authzed/spicedb | gateway HTTP /v1/permissions/check e lookup-resources; retriever que filtra por permissão |
-| Jenkins | M | docker jenkins/jenkins | REST: disparar job, ler build/console; tool |
-| Kubernetes | L | k3s em docker | API REST (pods, logs); sandbox deepagents exige pods/exec via WebSocket |
-| AG-UI Protocol | M | offline | protocolo aberto de eventos (SSE) entre agente e frontend: adaptador sobre o streaming do grafo |
-| Graph RAG | M | offline | retriever de travessia em grafo de metadados sobre qualquer vector store (algoritmo, sem serviço) |
 
 Esforço: S = horas, M = meio dia, L = dia ou mais. Três deles destravam vários cartões de uma vez: o **cliente S3** (Tigris, XNS e o próprio
 AWS S3, Lambda e SQS por LocalStack), o **ClickHouse** (cobre chDB) e o **driver SQL de teste** (Oracle, CockroachDB).
