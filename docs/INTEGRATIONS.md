@@ -44,10 +44,16 @@ Todos implementam `vectorstores.VectorStore` (busca por similaridade com score, 
 | Elasticsearch | `vectorstore.Elasticsearch` | `dense_vector` + kNN; API key ou basic auth |
 | Weaviate | `vectorstore.Weaviate` | REST + GraphQL, vetores próprios |
 | Milvus / Zilliz | `vectorstore.Milvus` | REST v2 |
-| PostgreSQL + pgvector | `vectorstore.PGVector` | `database/sql` (traga o driver); nome de tabela validado |
+| PostgreSQL + pgvector | `vectorstore.PGVector` | `database/sql` (traga o driver); nome de tabela validado; testado contra Postgres 16 real |
+| Redis Stack (RediSearch) | `redis.Vector` | índice FLAT cosseno via `FT.SEARCH` KNN; cliente RESP próprio |
+| MongoDB / Atlas | `mongo.Vector` | com `Index`: `$vectorSearch` (Atlas, índice criado no Atlas); sem `Index`: varredura + cosseno no cliente |
+| Cassandra / Astra DB | `vectorstore.Astra` | Data API HTTP (Astra, HCD); CQL nativo não é usado |
+| FAISS (equivalente) | `vectorstore.Flat` | índice exato em Go puro, `Save`/`LoadFlat`; não é binding do FAISS |
+| Annoy (equivalente) | `vectorstore.Annoy` | floresta de árvores de projeção aleatória, Go puro; recall medido em teste |
 
 Para um banco novo, implemente `Upsert`, `Query` e `Delete` (3 métodos) e use `vectorstore.New(embedder, backend)`.
-Não implementados: Redis (exige RESP), MongoDB Atlas e Cassandra/Astra (exigem drivers próprios), FAISS/Annoy (bibliotecas C).
+FAISS e Annoy reais são bibliotecas C++ (exigiriam cgo); `Flat` e `Annoy` cobrem o mesmo uso em Go puro, sem ler arquivos de índice
+nativos desses projetos.
 Alternativas sem servidor: `core/vectorstores.Memory` (com `Save`/`Load`) e `integrations/retrieval.BM25`.
 
 ## Busca e web (`integrations/search`)
@@ -65,7 +71,31 @@ Cada um implementa `Searcher` e vira tool (`search.Tool`) ou retriever (`search.
 ## Persistência
 
 `langgraph/checkpoint/sqlsaver` e `langgraph/store/sqlstore` para SQLite/PostgreSQL, `checkpoint.Memory`, `store.Memory`.
-Redis/Mongo/DynamoDB: implemente `checkpoint.Saver` (4 métodos) ou `store.Store`.
+
+| Backend | Saver | Store | Notas |
+|---|---|---|---|
+| Redis | `redis.NewSaver` | `redis.NewStore` | cliente RESP2 próprio (AUTH, SELECT) |
+| MongoDB / Atlas | `mongo.NewSaver` | `mongo.NewStore` | OP_MSG + BSON próprios; TLS e SCRAM-SHA-256; sem `mongodb+srv://` (passe host:porta) |
+| DynamoDB | `dynamodb.NewSaver` | `dynamodb.NewStore` | JSON API + SigV4; cria tabelas on-demand; item ≤ 400 KB; `Search` faz Scan |
+
+Para outro banco, implemente `checkpoint.Saver` (4 métodos) ou `store.Store`.
+
+## Testes contra serviços reais
+
+`internal/conformance` traz as suítes comuns (Saver, Store, Vector). Os testes de integração pulam sozinhos quando a variável
+não está definida:
+
+```bash
+docker run -d -p 6379:6379 redis/redis-stack-server        # REDIS_ADDR=localhost:6379
+docker run -d -p 27017:27017 mongo:7                       # MONGO_ADDR=localhost:27017 (MONGO_USER/MONGO_PASS para SCRAM)
+docker run -d -p 8000:8000 amazon/dynamodb-local           # DYNAMODB_ENDPOINT=http://localhost:8000
+docker run -d -e POSTGRES_PASSWORD=pw -p 5432:5432 pgvector/pgvector:pg16
+(cd internal/pgtest && PG_DSN=postgres://postgres:pw@localhost:5432/postgres go test ./...)   # módulo à parte (driver pgx)
+```
+
+Verificado contra serviços reais: Redis Stack, MongoDB 7 (sem e com autenticação), DynamoDB Local, PostgreSQL 16 + pgvector
+(inclui `sqlsaver`/`sqlstore`). **Não verificado contra o serviço real**: Atlas `$vectorSearch`, Astra DB (só `httptest`), Qdrant, Chroma,
+Pinecone, Elasticsearch, Weaviate, Milvus, provedores de LLM e tracers (só `httptest`).
 
 ## Observabilidade
 

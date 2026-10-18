@@ -229,3 +229,44 @@ func TestPGVector(t *testing.T) {
 		t.Fatal("table name must be validated against SQL injection")
 	}
 }
+
+func TestAstra(t *testing.T) {
+	srv, log := fake(t, map[string]string{
+		"POST /api/json/v1/ks":      `{"status":{"ok":1}}`,
+		"POST /api/json/v1/ks/docs": `{"data":{"documents":[{"_id":"a","text":"cats purr","metadata":{"src":"x"},"$vector":[1,0],"$similarity":0.9}]}}`,
+	})
+	defer srv.Close()
+	be := &vectorstore.Astra{Endpoint: srv.URL, Token: "AstraCS:t", Keyspace: "ks", Collection: "docs"}
+	ctx := context.Background()
+	if err := be.Upsert(ctx, []vectorstore.Record{{ID: "a", Vector: []float32{1, 0}, Text: "cats purr"}}); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := be.Query(ctx, []float32{1, 0}, 3)
+	if err != nil || len(hits) != 1 || hits[0].ID != "a" || hits[0].Score != 0.9 || hits[0].Metadata["src"] != "x" {
+		t.Fatalf("%+v %v", hits, err)
+	}
+	if err := be.Delete(ctx, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	var cmds []string
+	for _, r := range log() {
+		cmds = append(cmds, r.body)
+	}
+	for i, want := range []string{`"createCollection"`, `"findOneAndReplace"`, `"find"`, `"deleteMany"`} {
+		if i >= len(cmds) || !strings.Contains(cmds[i], want) {
+			t.Fatalf("request %d: want %s in %v", i, want, cmds)
+		}
+	}
+	if !strings.Contains(cmds[2], `"$vector":[1,0]`) {
+		t.Fatal(cmds[2])
+	}
+}
+
+func TestAstraErrorsArray(t *testing.T) {
+	srv, _ := fake(t, map[string]string{"POST /api/json/v1/ks/docs": `{"errors":[{"errorCode":"COLLECTION_NOT_EXIST","message":"nope"}]}`})
+	defer srv.Close()
+	_, err := (&vectorstore.Astra{Endpoint: srv.URL, Keyspace: "ks", Collection: "docs"}).Query(context.Background(), []float32{1}, 1)
+	if err == nil || !strings.Contains(err.Error(), "COLLECTION_NOT_EXIST") {
+		t.Fatal(err)
+	}
+}
