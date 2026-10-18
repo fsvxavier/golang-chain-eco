@@ -10,6 +10,7 @@ import (
 	"iter"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
@@ -22,7 +23,9 @@ type Chat struct {
 	APIKey  string // default $OPENAI_API_KEY
 	BaseURL string // default $OPENAI_BASE_URL or https://api.openai.com/v1
 	Org     string
-	HTTP    *http.Client
+	// Azure, when set, targets an Azure OpenAI deployment instead of api.openai.com.
+	Azure *Azure
+	HTTP  *http.Client
 	// Defaults applied to every call.
 	Defaults []models.Option
 }
@@ -35,7 +38,34 @@ func New(model string, defaults ...models.Option) *Chat {
 // ModelID implements models.ChatModel.
 func (c *Chat) ModelID() string { return "openai:" + c.Model }
 
+// Azure configures Azure OpenAI (AzureChatOpenAI): requests go to
+// <Endpoint>/openai/deployments/<Deployment> with an api-key header.
+type Azure struct {
+	Endpoint   string // default $AZURE_OPENAI_ENDPOINT
+	Deployment string
+	APIVersion string // default 2024-10-21
+	APIKey     string // default $AZURE_OPENAI_API_KEY
+}
+
+func (a *Azure) client(hc *http.Client) *httpx.Client {
+	ep, key, ver := a.Endpoint, a.APIKey, a.APIVersion
+	if ep == "" {
+		ep = os.Getenv("AZURE_OPENAI_ENDPOINT")
+	}
+	if key == "" {
+		key = os.Getenv("AZURE_OPENAI_API_KEY")
+	}
+	if ver == "" {
+		ver = "2024-10-21"
+	}
+	return &httpx.Client{HTTP: hc, BaseURL: strings.TrimRight(ep, "/") + "/openai/deployments/" + a.Deployment,
+		Headers: map[string]string{"api-key": key}, Query: "api-version=" + ver}
+}
+
 func (c *Chat) client() *httpx.Client {
+	if c.Azure != nil {
+		return c.Azure.client(c.HTTP)
+	}
 	key := c.APIKey
 	if key == "" {
 		key = os.Getenv("OPENAI_API_KEY")

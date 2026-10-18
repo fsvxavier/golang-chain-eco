@@ -74,7 +74,11 @@ go test -race ./...
 | `deepagents` (+ `backends`, `middleware`) | Agent com planejamento, filesystem virtual, subagents | `deepagents` |
 | `mcp` | Cliente MCP (stdio e HTTP) | `langchain-mcp-adapters` |
 | `remote` | Cliente do Agent Server e `RemoteGraph` | `langgraph_sdk` |
-| `tracing/langsmith` | Envio de runs ao LangSmith | `langsmith` tracer |
+| `tracing/{langsmith,langfuse,otlp}` | Envio de runs ao LangSmith, Langfuse e OpenTelemetry | tracers |
+| `integrations/{vectorstore,search,loaders,retrieval}` | Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector; Tavily, Exa, Brave, Serper, Wikipedia, arXiv...; loaders; BM25 e rerank | `langchain-community` e parceiros |
+| `providers/{google,cohere,bedrock}` | Gemini/Vertex, Cohere (chat, embeddings, rerank), Bedrock Converse | parceiros |
+| `remote/server` | Servidor de grafos compatível com a API de threads/runs | Agent Server |
+| `langgraph/store/sqlstore` | Store de longo prazo em SQLite/Postgres | `PostgresStore` |
 
 ## Início rápido
 
@@ -588,6 +592,35 @@ r, _ := wf.Invoke(ctx, "baterias")   // r.Interrupt != nil: aguardando
 r, _ = wf.Resume(ctx, "sim")         // coletar NÃO roda de novo
 ```
 
+### Integrações adicionais
+
+```go
+// Gemini, Cohere, Bedrock, Azure e dezenas de provedores compatíveis com OpenAI, pelo mesmo Init:
+m := chatmodels.MustInit("google_genai:gemini-2.0-flash")
+m = chatmodels.MustInit("bedrock:anthropic.claude-3-5-sonnet-20241022-v2:0") // AWS_ACCESS_KEY_ID/SECRET/REGION
+m = chatmodels.MustInit("perplexity:sonar")                                  // PERPLEXITY_API_KEY
+emb, _ := chatmodels.InitEmbeddings("cohere:embed-v4.0")
+
+// Vector store externo (Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector):
+store := vectorstore.New(emb, &vectorstore.Qdrant{URL: "http://localhost:6333", Collection: "docs"})
+store.AddDocuments(ctx, docs)
+retr := retrievers.FromVectorStore(store, retrievers.VectorStoreOptions{K: 4})
+
+// Busca na web como tool de um agent:
+web := search.Tool("web_search", "Busca na web.", search.NewTavily(""), 5)   // TAVILY_API_KEY
+
+// Reranking e BM25 sem banco:
+rr, _ := chatmodels.NewReranker("cohere:rerank-v3.5")
+better := retrieval.WithRerank(retr, rr)
+kw := retrieval.NewBM25(docs)
+
+// Tracing em OpenTelemetry (Jaeger, Honeycomb, Datadog...):
+ex := otlp.New(otlp.Options{Endpoint: "http://localhost:4318"}); defer ex.Close()
+ctx = callbacks.WithHandlers(ctx, ex)
+```
+
+Lista completa, limitações e extensão: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+
 ## Configuração
 
 | Variável | Uso |
@@ -603,7 +636,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-Mais de 20 exemplos portados dos projetos base em [`examples/`](examples/) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+36 exemplos portados dos projetos base em [`examples/`](examples/) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser

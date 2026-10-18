@@ -17,6 +17,8 @@ type Client struct {
 	HTTP    *http.Client
 	BaseURL string
 	Headers map[string]string
+	// Query is appended to every URL (e.g. "api-version=2024-10-21").
+	Query string
 }
 
 // Post sends body as JSON to path and returns the open response. Non-2xx
@@ -26,7 +28,7 @@ func (c *Client) Post(ctx context.Context, path string, body any) (*http.Respons
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+path, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +50,18 @@ func (c *Client) Post(ctx context.Context, path string, body any) (*http.Respons
 		return nil, &StatusError{Code: resp.StatusCode, Body: string(msg)}
 	}
 	return resp, nil
+}
+
+func (c *Client) url(path string) string {
+	u := strings.TrimRight(c.BaseURL, "/") + path
+	if c.Query != "" {
+		sep := "?"
+		if strings.Contains(u, "?") {
+			sep = "&"
+		}
+		u += sep + c.Query
+	}
+	return u
 }
 
 // PostJSON posts body and decodes the JSON response into out.

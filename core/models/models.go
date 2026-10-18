@@ -300,6 +300,14 @@ func (f *Fake) next(msgs []messages.Message, o Options) (messages.Message, error
 		if m.Role == "" {
 			m.Role = messages.RoleAI
 		}
+		if m.ID == "" {
+			m.ID = messages.NewID()
+		}
+		for j := range m.ToolCalls {
+			if m.ToolCalls[j].ID == "" {
+				m.ToolCalls[j].ID = messages.NewID()
+			}
+		}
 		return m, err
 	}
 	if len(f.Responses) == 0 {

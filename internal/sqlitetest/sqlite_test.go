@@ -19,6 +19,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint/sqlsaver"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
+	"github.com/fsvxavier/golang-chain-eco/langgraph/store/sqlstore"
 )
 
 func open(t *testing.T) *sqlsaver.Saver {
@@ -101,5 +102,42 @@ func TestHITLAcrossRestart(t *testing.T) {
 	ms := out["messages"].([]messages.Message)
 	if ms[len(ms)-1].Content != "done" || ms[2].Content != "sent" {
 		t.Fatalf("%+v", ms)
+	}
+}
+
+func TestSQLStore(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	s, err := sqlstore.New(ctx, db, sqlstore.SQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Put(ctx, []string{"users", "1"}, "prefs", map[string]any{"lang": "go", "n": 3})
+	_ = s.Put(ctx, []string{"users", "2"}, "prefs", map[string]any{"lang": "py"})
+	_ = s.Put(ctx, []string{"users_other"}, "x", map[string]any{"lang": "go"})
+	_ = s.Put(ctx, []string{"users", "1"}, "prefs", map[string]any{"lang": "rust"}) // upsert
+	it, _ := s.Get(ctx, []string{"users", "1"}, "prefs")
+	if it == nil || it.Value["lang"] != "rust" {
+		t.Fatalf("%+v", it)
+	}
+	got, _ := s.Search(ctx, []string{"users"}, map[string]any{"lang": "py"}, 0)
+	if len(got) != 1 || got[0].Namespace[1] != "2" {
+		t.Fatalf("%+v", got)
+	}
+	all, _ := s.Search(ctx, []string{"users"}, nil, 0)
+	if len(all) != 2 { // "users_other" must not match prefix "users"
+		t.Fatalf("prefix leak: %+v", all)
+	}
+	ns, _ := s.ListNamespaces(ctx, []string{"users"})
+	if len(ns) != 2 {
+		t.Fatal(ns)
+	}
+	_ = s.Delete(ctx, []string{"users", "1"}, "prefs")
+	if it, _ := s.Get(ctx, []string{"users", "1"}, "prefs"); it != nil {
+		t.Fatal("deleted")
 	}
 }

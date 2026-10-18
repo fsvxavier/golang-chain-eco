@@ -207,7 +207,7 @@ func (r RemoteRunner) Poll(ctx context.Context, h string) (AsyncStatus, string, 
 func lastContent(values map[string]any) string {
 	ms, _ := values["messages"].([]any)
 	for i := len(ms) - 1; i >= 0; i-- {
-		if m, ok := ms[i].(map[string]any); ok && (m["type"] == "ai" || m["role"] == "assistant") {
+		if m, ok := ms[i].(map[string]any); ok && (m["type"] == "ai" || m["role"] == "ai" || m["role"] == "assistant") {
 			if s, ok := m["content"].(string); ok {
 				return s
 			}

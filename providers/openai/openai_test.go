@@ -100,3 +100,20 @@ func TestEmbeddings(t *testing.T) {
 		t.Fatalf("%v %v", vs, err)
 	}
 }
+
+func TestAzure(t *testing.T) {
+	var path, query, key string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, query, key = r.URL.Path, r.URL.RawQuery, r.Header.Get("api-key")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"hi"}}]}`)
+	}))
+	defer srv.Close()
+	m := &openai.Chat{Model: "ignored", Azure: &openai.Azure{Endpoint: srv.URL, Deployment: "gpt4o", APIKey: "az"}}
+	out, err := m.Generate(context.Background(), []messages.Message{messages.Human("x")})
+	if err != nil || out.Content != "hi" {
+		t.Fatal(out, err)
+	}
+	if path != "/openai/deployments/gpt4o/chat/completions" || query != "api-version=2024-10-21" || key != "az" {
+		t.Fatal(path, query, key)
+	}
+}
