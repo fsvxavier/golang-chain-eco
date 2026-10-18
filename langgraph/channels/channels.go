@@ -65,9 +65,9 @@ func (c *lastValue) Update(vs []any) (bool, error) {
 	c.v, c.ok = v, true
 	return true, nil
 }
-func (c *lastValue) Checkpoint() (any, bool)           { return c.v, c.ok }
-func (c *lastValue) Restore(v any, ok bool) Channel    { return &lastValue{v, ok} }
-func (c *lastValue) Consume() bool                     { return false }
+func (c *lastValue) Checkpoint() (any, bool)        { return c.v, c.ok }
+func (c *lastValue) Restore(v any, ok bool) Channel { return &lastValue{v, ok} }
+func (c *lastValue) Consume() bool                  { return false }
 
 // ------------------------------------------------------------- AnyValue
 
