@@ -63,6 +63,7 @@ Todos implementam `vectorstores.VectorStore` (busca por similaridade com score, 
 | Infinispan | `vectorstore.Infinispan` | REST + Digest + Protobuf `@Vector`, `<->`; testado contra Infinispan 15; hits sem embedding |
 | Couchbase | `vectorstore.Couchbase` | SQL++ com aritmética de arrays (cosseno exato, sem índice vetorial); testado contra Couchbase Community |
 | Memgraph | `memgraph.Vector` | cliente Bolt próprio + `vector_search`; testado contra Memgraph 3 |
+| Azure AI Search | `vectorstore.AzureAISearch` | REST, HNSW cosseno, índice criado no primeiro `Upsert`; só teste de contrato (`httptest`) |
 | FAISS (equivalente) | `vectorstore.Flat` | índice exato em Go puro, `Save`/`LoadFlat`; não é binding do FAISS |
 | Annoy (equivalente) | `vectorstore.Annoy` | floresta de árvores de projeção aleatória, Go puro; recall medido em teste |
 
@@ -84,6 +85,15 @@ Alternativas sem servidor: `core/vectorstores.Memory` (com `Save`/`Load`) e `int
 | `deepagents/backends.Remote` | transforma qualquer "executar comando" num backend completo (arquivos + shell); base para Docker, SSH e sandboxes em nuvem | shell local + k3s |
 | `integrations/graphretriever` | retriever de travessia em grafo de metadados (Graph RAG) sobre qualquer vector store | offline |
 | `integrations/agui` | serve um grafo pelo protocolo AG-UI (SSE) para CopilotKit, assistant-ui e outros | `httptest` |
+
+### Grupo B: contrato de API pública, sem serviço real aqui
+
+Cobertos só por testes de contrato (`httptest`) escritos a partir da documentação pública de cada API; podem divergir do serviço real:
+`providers/watsonx` (IBM watsonx.ai: chat, streaming, embeddings, token IAM com cache), `providers/replicate`, `integrations/vectara` (retriever),
+`integrations/permit` (retriever filtrado por permissão), `integrations/messaging` (SMS Plivo/Telnyx, com `Allow` por destino),
+`integrations/salesforce` (SOQL somente leitura), `integrations/aws` (Knowledge Bases do Bedrock, Kendra e tool Lambda, SigV4),
+`vectorstore.AzureAISearch` e as buscas Zotero, YouTube Data API, Perigon e Oxylabs. Gateways OpenAI-compatíveis de terceiros (Doubleword,
+Hubris, FuturMix...) entram na tabela do `chatmodels` e exigem `$<PROVEDOR>_BASE_URL`.
 
 ## Busca e web (`integrations/search`)
 

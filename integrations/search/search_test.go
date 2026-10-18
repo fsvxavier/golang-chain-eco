@@ -217,3 +217,41 @@ func TestScrapers(t *testing.T) {
 		t.Fatal(got, err)
 	}
 }
+
+func TestVendorEngines(t *testing.T) {
+	ctx := context.Background()
+	var gotURL, gotAuth, gotKey string
+	mk := func(body string) string {
+		return serve(t, func(w http.ResponseWriter, r *http.Request) {
+			gotURL, gotAuth, gotKey = r.URL.RequestURI(), r.Header.Get("Authorization"), r.Header.Get("Zotero-API-Key")
+			fmt.Fprint(w, body)
+		}).URL
+	}
+	z := &search.Zotero{Library: "users/42"}
+	z.URL, z.APIKey = mk(`[{"key":"A","data":{"title":"Go Generics","abstractNote":"about types","DOI":"10.1/x","date":"2024","creators":[{"firstName":"Ann","lastName":"Lee"}]}},{"key":"B","data":{"itemType":"attachment"}}]`), "zk"
+	rs, err := z.Search(ctx, "generics", 5)
+	if err != nil || len(rs) != 1 || rs[0].URL != "https://doi.org/10.1/x" || !strings.Contains(rs[0].Content, "Ann Lee") || gotKey != "zk" || !strings.HasPrefix(gotURL, "/users/42/items?") {
+		t.Fatalf("%+v %v %s %s", rs, err, gotKey, gotURL)
+	}
+	if _, err := (&search.Zotero{}).Search(ctx, "x", 1); err == nil {
+		t.Fatal("library required")
+	}
+
+	yt := &search.YouTube{}
+	yt.URL, yt.APIKey = mk(`{"items":[{"id":{"videoId":"abc"},"snippet":{"title":"Intro","description":"d","channelTitle":"Ch","publishedAt":"2024"}}]}`), "yk"
+	if rs, err = yt.Search(ctx, "go", 3); err != nil || len(rs) != 1 || rs[0].URL != "https://www.youtube.com/watch?v=abc" || !strings.Contains(gotURL, "key=yk") || !strings.Contains(gotURL, "maxResults=3") {
+		t.Fatalf("%+v %v %s", rs, err, gotURL)
+	}
+
+	pg := &search.Perigon{}
+	pg.URL, pg.APIKey = mk(`{"articles":[{"title":"News","url":"u","summary":"s"}]}`), "pk"
+	if rs, err = pg.Search(ctx, "ai", 2); err != nil || len(rs) != 1 || rs[0].Content != "s" || !strings.Contains(gotURL, "apiKey=pk") {
+		t.Fatalf("%+v %v", rs, err)
+	}
+
+	ox := &search.Oxylabs{}
+	ox.URL, ox.APIKey = mk(`{"results":[{"content":{"results":{"organic":[{"title":"O1","url":"u","desc":"d"},{"title":"O2","url":"u2","desc":"d2"}]}}}]}`), "user:pass"
+	if rs, err = ox.Search(ctx, "go", 1); err != nil || len(rs) != 1 || rs[0].Title != "O1" || gotAuth != "Basic dXNlcjpwYXNz" {
+		t.Fatalf("%+v %v %s", rs, err, gotAuth)
+	}
+}

@@ -28,6 +28,22 @@ type Chat struct {
 	HTTP  *http.Client
 	// Defaults applied to every call.
 	Defaults []models.Option
+
+	// ID overrides ModelID (default "openai:<Model>").
+	ID string
+
+	// Hooks for servers that speak the Chat Completions dialect on other
+	// routes (IBM watsonx.ai, ...). All are optional.
+	//
+	// Path / StreamPath replace "/chat/completions" (StreamPath defaults to Path).
+	Path, StreamPath string
+	// Query is appended to every URL, e.g. "version=2024-05-31".
+	Query string
+	// TokenFunc supplies a bearer token per request (OAuth/IAM); it takes
+	// precedence over APIKey.
+	TokenFunc func(context.Context) (string, error)
+	// Rewrite edits the request body just before it is sent.
+	Rewrite func(req map[string]any)
 }
 
 // New creates a chat model for the given model id.
@@ -36,7 +52,12 @@ func New(model string, defaults ...models.Option) *Chat {
 }
 
 // ModelID implements models.ChatModel.
-func (c *Chat) ModelID() string { return "openai:" + c.Model }
+func (c *Chat) ModelID() string {
+	if c.ID != "" {
+		return c.ID
+	}
+	return "openai:" + c.Model
+}
 
 // Azure configures Azure OpenAI (AzureChatOpenAI): requests go to
 // <Endpoint>/openai/deployments/<Deployment> with an api-key header.
@@ -60,6 +81,27 @@ func (a *Azure) client(hc *http.Client) *httpx.Client {
 	}
 	return &httpx.Client{HTTP: hc, BaseURL: strings.TrimRight(ep, "/") + "/openai/deployments/" + a.Deployment,
 		Headers: map[string]string{"api-key": key}, Query: "api-version=" + ver}
+}
+
+// clientFor builds the HTTP client for one request, resolving TokenFunc.
+func (c *Chat) clientFor(ctx context.Context) (*httpx.Client, error) {
+	hc := c.client()
+	hc.Query = joinQuery(hc.Query, c.Query)
+	if c.TokenFunc != nil {
+		tok, err := c.TokenFunc(ctx)
+		if err != nil {
+			return nil, err
+		}
+		hc.Headers = map[string]string{"Authorization": "Bearer " + tok}
+	}
+	return hc, nil
+}
+
+func joinQuery(a, b string) string {
+	if a == "" || b == "" {
+		return a + b
+	}
+	return a + "&" + b
 }
 
 func (c *Chat) client() *httpx.Client {
@@ -200,7 +242,17 @@ func (c *Chat) request(msgs []messages.Message, o models.Options, stream bool) m
 	for k, v := range o.Extra {
 		req[k] = v
 	}
+	if c.Rewrite != nil {
+		c.Rewrite(req)
+	}
 	return req
+}
+
+func orStr(s, d string) string {
+	if s != "" {
+		return s
+	}
+	return d
 }
 
 type usage struct {
@@ -240,7 +292,11 @@ func (c *Chat) Generate(ctx context.Context, msgs []messages.Message, opts ...mo
 	o := models.Apply(append(append([]models.Option(nil), c.Defaults...), opts...)...)
 	return models.Track(ctx, c.ModelID(), msgs, func(ctx context.Context) (messages.Message, error) {
 		var r response
-		if err := c.client().PostJSON(ctx, "/chat/completions", c.request(msgs, o, false), &r); err != nil {
+		hc, err := c.clientFor(ctx)
+		if err != nil {
+			return messages.Message{}, err
+		}
+		if err := hc.PostJSON(ctx, orStr(c.Path, "/chat/completions"), c.request(msgs, o, false), &r); err != nil {
 			return messages.Message{}, err
 		}
 		out := messages.Message{Role: messages.RoleAI, ID: r.ID, Usage: r.Usage.toUsage(), ResponseMetadata: map[string]any{"model_name": r.Model}}
@@ -267,7 +323,11 @@ func (c *Chat) Stream(ctx context.Context, msgs []messages.Message, opts ...mode
 	o := models.Apply(append(append([]models.Option(nil), c.Defaults...), opts...)...)
 	return func(yield func(messages.Message, error) bool) {
 		_, _ = models.Track(ctx, c.ModelID(), msgs, func(ctx context.Context) (messages.Message, error) {
-			resp, err := c.client().Post(ctx, "/chat/completions", c.request(msgs, o, true))
+			hc, err := c.clientFor(ctx)
+			var resp *http.Response
+			if err == nil {
+				resp, err = hc.Post(ctx, orStr(c.StreamPath, orStr(c.Path, "/chat/completions")), c.request(msgs, o, true))
+			}
 			if err != nil {
 				yield(messages.Message{}, err)
 				return messages.Message{}, err

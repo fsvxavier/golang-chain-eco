@@ -22,6 +22,8 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/providers/google"
 	"github.com/fsvxavier/golang-chain-eco/providers/ollama"
 	"github.com/fsvxavier/golang-chain-eco/providers/openai"
+	"github.com/fsvxavier/golang-chain-eco/providers/replicate"
+	"github.com/fsvxavier/golang-chain-eco/providers/watsonx"
 )
 
 // OpenAICompatible maps provider names to their default OpenAI-style
@@ -68,13 +70,20 @@ var OpenAICompatible = map[string]string{
 	"lambda":          "https://api.lambda.ai/v1",
 	"friendli":        "https://api.friendli.ai/serverless/v1",
 	"kserve":          "",
-	"rayserve":        "",
-	"nomic":           "https://api-atlas.nomic.ai/v1",
-	"vllm":            "http://localhost:8000/v1",
-	"lmstudio":        "http://localhost:1234/v1",
-	"llamacpp":        "http://localhost:8080/v1",
-	"localai":         "http://localhost:8080/v1",
-	"litellm":         "http://localhost:4000/v1",
+	"telnyx":          "https://api.telnyx.com/v2/ai/openai",
+	// Third-party OpenAI-compatible gateways: no verified default URL, set
+	// $<PROVIDER>_BASE_URL (and $<PROVIDER>_API_KEY).
+	"alephant": "", "apertis": "", "apiroute": "", "auxen": "", "brainiall": "", "cheaperinference": "",
+	"daoxe": "", "doubleword": "", "empiriolabs": "", "flexai": "", "futurmix": "", "gptzzz": "",
+	"greennode": "", "hubris": "", "interfaze": "", "neuralwatt": "", "synthorai": "", "thalam": "",
+	"tokenmix": "", "tuningengines": "", "trustedrouter": "", "zerogpu": "",
+	"rayserve": "",
+	"nomic":    "https://api-atlas.nomic.ai/v1",
+	"vllm":     "http://localhost:8000/v1",
+	"lmstudio": "http://localhost:1234/v1",
+	"llamacpp": "http://localhost:8080/v1",
+	"localai":  "http://localhost:8080/v1",
+	"litellm":  "http://localhost:4000/v1",
 	// Per-tenant endpoints: no default, set $<PROVIDER>_BASE_URL.
 	// databricks: https://<workspace>/serving-endpoints; cloudflare:
 	// https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1; snowflake:
@@ -89,7 +98,7 @@ var OpenAICompatible = map[string]string{
 
 // Providers lists every provider name Init understands.
 func Providers() []string {
-	names := []string{"openai", "azure_openai", "anthropic", "google_genai", "google", "google_vertexai", "cohere", "bedrock", "bedrock_converse", "ollama", "fake"}
+	names := []string{"openai", "azure_openai", "anthropic", "google_genai", "google", "google_vertexai", "cohere", "bedrock", "bedrock_converse", "ollama", "ibm", "watsonx", "replicate", "fake"}
 	for k := range OpenAICompatible {
 		names = append(names, k)
 	}
@@ -138,6 +147,10 @@ func Init(spec string, defaults ...models.Option) (models.ChatModel, error) {
 		return bedrock.New(model, defaults...), nil
 	case "ollama":
 		return ollama.New(model, defaults...), nil
+	case "ibm", "watsonx":
+		return watsonx.New(model, watsonx.Config{}, defaults...), nil
+	case "replicate":
+		return replicate.New(model, defaults...), nil
 	case "fake":
 		return &models.Fake{Name: spec}, nil
 	}
@@ -179,6 +192,8 @@ func InitEmbeddings(spec string) (embeddings.Embedder, error) {
 		return &cohere.Embeddings{Model: model}, nil
 	case "ollama":
 		return &ollama.Embeddings{Model: model}, nil
+	case "ibm", "watsonx":
+		return &watsonx.Embeddings{Model: model}, nil
 	case "fake":
 		return embeddings.Fake{}, nil
 	}

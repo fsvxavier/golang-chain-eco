@@ -70,3 +70,21 @@ func TestTenantEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWatsonxAndGateways(t *testing.T) {
+	m, err := chatmodels.Init("ibm:ibm/granite-3-8b-instruct")
+	if err != nil || m.ModelID() != "watsonx:ibm/granite-3-8b-instruct" {
+		t.Fatal(m, err)
+	}
+	if _, err := chatmodels.InitEmbeddings("watsonx:ibm/slate-125m-english-rtrvr"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chatmodels.Init("doubleword:m"); err == nil {
+		t.Fatal("gateway without base url must fail")
+	}
+	t.Setenv("TELNYX_API_KEY", "k")
+	tm, err := chatmodels.Init("telnyx:meta-llama/Meta-Llama-3.1-8B-Instruct")
+	if err != nil || tm.(*openai.Chat).BaseURL != "https://api.telnyx.com/v2/ai/openai" {
+		t.Fatal(tm, err)
+	}
+}

@@ -174,3 +174,40 @@ func TestCouchbaseReal(t *testing.T) {
 	_ = be.Delete(context.Background(), []string{"warm", "a", "x", "y", "z"}) // leftovers of earlier runs
 	conformance.Vector(t, be)
 }
+
+// Azure AI Search: contract test against a fake service (no live Azure here).
+func TestAzureAISearch(t *testing.T) {
+	var created bool
+	srv, log := fake(t, map[string]string{
+		"GET /indexes/docs?":             "404",
+		"PUT /indexes/docs":              `{}`,
+		"POST /indexes/docs/docs/index":  `{"value":[{"key":"YQ","status":true}]}`,
+		"POST /indexes/docs/docs/search": `{"value":[{"@search.score":0.91,"rid":"a","content":"cats","metadata":"{\"k\":\"v\"}","embedding":[1,0]}]}`,
+	})
+	defer srv.Close()
+	be := &vectorstore.AzureAISearch{Endpoint: srv.URL, APIKey: "k", Index: "docs"}
+	ctx := context.Background()
+	// GET on the index answers 404, so Upsert creates it with PUT
+	if err := be.Upsert(ctx, []vectorstore.Record{{ID: "a", Vector: []float32{1, 0}, Text: "cats", Metadata: map[string]any{"k": "v"}}}); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := be.Query(ctx, []float32{1, 0}, 3)
+	if err != nil || len(hits) != 1 || hits[0].ID != "a" || hits[0].Score != 0.91 || hits[0].Metadata["k"] != "v" {
+		t.Fatalf("%+v %v", hits, err)
+	}
+	if err := be.Delete(ctx, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range log() {
+		if r.method == "PUT" && strings.Contains(r.body, `"hnsw"`) && strings.Contains(r.body, `"dimensions":2`) {
+			created = true
+		}
+	}
+	if !created {
+		t.Fatalf("index definition not sent: %+v", log())
+	}
+	last := log()[len(log())-1]
+	if !strings.Contains(last.body, `"delete"`) || !strings.Contains(last.body, `"YQ"`) || !strings.Contains(last.path, "api-version=2024-07-01") {
+		t.Fatalf("%+v", last)
+	}
+}

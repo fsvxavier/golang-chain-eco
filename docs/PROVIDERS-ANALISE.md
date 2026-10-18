@@ -1,4 +1,4 @@
-# Análise dos 402 provedores restantes
+# Análise dos 368 provedores restantes
 
 Fonte dos nomes e descrições: cartões de <https://docs.langchain.com/oss/python/integrations/providers/all_providers>.
 Critério de "não é de terceiros": produto de empresa estabelecida ou projeto aberto conhecido, com API/protocolo público e documentado, e
@@ -9,8 +9,8 @@ Critério de "pode ser implementado": dá para escrever o cliente em Go com a st
 | Grupo | Qtde | O que significa |
 |---|---|---|
 | **A. Implementável e testável de verdade** | 0 | serviço open source/emulador em Docker, ou adaptador offline |
-| **B. Produto/vendor com API pública** | 134 | implementável, mas só com teste `httptest`, ou exige licença/conta/driver |
-| **C. Gateways OpenAI-compatíveis** | 23 | 1 linha na tabela `OpenAICompatible`, com `$<PROVEDOR>_BASE_URL` (URL oficial não verificada) |
+| **B. Produto/vendor com API pública** | 123 | implementável, mas só com teste `httptest`, ou exige licença/conta/driver |
+| **C. Gateways OpenAI-compatíveis** | 0 | 1 linha na tabela `OpenAICompatible`, com `$<PROVEDOR>_BASE_URL` (URL oficial não verificada) |
 | **D. Presos a uma linguagem/plataforma** | 24 | biblioteca Python/Rust/Swift ou frontend; não há o que portar |
 | **E. Comunitários/nicho** | 221 | descartados |
 
@@ -22,7 +22,7 @@ Critério de "pode ser implementado": dá para escrever o cliente em Go com a st
 Esforço: S = horas, M = meio dia, L = dia ou mais. Três deles destravam vários cartões de uma vez: o **cliente S3** (Tigris, XNS e o próprio
 AWS S3, Lambda e SQS por LocalStack), o **ClickHouse** (cobre chDB) e o **driver SQL de teste** (Oracle, CockroachDB).
 
-## B. Produtos com API pública, sem teste real possível aqui (134)
+## B. Produtos com API pública, sem teste real possível aqui (123 pendentes; 12 implementados com teste de contrato: Replicate, IBM, Microsoft, Salesforce, Vectara, Zotero, YouTube, Plivo, Telnyx, Permit, Oxylabs, Perigon)
 
 Implementáveis, mas eu só conseguiria validar contra um servidor de teste escrito por mim a partir do contrato; o risco é a API real divergir.
 Prioridade sugerida (APIs maduras e documentadas): IBM watsonx, Microsoft (Azure AI Search), Replicate, Vectara, Zotero, YouTube Data API, Plivo/Telnyx,
@@ -69,7 +69,6 @@ Permit, Oxylabs, Parallel, Perigon e os sandboxes Daytona, E2B e Runloop.
 | GridGain | Ignite thin client binário (checkpointer/store/cache) |
 | Hindsight | open source, REST |
 | HyperBrowser | scrape/sessões REST |
-| IBM | watsonx.ai: IAM + /ml/v1/text/chat e embeddings |
 | Infino | API REST |
 | Isaacus | modelos jurídicos (embedding/classificação) via API |
 | Islo | REST |
@@ -85,7 +84,6 @@ Permit, Oxylabs, Parallel, Perigon e os sandboxes Daytona, E2B e Runloop.
 | Magic Hour | geração de mídia REST |
 | Mengram | REST |
 | Metal | descontinuado |
-| Microsoft | Azure AI Search (vetores), Cosmos DB, Blob, endpoint Azure AI Inference |
 | MindsDB | open source; SQL/HTTP, imagem docker disponível |
 | MinerU | API REST do serviço; biblioteca é Python |
 | Mixpeek | API REST multimodal; só nuvem |
@@ -102,22 +100,16 @@ Permit, Oxylabs, Parallel, Perigon e os sandboxes Daytona, E2B e Runloop.
 | Octen | search API |
 | OpenSandbox | servidor open source (API a confirmar) |
 | Opsen | REST |
-| Oxylabs | Realtime API (basic auth) |
 | Parallel | Search/Extract API |
-| Perigon | notícias REST |
-| Permit | PDP REST (/allowed) |
 | PlainId | PDP REST |
 | Play Store | scraping não oficial |
-| Plivo | API REST de SMS/voz |
 | Polign | API REST |
 | QuanticData | SERP/crawl REST |
 | Querit | search API |
-| Replicate | API REST de predições (modelos de texto/imagem) |
 | Respan | gateway + traces |
 | Rostam | binário próprio (vetor + KV) |
 | Runloop | REST (devboxes) |
 | Runtime | microVMs Firecracker, REST |
-| Salesforce | REST/SOQL como tool |
 | SAP | HANA Cloud (driver go-hdb) e Generative AI Hub |
 | Scavio | search API |
 | ScrapeGraph | smartscraper REST |
@@ -152,7 +144,6 @@ Permit, Oxylabs, Parallel, Perigon e os sandboxes Daytona, E2B e Runloop.
 | Valyu | search API |
 | VAST Data | S3 + SDK Python |
 | VDMS | protocolo próprio (Intel) |
-| Vectara | REST v2 (corpora/query); só nuvem |
 | Vector Panda | API REST |
 | Vectorize | API REST; só nuvem |
 | Vequil | callback REST |
@@ -160,14 +151,12 @@ Permit, Oxylabs, Parallel, Perigon e os sandboxes Daytona, E2B e Runloop.
 | WaveSpeed | geração de mídia REST |
 | Webz | notícias REST |
 | YDB | gRPC |
-| YouTube | Data API v3 (busca/playlists); transcrição oficial não existe |
 | Yutori | browser agents REST |
 | ZeusDB | banco vetorial (SDK Python) |
-| Zotero | API REST v3 pública (chave) |
 
-## C. Gateways OpenAI-compatíveis (23)
+## C. Gateways OpenAI-compatíveis (0)
 
-Alephant AI, Apertis, API-Route, Auxen, Brainiall, Cheaper Inference, DaoXE, Doubleword, EmpirioLabs AI, FlexAI, FuturMix, GPTZZZ, GreenNode, Hubris, Interfaze, Neuralwatt, Synthorai, Telnyx, Thalam, TokenMix, TrustedRouter, Tuning Engines, ZeroGPU.
+.
 Custo mínimo (entrada na tabela com base URL por variável de ambiente). Não verifiquei as URLs oficiais, por isso entrariam como "exige `$X_BASE_URL`".
 
 ## D. Presos a linguagem ou plataforma (24)
