@@ -73,6 +73,33 @@ todo list, PII scrubbing, human-in-the-loop.
   `LocalRunner` (goroutines) or `RemoteRunner` (Agent Server) and the
   `start/check/update/cancel/list` task tools.
 
+## Integrations (`integrations/`, `providers/`)
+
+* **One small contract per kind of backend**, so a new service is a handful of methods:
+  `vectorstore.Backend` (`Upsert`, `Query`, `Delete`; `vectorstore.New(embedder, backend)` adds
+  embedding, filters and MMR), `checkpoint.Saver` (4 methods), `store.Store`, `retrievers.Retriever`,
+  `backends.Backend` / `backends.Executor` for Deep Agents.
+* **No SDKs.** HTTP/JSON services use `net/http`; the wire protocols that had no HTTP form are implemented
+  directly with the standard library: RESP (Redis), MongoDB OP_MSG + BSON + SCRAM-SHA-256, Bolt/PackStream
+  (Memgraph), the Kubernetes exec WebSocket, Digest auth (Infinispan) and AWS SigV4 (`providers/bedrock.Sign`,
+  reused by DynamoDB, S3, Kendra, Lambda). SQL backends take a `*sql.DB`; the driver is the caller's choice.
+* **One conformance suite** (`internal/conformance`: `Saver`, `Store`, `Vector`) is run against every backend,
+  in-memory or real, so they all behave like the reference implementations. Tests that need a real service
+  are env-gated and skip themselves; the ones needing a SQL driver live in the separate `internal/pgtest` module
+  to keep the main module dependency-free.
+* **`openai.Chat` is also the base for dialects** of the Chat Completions API. `Path`, `StreamPath`, `Query`,
+  `TokenFunc` (per-request OAuth/IAM token) and `Rewrite` (edit the body) let IBM watsonx.ai reuse the whole
+  request/stream/tool-call pipeline instead of duplicating it.
+* **`backends.Remote` turns "run a shell command somewhere" into a full Deep Agents backend** (read, write, edit,
+  ls, glob, grep, execute) with POSIX shell snippets. `kubernetes.Sandbox` provides the runner for a throwaway
+  pod; any other isolated runner (container, VM, cloud sandbox) plugs in the same way.
+* **Permission-aware retrieval** (`spicedb.FilterRetriever`, `permit.FilterRetriever`) checks every retrieved
+  document against the policy engine and fails closed: a missing id or a failed check never leaks content.
+* **Frontend protocol**: `agui.Handler` maps graph stream events (`messages`, `updates`, `values`) to AG-UI
+  events over SSE (`RUN_STARTED`, `TEXT_MESSAGE_*`, `STEP_*`, `STATE_SNAPSHOT`, `RUN_FINISHED`/`RUN_ERROR`).
+* **Honest verification levels** are recorded per integration in `docs/INTEGRATIONS.md` (real service vs
+  contract test) and the provider coverage in `docs/PROVIDERS.md` / `docs/PROVIDERS-ANALISE.md`.
+
 ## Differences from the Python libraries
 
 * State is a `map[string]any`, not a TypedDict/Pydantic model; use `tools.Decode`

@@ -3,7 +3,7 @@
 Cada exemplo é um programa independente: `go run ./examples/<grupo>/<nome>`.
 Sem chave de API eles usam um modelo fake com respostas calculadas (saída determinística);
 com `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` usam o provedor real.
-Os exemplos foram portados dos repositórios `langchain`, `langgraph` e `deepagents`.
+Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositórios de mesmo nome; `integrations` são exemplos próprios deste projeto.
 
 ## langchain
 
@@ -55,6 +55,19 @@ Os exemplos foram portados dos repositórios `langchain`, `langgraph` e `deepage
 | `deepagents/async_subagents` | tarefa em background (runner local) | `examples/async-subagent-server` |
 | `deepagents/async_subagent_server` | servidor de agents HTTP + `RemoteRunner` | `examples/async-subagent-server` |
 | `deepagents/mcp_docs_agent` | tools vindas de um servidor MCP | `examples/deploy-mcp-docs-agent` |
+
+## integrations
+
+Exemplos das integrações (todos rodam offline; o último usa S3 se `S3_ENDPOINT` estiver definido).
+
+| Exemplo | Mostra |
+|---|---|
+| `integrations/graph_rag` | retriever que segue links de metadados: similaridade pura vs travessia em 2 saltos |
+| `integrations/agui_server` | grafo servido pelo protocolo AG-UI (SSE) e chamado em processo, com os eventos impressos |
+| `integrations/permission_rag` | retriever filtrado por permissão (Permit; SpiceDB tem o mesmo formato), cada usuário vê o que pode |
+| `integrations/remote_sandbox` | `backends.Remote`: arquivos e shell sobre um runner qualquer (aqui bash local; em produção um pod) |
+| `integrations/vector_indexes` | índices `Flat` (exato) e `Annoy` (aproximado): recall vs `SearchK`, salvar e carregar |
+| `integrations/durable_threads` | estado de uma thread num checkpointer (S3 se configurado, memória se não) |
 
 ## Não portados
 

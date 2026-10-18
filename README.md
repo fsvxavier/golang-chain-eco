@@ -75,8 +75,12 @@ go test -race ./...
 | `mcp` | Cliente MCP (stdio e HTTP) | `langchain-mcp-adapters` |
 | `remote` | Cliente do Agent Server e `RemoteGraph` | `langgraph_sdk` |
 | `tracing/{langsmith,langfuse,otlp}` | Envio de runs ao LangSmith, Langfuse e OpenTelemetry | tracers |
-| `integrations/{vectorstore,search,loaders,retrieval}` | Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector, Redis, MongoDB/Atlas, Astra, índices Flat/Annoy, Neo4j, SurrealDB, MariaDB, Typesense, Upstash; Saver/Store em Redis, MongoDB e DynamoDB; Tavily, Exa, Brave, Serper, Wikipedia, arXiv...; loaders; BM25 e rerank | `langchain-community` e parceiros |
-| `providers/{google,cohere,bedrock}` | Gemini/Vertex, Cohere (chat, embeddings, rerank), Bedrock Converse | parceiros |
+| `integrations/vectorstore` | 24 backends (os índices locais `Flat` e `Annoy` incluídos; mais Redis, FalkorDB, MongoDB/Atlas e Memgraph nos pacotes próprios = 28): Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector, Typesense, Upstash, Neo4j, SurrealDB, MariaDB, ClickHouse, CrateDB, CockroachDB, Oracle 23ai, Solr, ArcadeDB, Infinispan, Couchbase, Azure AI Search, Astra | `langchain-community` e parceiros |
+| `integrations/{redis,mongo,dynamodb,s3}` | `checkpoint.Saver` e `store.Store` em Redis, MongoDB, DynamoDB e S3 (AWS, MinIO, Tigris, R2...); Redis, MongoDB/Atlas e FalkorDB também como vector store | checkpointers/stores |
+| `integrations/{search,loaders,retrieval}` | ~30 buscas e scrapers (Tavily, Exa, Brave, You.com, Zotero, YouTube...), loaders, BM25 e rerank | `langchain-community` |
+| `integrations/{graphretriever,spicedb,permit,vectara,aws}` | Graph RAG, retrievers filtrados por permissão (SpiceDB, Permit), Vectara, Bedrock Knowledge Bases, Kendra, tool Lambda | retrievers |
+| `integrations/{kubernetes,jenkins,salesforce,messaging,memgraph,agui}` | Sandbox em pod, Jenkins, SOQL somente leitura, SMS (Plivo/Telnyx), Memgraph (Bolt), protocolo AG-UI | tools / protocolos |
+| `providers/{google,cohere,bedrock,watsonx,replicate}` | Gemini/Vertex, Cohere (chat, embeddings, rerank), Bedrock Converse, IBM watsonx.ai, Replicate | parceiros |
 | `remote/server` | Servidor de grafos compatível com a API de threads/runs | Agent Server |
 | `langgraph/store/sqlstore` | Store de longo prazo em SQLite/Postgres | `PostgresStore` |
 
@@ -155,7 +159,7 @@ for chunk, err := range m.Stream(ctx, msgs) {
 }
 ```
 
-Provedores com prefixo próprio: `openai`, `anthropic`, `ollama`. São OpenAI-compatíveis (chave em `$<PROVEDOR>_API_KEY`): `groq`, `together`, `openrouter`, `deepseek`, `xai`, `mistralai`, `fireworks`. Sem prefixo, `gpt-*`/`o1`/`o3`/`o4` vão para OpenAI e `claude*` para Anthropic.
+Provedores com cliente próprio: `openai`, `anthropic`, `ollama`, `google_genai`, `cohere`, `bedrock`, `azure_openai`, `ibm`/`watsonx`, `replicate`. 75 entradas são OpenAI-compatíveis (chave em `$<PROVEDOR>_API_KEY`): `groq`, `together`, `openrouter`, `deepseek`, `xai`, `mistralai`, `fireworks`, `sarvam`, `telnyx`...; os de endpoint por tenant (`databricks`, `cloudflare`, `snowflake`, `runpod` e gateways de terceiros) exigem `$<PROVEDOR>_BASE_URL`. Matriz completa dos 504 provedores da LangChain: [docs/PROVIDERS.md](docs/PROVIDERS.md). Sem prefixo, `gpt-*`/`o1`/`o3`/`o4` vão para OpenAI e `claude*` para Anthropic.
 
 Utilitários que envolvem qualquer modelo:
 
@@ -619,7 +623,35 @@ ex := otlp.New(otlp.Options{Endpoint: "http://localhost:4318"}); defer ex.Close(
 ctx = callbacks.WithHandlers(ctx, ex)
 ```
 
-Lista completa, limitações e extensão: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+Persistência em outros bancos, o mesmo contrato do `checkpoint.Saver`/`store.Store`:
+
+```go
+rc := redis.New("localhost:6379")                       // ou mongo.Connect, dynamodb.Client, s3.Client
+app, _ := g.Compile(graph.WithCheckpointer(redis.NewSaver(rc)), graph.WithStore(redis.NewStore(rc)))
+```
+
+Permissões, grafo, sandbox e protocolo de frontend:
+
+```go
+// Só devolve o que o usuário pode ler (SpiceDB; permit.FilterRetriever é equivalente):
+safe := spicedb.FilterRetriever(retr, client, spicedb.Subject{Type: "user", ID: "alice"}, "document", "view", idOf)
+
+// Graph RAG: segue links de metadados a partir dos melhores resultados.
+gr := &graphretriever.Retriever{Store: vs, K: 6, StartK: 2, Depth: 2, Edges: []graphretriever.Edge{{From: "links", To: "id"}}}
+
+// Um pod do Kubernetes como sandbox de um deep agent (arquivos + shell isolados):
+sb, _ := kubernetes.NewSandbox(ctx, kc, "default", "debian:bookworm-slim")
+defer sb.Close(ctx)
+agent := deepagents.Create(deepagents.Options{Model: m, Backend: sb.Backend()})
+
+// Servir um grafo ao CopilotKit/assistant-ui pelo protocolo AG-UI:
+http.Handle("/agent", agui.Handler(app, func(in agui.RunInput) any { return graph.State{} }))
+```
+
+Lista completa, limitações e extensão: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md). **Nível de verificação:** a maioria dos
+bancos e serviços de infraestrutura foi testada contra o serviço real em Docker; os provedores de API paga/SaaS (watsonx, Replicate,
+Azure AI Search, Vectara, Permit, Salesforce, AWS Kendra/Knowledge Bases, SMS...) só têm teste de contrato com `httptest`.
+O que ficou de fora e por quê: [docs/PROVIDERS-ANALISE.md](docs/PROVIDERS-ANALISE.md).
 
 ## Configuração
 
@@ -631,18 +663,24 @@ Lista completa, limitações e extensão: [docs/INTEGRATIONS.md](docs/INTEGRATIO
 | `OLLAMA_HOST` | Endereço do Ollama (padrão `http://localhost:11434`) |
 | `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_ENDPOINT` | Tracing |
 | `LANGGRAPH_API_KEY` | Cliente `remote` |
+| `<PROVEDOR>_BASE_URL` | Endpoint de provedores sem URL padrão (`DATABRICKS_BASE_URL`, `CLOUDFLARE_BASE_URL`, gateways) e sobrescrita de qualquer provedor compatível |
+| `WATSONX_API_KEY`, `WATSONX_URL`, `WATSONX_PROJECT_ID` | Provedor `ibm`/`watsonx` |
+| `REPLICATE_API_TOKEN` | Provedor `replicate` |
+| `PERMIT_API_KEY`, `VECTARA_API_KEY`, `ZOTERO_API_KEY`, `YOUTUBE_API_KEY`, `PERIGON_API_KEY`, `OXYLABS_CREDENTIALS` | Integrações de busca e permissão |
 
 Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente ou um cofre de segredos.
 
 ## Exemplos executáveis
 
-36 exemplos portados dos projetos base em [`examples/`](examples/) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+42 exemplos em [`examples/`] (36 portados dos projetos base e 6 de integrações)(examples/) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser
 go run ./examples/langgraph/react_agent_middleware   # agent com tool e middleware
 go run ./examples/langgraph/hitl_agent          # pausa para aprovação humana
 go run ./examples/deepagents/research     # deep agent com subagents
+go run ./examples/integrations/graph_rag  # retrieval que segue links
+go run ./examples/integrations/agui_server # grafo servido pelo protocolo AG-UI
 
 ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com modelo real
 ```
@@ -652,9 +690,14 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com mod
 ```bash
 go test -race ./...                                  # módulo principal (sem rede, sem dependências)
 cd internal/sqlitetest && go test ./...              # sqlsaver contra SQLite real (módulo separado)
+cd internal/pgtest && PG_DSN=... go test ./...       # PostgreSQL, MariaDB, CockroachDB, Oracle (módulo separado)
 ```
 
-Os testes dos provedores usam `httptest`; nenhum teste chama APIs externas.
+Os testes dos provedores usam `httptest`; nenhum teste chama APIs externas. Os testes de integração com bancos e serviços
+rodam contra o serviço real e **se pulam sozinhos** quando a variável de ambiente não está definida (`REDIS_ADDR`, `MONGO_ADDR`,
+`DYNAMODB_ENDPOINT`, `S3_ENDPOINT`, `SOLR_URL`, `CLICKHOUSE_URL`, `K8S_SERVER`, ...). Todos usam a suíte comum de
+`internal/conformance`. Os que precisam de um driver SQL ficam no módulo `internal/pgtest` (pgvector, MariaDB, CockroachDB, Oracle,
+`sqlsaver`, `sqlstore`). Exemplos de como subir cada serviço: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md#testes-contra-serviços-reais).
 
 ## Equivalência com as libs Python
 
@@ -678,7 +721,10 @@ Detalhes de design em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Limitações
 
 - O estado é um `map[string]any`, não um TypedDict/Pydantic; use `tools.Decode` para ligar em structs.
-- No `sqlsaver`, números inteiros voltam como `int` e demais como `float64`; tipos próprios exigem `checkpoint.Register`. Apenas SQLite foi testado contra um banco real.
+- No `sqlsaver`, números inteiros voltam como `int` e demais como `float64`; tipos próprios exigem `checkpoint.Register`. SQLite e PostgreSQL foram testados contra bancos reais.
 - Em `graph.Interrupt`, o nó reexecuta desde o início; subgrafos com checkpointer próprio não propagam interrupts para o grafo pai.
 - Não portado: modos de durabilidade, Studio/CLI, backends gerenciados do LangSmith, evals.
-- `LocalShell` e servidores MCP via stdio executam código no host; use apenas com agents e servidores confiáveis.
+- `LocalShell` e servidores MCP via stdio executam código no host; use apenas com agents e servidores confiáveis. Para isolamento, use `kubernetes.Sandbox` ou outro runner com `backends.Remote`.
+- Integrações de SaaS/API paga só têm teste de contrato; 123 provedores da lista da LangChain dependem de documentação de API que não estava disponível ([docs/PROVIDERS-ANALISE.md](docs/PROVIDERS-ANALISE.md)).
+- Os vector stores `Flat`/`Annoy` são equivalentes em Go puro a FAISS/Annoy; não leem arquivos de índice desses projetos.
+- As ferramentas de envio (SMS) e de leitura de dados (SOQL) agem sobre sistemas reais: restrinja destinos/escopo e exija aprovação humana.

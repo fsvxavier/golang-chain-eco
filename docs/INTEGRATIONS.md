@@ -1,9 +1,14 @@
 # Integrações
 
-O LangChain lista ~490 provedores ([all providers](https://docs.langchain.com/oss/python/integrations/providers/all_providers)).
-A maioria é cauda longa de terceiros (guardrails, memórias, wallets, APIs de nicho). Este projeto implementa
-os provedores centrais por **protocolo**, e cobre a cauda longa pelos pontos de extensão. Tudo abaixo tem
-testes (`httptest`, driver `database/sql` falso ou SQLite real); nenhum teste chama serviços externos.
+A lista oficial da LangChain tem 504 provedores únicos ([all providers](https://docs.langchain.com/oss/python/integrations/providers/all_providers)).
+A maioria é cauda longa de terceiros (guardrails, memórias, wallets, APIs de nicho). Este projeto implementa os provedores centrais por
+**protocolo** e cobre a cauda longa pelos pontos de extensão. A situação de cada um está em [PROVIDERS.md](PROVIDERS.md) (matriz) e
+[PROVIDERS-ANALISE.md](PROVIDERS-ANALISE.md) (o que falta e por quê).
+
+**Como foi verificado.** Bancos e serviços de infraestrutura: testados contra o serviço real em Docker (veja
+[Testes contra serviços reais](#testes-contra-serviços-reais)). Serviços de API paga ou SaaS (watsonx, Replicate, Azure AI Search, Vectara,
+Permit, Salesforce, AWS Kendra/Knowledge Bases/Lambda, SMS Plivo/Telnyx, buscas pagas): testes de contrato com `httptest`, escritos a partir da
+documentação pública; podem divergir do serviço real. Nenhum teste da suíte padrão chama a rede: os de serviço real se pulam sozinhos.
 
 Veja também o uso no [README](../README.md).
 
@@ -19,6 +24,8 @@ Veja também o uso no [README](../README.md).
 | Cohere | `cohere` | sim | sim | SSE | sim + rerank |
 | AWS Bedrock (Converse) | `bedrock` | sim | sim | resposta única* | - |
 | Ollama | `ollama` | sim | sim | NDJSON | sim |
+| IBM watsonx.ai | `ibm` / `watsonx` (token IAM com cache) | sim | sim | SSE | sim |
+| Replicate | `replicate` | sim (texto) | não | resposta única | - |
 
 \* O stream binário do Bedrock (`vnd.amazon.eventstream`) não é decodificado; `Stream` devolve a resposta completa de uma vez.
 A assinatura AWS SigV4 é implementada sem SDK e validada com o vetor de teste oficial da AWS.
@@ -26,9 +33,12 @@ A assinatura AWS SigV4 é implementada sem SDK e validada com o vetor de teste o
 **Compatíveis com OpenAI** (mesmo cliente, `<PROVEDOR>_API_KEY` e `<PROVEDOR>_BASE_URL`): `groq`, `together`, `openrouter`,
 `deepseek`, `xai`, `mistralai`, `fireworks`, `perplexity`, `cerebras`, `nvidia`, `sambanova`, `nebius`, `novita`, `deepinfra`,
 `hyperbolic`, `huggingface`, `moonshot`, `zhipuai`, `dashscope` (Alibaba), `upstage`, `writer`, `ai21`, `baseten`, `github`,
-e servidores locais `vllm`, `lmstudio`, `llamacpp`, `localai`, `litellm`. Para embeddings: `voyageai`, `jina`, `nomic` e os
+`sarvam`, `featherless`, `modelscope`, `aimlapi`, `netmind`, `digitalocean`, `predictionguard`, `baidu`, `naver`, `helicone`, `portkey`, `lambda`,
+`friendli`, `telnyx` e servidores locais `vllm`, `lmstudio`, `llamacpp`, `localai`, `litellm`. Os de endpoint por tenant (`databricks`, `cloudflare`,
+`snowflake`, `runpod`, `truefoundry`, `kserve`, `rayserve`) e 23 gateways de terceiros (Doubleword, Hubris, FuturMix...) não têm URL padrão: defina
+`$<PROVEDOR>_BASE_URL`, senão `Init` devolve erro claro. Para embeddings: `voyageai`, `jina`, `nomic` e os
 anteriores que expõem `/embeddings`. Qualquer outro serviço compatível entra com `openai.Chat{BaseURL: ..., APIKey: ...}`
-(cobre Databricks serving endpoints, IBM watsonx via gateway, OCI, Azure AI, TrueFoundry, Portkey, Helicone e proxies similares).
+(cobre OCI, Azure AI e proxies similares).
 
 Rerank: `chatmodels.NewReranker("cohere:rerank-v3.5" | "jina:jina-reranker-v2-base-multilingual" | "voyageai:rerank-2")`.
 
@@ -153,7 +163,8 @@ Agent Server oficial). `deepagents/middleware.AsyncSubagents` usa os dois.
 
 ## Fora do escopo (cauda longa)
 
-Sandboxes gerenciados (E2B, Daytona, Modal, Runloop), guardrails de terceiros, carteiras/pagamentos, memórias de agentes de
-fornecedores, toolkits SaaS (Slack, Jira, Salesforce, ...) e conectores de dados (Snowflake, Databricks SQL, ...) não estão
-incluídos. Os caminhos de extensão são: uma `tools.Tool` (`tools.New`), um servidor MCP (`mcp.LoadTools`, que dá acesso a milhares
-de integrações existentes), um `Backend` de arquivos/execução (`deepagents/backends`) ou um `callbacks.Handler`.
+Guardrails e governança de agentes de terceiros, carteiras/pagamentos (x402, cripto), memórias de startups, APIs de dados de nicho e os
+sandboxes gerenciados (E2B, Daytona, Modal, Runloop) não estão incluídos; a lista completa e o motivo de cada um estão em
+[PROVIDERS-ANALISE.md](PROVIDERS-ANALISE.md). Os caminhos de extensão são: uma `tools.Tool` (`tools.New`), um servidor MCP
+(`mcp.LoadTools`, que dá acesso a milhares de integrações existentes), um `vectorstore.Backend`, um `checkpoint.Saver`/`store.Store`, um
+runner de comandos plugado em `backends.Remote` (qualquer sandbox vira backend de arquivos e shell) ou um `callbacks.Handler`.
