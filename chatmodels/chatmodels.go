@@ -28,38 +28,63 @@ import (
 // endpoints. Local servers (vllm, lmstudio, llamacpp, localai, litellm) need
 // no key.
 var OpenAICompatible = map[string]string{
-	"groq":        "https://api.groq.com/openai/v1",
-	"together":    "https://api.together.xyz/v1",
-	"openrouter":  "https://openrouter.ai/api/v1",
-	"deepseek":    "https://api.deepseek.com/v1",
-	"xai":         "https://api.x.ai/v1",
-	"mistralai":   "https://api.mistral.ai/v1",
-	"fireworks":   "https://api.fireworks.ai/inference/v1",
-	"perplexity":  "https://api.perplexity.ai",
-	"cerebras":    "https://api.cerebras.ai/v1",
-	"nvidia":      "https://integrate.api.nvidia.com/v1",
-	"sambanova":   "https://api.sambanova.ai/v1",
-	"nebius":      "https://api.studio.nebius.com/v1",
-	"novita":      "https://api.novita.ai/v3/openai",
-	"deepinfra":   "https://api.deepinfra.com/v1/openai",
-	"hyperbolic":  "https://api.hyperbolic.xyz/v1",
-	"huggingface": "https://router.huggingface.co/v1",
-	"moonshot":    "https://api.moonshot.ai/v1",
-	"zhipuai":     "https://open.bigmodel.cn/api/paas/v4",
-	"dashscope":   "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-	"upstage":     "https://api.upstage.ai/v1",
-	"writer":      "https://api.writer.com/v1",
-	"ai21":        "https://api.ai21.com/studio/v1",
-	"baseten":     "https://inference.baseten.co/v1",
-	"github":      "https://models.github.ai/inference",
-	"voyageai":    "https://api.voyageai.com/v1", // embeddings
-	"jina":        "https://api.jina.ai/v1",      // embeddings
-	"nomic":       "https://api-atlas.nomic.ai/v1",
-	"vllm":        "http://localhost:8000/v1",
-	"lmstudio":    "http://localhost:1234/v1",
-	"llamacpp":    "http://localhost:8080/v1",
-	"localai":     "http://localhost:8080/v1",
-	"litellm":     "http://localhost:4000/v1",
+	"groq":            "https://api.groq.com/openai/v1",
+	"together":        "https://api.together.xyz/v1",
+	"openrouter":      "https://openrouter.ai/api/v1",
+	"deepseek":        "https://api.deepseek.com/v1",
+	"xai":             "https://api.x.ai/v1",
+	"mistralai":       "https://api.mistral.ai/v1",
+	"fireworks":       "https://api.fireworks.ai/inference/v1",
+	"perplexity":      "https://api.perplexity.ai",
+	"cerebras":        "https://api.cerebras.ai/v1",
+	"nvidia":          "https://integrate.api.nvidia.com/v1",
+	"sambanova":       "https://api.sambanova.ai/v1",
+	"nebius":          "https://api.studio.nebius.com/v1",
+	"novita":          "https://api.novita.ai/v3/openai",
+	"deepinfra":       "https://api.deepinfra.com/v1/openai",
+	"hyperbolic":      "https://api.hyperbolic.xyz/v1",
+	"huggingface":     "https://router.huggingface.co/v1",
+	"moonshot":        "https://api.moonshot.ai/v1",
+	"zhipuai":         "https://open.bigmodel.cn/api/paas/v4",
+	"dashscope":       "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+	"upstage":         "https://api.upstage.ai/v1",
+	"writer":          "https://api.writer.com/v1",
+	"ai21":            "https://api.ai21.com/studio/v1",
+	"baseten":         "https://inference.baseten.co/v1",
+	"github":          "https://models.github.ai/inference",
+	"voyageai":        "https://api.voyageai.com/v1", // embeddings
+	"jina":            "https://api.jina.ai/v1",      // embeddings
+	"sarvam":          "https://api.sarvam.ai/v1",
+	"featherless":     "https://api.featherless.ai/v1",
+	"modelscope":      "https://api-inference.modelscope.cn/v1",
+	"aimlapi":         "https://api.aimlapi.com/v1",
+	"netmind":         "https://api.netmind.ai/inference-api/openai/v1",
+	"digitalocean":    "https://inference.do-ai.run/v1",
+	"predictionguard": "https://api.predictionguard.com",
+	"baidu":           "https://qianfan.baidubce.com/v2",
+	"naver":           "https://clovastudio.stream.ntruss.com/v1/openai",
+	"helicone":        "https://oai.helicone.ai/v1", // gateway
+	"portkey":         "https://api.portkey.ai/v1",  // gateway
+	"lambda":          "https://api.lambda.ai/v1",
+	"friendli":        "https://api.friendli.ai/serverless/v1",
+	"kserve":          "",
+	"rayserve":        "",
+	"nomic":           "https://api-atlas.nomic.ai/v1",
+	"vllm":            "http://localhost:8000/v1",
+	"lmstudio":        "http://localhost:1234/v1",
+	"llamacpp":        "http://localhost:8080/v1",
+	"localai":         "http://localhost:8080/v1",
+	"litellm":         "http://localhost:4000/v1",
+	// Per-tenant endpoints: no default, set $<PROVIDER>_BASE_URL.
+	// databricks: https://<workspace>/serving-endpoints; cloudflare:
+	// https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1; snowflake:
+	// https://<account>.snowflakecomputing.com/api/v2/cortex/v1; runpod:
+	// https://api.runpod.ai/v2/<endpoint>/openai/v1; truefoundry/kserve/rayserve: your gateway.
+	"databricks":  "",
+	"cloudflare":  "",
+	"snowflake":   "",
+	"runpod":      "",
+	"truefoundry": "",
 }
 
 // Providers lists every provider name Init understands.
@@ -117,8 +142,12 @@ func Init(spec string, defaults ...models.Option) (models.ChatModel, error) {
 		return &models.Fake{Name: spec}, nil
 	}
 	if base, ok := OpenAICompatible[provider]; ok {
+		u, err := endpoint(provider, base)
+		if err != nil {
+			return nil, err
+		}
 		c := openai.New(model, defaults...)
-		c.BaseURL, c.APIKey = baseURL(provider, base), envKey(provider)
+		c.BaseURL, c.APIKey = u, envKey(provider)
 		return c, nil
 	}
 	return nil, fmt.Errorf("chatmodels: unknown provider %q (known: %s)", provider, strings.Join(Providers(), ", "))
@@ -154,7 +183,11 @@ func InitEmbeddings(spec string) (embeddings.Embedder, error) {
 		return embeddings.Fake{}, nil
 	}
 	if base, ok := OpenAICompatible[provider]; ok {
-		return &openai.Embeddings{Model: model, Chat: openai.Chat{BaseURL: baseURL(provider, base), APIKey: envKey(provider)}}, nil
+		u, err := endpoint(provider, base)
+		if err != nil {
+			return nil, err
+		}
+		return &openai.Embeddings{Model: model, Chat: openai.Chat{BaseURL: u, APIKey: envKey(provider)}}, nil
 	}
 	return nil, fmt.Errorf("chatmodels: unknown embeddings provider %q", provider)
 }
@@ -177,6 +210,15 @@ func baseURL(provider, dflt string) string {
 		return v
 	}
 	return dflt
+}
+
+// endpoint resolves the base URL; providers without a default need the env var.
+func endpoint(provider, dflt string) (string, error) {
+	u := baseURL(provider, dflt)
+	if u == "" {
+		return "", fmt.Errorf("chatmodels: provider %q has no default endpoint; set $%s_BASE_URL", provider, strings.ToUpper(provider))
+	}
+	return u, nil
 }
 
 func envKey(provider string) string {

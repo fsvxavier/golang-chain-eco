@@ -75,7 +75,7 @@ go test -race ./...
 | `mcp` | Cliente MCP (stdio e HTTP) | `langchain-mcp-adapters` |
 | `remote` | Cliente do Agent Server e `RemoteGraph` | `langgraph_sdk` |
 | `tracing/{langsmith,langfuse,otlp}` | Envio de runs ao LangSmith, Langfuse e OpenTelemetry | tracers |
-| `integrations/{vectorstore,search,loaders,retrieval}` | Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector, Redis, MongoDB/Atlas, Astra, índices Flat/Annoy; Saver/Store em Redis, MongoDB e DynamoDB; Tavily, Exa, Brave, Serper, Wikipedia, arXiv...; loaders; BM25 e rerank | `langchain-community` e parceiros |
+| `integrations/{vectorstore,search,loaders,retrieval}` | Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector, Redis, MongoDB/Atlas, Astra, índices Flat/Annoy, Neo4j, SurrealDB, MariaDB, Typesense, Upstash; Saver/Store em Redis, MongoDB e DynamoDB; Tavily, Exa, Brave, Serper, Wikipedia, arXiv...; loaders; BM25 e rerank | `langchain-community` e parceiros |
 | `providers/{google,cohere,bedrock}` | Gemini/Vertex, Cohere (chat, embeddings, rerank), Bedrock Converse | parceiros |
 | `remote/server` | Servidor de grafos compatível com a API de threads/runs | Agent Server |
 | `langgraph/store/sqlstore` | Store de longo prazo em SQLite/Postgres | `PostgresStore` |

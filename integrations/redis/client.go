@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -185,3 +186,5 @@ func strs(v any) []string {
 	}
 	return out
 }
+
+var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

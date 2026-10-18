@@ -241,6 +241,10 @@ func (r *rest) do(ctx context.Context, method, path string, body any, out any) (
 	if resp.StatusCode/100 != 2 {
 		return resp.StatusCode, fmt.Errorf("%s %s: http %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
+	if s, ok := out.(*string); ok {
+		*s = string(raw)
+		return resp.StatusCode, nil
+	}
 	if out != nil && len(raw) > 0 {
 		if err := json.Unmarshal(raw, out); err != nil {
 			return resp.StatusCode, fmt.Errorf("%s %s: bad response: %w", method, path, err)
@@ -273,4 +277,9 @@ func scalarMeta(m map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+// doRaw posts a pre-encoded NDJSON body and returns the raw response text.
+func (r *rest) doRaw(ctx context.Context, method, path string, body []byte, out *string) (int, error) {
+	return r.do(ctx, method, path, body, out)
 }

@@ -56,3 +56,17 @@ func TestInit(t *testing.T) {
 }
 
 func typeName(v any) string { return fmt.Sprintf("%T", v) }
+
+func TestTenantEndpoints(t *testing.T) {
+	if _, err := chatmodels.Init("databricks:dbrx"); err == nil {
+		t.Fatal("databricks without base url must fail")
+	}
+	t.Setenv("DATABRICKS_BASE_URL", "https://ws/serving-endpoints")
+	m, err := chatmodels.Init("databricks:dbrx")
+	if err != nil || m.(*openai.Chat).BaseURL != "https://ws/serving-endpoints" {
+		t.Fatal(m, err)
+	}
+	if _, err := chatmodels.Init("sarvam:sarvam-m"); err != nil {
+		t.Fatal(err)
+	}
+}

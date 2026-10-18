@@ -150,3 +150,70 @@ func TestFirecrawlAndJina(t *testing.T) {
 		t.Fatal(txt, err, path)
 	}
 }
+
+func TestMoreEngines(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name string
+		s    func(url string) search.Searcher
+		body string
+		want string
+	}{
+		{"youcom", func(u string) search.Searcher { s := &search.YouCom{}; s.URL = u; return s }, `{"hits":[{"title":"Y1","url":"u","snippets":["a","b"]}]}`, "Y1"},
+		{"linkup", func(u string) search.Searcher { s := &search.Linkup{}; s.URL = u; return s }, `{"results":[{"name":"L1","url":"u","content":"c"}]}`, "L1"},
+		{"pplx", func(u string) search.Searcher { s := &search.PerplexitySearch{}; s.URL = u; return s }, `{"results":[{"title":"P1","url":"u","snippet":"s"}]}`, "P1"},
+		{"searchapi", func(u string) search.Searcher { s := &search.SearchAPI{}; s.URL = u; return s }, `{"organic_results":[{"title":"S1","link":"u","snippet":"s"}]}`, "S1"},
+		{"jina", func(u string) search.Searcher { s := &search.JinaSearch{}; s.URL = u; return s }, `{"data":[{"title":"J1","url":"u","description":"d"}]}`, "J1"},
+		{"stackoverflow", func(u string) search.Searcher { s := &search.StackOverflow{}; s.URL = u; return s }, `{"items":[{"title":"How &amp; why","link":"u","score":3,"tags":["go"]}]}`, "How & why"},
+		{"reddit", func(u string) search.Searcher { s := &search.Reddit{}; s.URL = u; return s }, `{"data":{"children":[{"data":{"title":"R1","permalink":"/r/go/1","selftext":"x","subreddit":"go","score":5}}]}}`, "R1"},
+		{"openalex", func(u string) search.Searcher { s := &search.OpenAlex{}; s.URL = u; return s }, `{"results":[{"display_name":"O1","id":"https://openalex.org/W1","publication_year":2020,"cited_by_count":7}]}`, "O1"},
+		{"apify", func(u string) search.Searcher {
+			s := &search.Apify{Actor: "apify/google-search-scraper"}
+			s.URL = u
+			return s
+		}, `[{"title":"A1","url":"u","description":"d"}]`, "A1"},
+	}
+	for _, c := range cases {
+		srv := serve(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, c.body) })
+		rs, err := c.s(srv.URL).Search(ctx, "q", 3)
+		if err != nil || len(rs) != 1 || rs[0].Title != c.want {
+			t.Fatalf("%s: %+v %v", c.name, rs, err)
+		}
+	}
+}
+
+func TestScrapers(t *testing.T) {
+	ctx := context.Background()
+	var gotURL, gotAuth string
+	srv := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		gotURL, gotAuth = r.URL.RequestURI(), r.Header.Get("Authorization")
+		if strings.HasPrefix(r.URL.Path, "/v3/article") {
+			fmt.Fprint(w, `{"objects":[{"title":"T","text":"body"}]}`)
+			return
+		}
+		fmt.Fprint(w, "<html>page</html>")
+	})
+	sa := &search.ScraperAPI{}
+	sa.URL, sa.APIKey = srv.URL, "k"
+	if got, err := sa.Scrape(ctx, "https://x.dev/a?b=1"); err != nil || got != "<html>page</html>" || !strings.Contains(gotURL, "url=https%3A%2F%2Fx.dev%2Fa%3Fb%3D1") {
+		t.Fatal(got, err, gotURL)
+	}
+	sb := &search.ScrapingBee{}
+	sb.URL, sb.APIKey = srv.URL, "k"
+	if _, err := sb.Scrape(ctx, "https://x.dev"); err != nil || !strings.Contains(gotURL, "/api/v1/") {
+		t.Fatal(err, gotURL)
+	}
+	bd := &search.Brightdata{Zone: "z"}
+	bd.URL, bd.APIKey = srv.URL, "bk"
+	if _, err := bd.Scrape(ctx, "https://x.dev"); err != nil || gotAuth != "Bearer bk" {
+		t.Fatal(err, gotAuth)
+	}
+	if _, err := (&search.Brightdata{}).Scrape(ctx, "u"); err == nil {
+		t.Fatal("zone required")
+	}
+	df := &search.Diffbot{}
+	df.URL, df.APIKey = srv.URL, "t"
+	if got, err := df.Scrape(ctx, "https://x.dev"); err != nil || got != "T\n\nbody" {
+		t.Fatal(got, err)
+	}
+}

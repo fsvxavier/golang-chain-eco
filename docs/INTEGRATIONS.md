@@ -48,8 +48,16 @@ Todos implementam `vectorstores.VectorStore` (busca por similaridade com score, 
 | Redis Stack (RediSearch) | `redis.Vector` | índice FLAT cosseno via `FT.SEARCH` KNN; cliente RESP próprio |
 | MongoDB / Atlas | `mongo.Vector` | com `Index`: `$vectorSearch` (Atlas, índice criado no Atlas); sem `Index`: varredura + cosseno no cliente |
 | Cassandra / Astra DB | `vectorstore.Astra` | Data API HTTP (Astra, HCD); CQL nativo não é usado |
+| Typesense | `vectorstore.Typesense` | REST, KNN via `vector_query`; só `httptest` (o binário do Typesense falha neste ambiente) |
+| Upstash Vector | `vectorstore.Upstash` | REST; índice criado no console; só `httptest` |
+| Neo4j | `vectorstore.Neo4j` | Query API HTTP (5.19+), índice vetorial nativo; testado contra Neo4j 5 real |
+| SurrealDB | `vectorstore.SurrealDB` | HTTP `/sql`, busca exata por cosseno; testado contra SurrealDB real |
+| MariaDB 11.7+ | `vectorstore.MariaDB` | `database/sql` + `VECTOR INDEX`; ids ASCII ≤ 64 bytes; testado contra MariaDB 11.8 real |
+| FalkorDB | `redis.FalkorDB` | grafo sobre Redis, índice vetorial nativo; testado contra FalkorDB real |
 | FAISS (equivalente) | `vectorstore.Flat` | índice exato em Go puro, `Save`/`LoadFlat`; não é binding do FAISS |
 | Annoy (equivalente) | `vectorstore.Annoy` | floresta de árvores de projeção aleatória, Go puro; recall medido em teste |
+
+Matriz completa dos 504 provedores da LangChain (o que existe e o que não): [PROVIDERS.md](PROVIDERS.md).
 
 Para um banco novo, implemente `Upsert`, `Query` e `Delete` (3 métodos) e use `vectorstore.New(embedder, backend)`.
 FAISS e Annoy reais são bibliotecas C++ (exigiriam cgo); `Flat` e `Annoy` cobrem o mesmo uso em Go puro, sem ler arquivos de índice
@@ -58,7 +66,8 @@ Alternativas sem servidor: `core/vectorstores.Memory` (com `Save`/`Load`) e `int
 
 ## Busca e web (`integrations/search`)
 
-`Tavily`, `Exa`, `Brave`, `Serper`, `SerpAPI`, `SearXNG`, `DuckDuckGo` (HTML, frágil), `Wikipedia`, `ArXiv`, `HackerNews`.
+`Tavily`, `Exa`, `Brave`, `Serper`, `SerpAPI`, `SearXNG`, `DuckDuckGo` (HTML, frágil), `Wikipedia`, `ArXiv`, `HackerNews`,
+`ScraperAPI`, `ScrapingBee`, `Brightdata`, `Diffbot` (páginas via `ScrapeTool`), `YouCom`, `Linkup`, `PerplexitySearch`, `SearchAPI`, `JinaSearch`, `StackOverflow`, `Reddit`, `OpenAlex`, `Apify` (qualquer Actor).
 Cada um implementa `Searcher` e vira tool (`search.Tool`) ou retriever (`search.Retriever`). Também: `Firecrawl`, `JinaReader` e
 `Fetcher` (GET de páginas com **bloqueio de SSRF**: recusa loopback/rede privada, mesmo após DNS).
 
@@ -94,8 +103,8 @@ docker run -d -e POSTGRES_PASSWORD=pw -p 5432:5432 pgvector/pgvector:pg16
 ```
 
 Verificado contra serviços reais: Redis Stack, MongoDB 7 (sem e com autenticação), DynamoDB Local, PostgreSQL 16 + pgvector
-(inclui `sqlsaver`/`sqlstore`). **Não verificado contra o serviço real**: Atlas `$vectorSearch`, Astra DB (só `httptest`), Qdrant, Chroma,
-Pinecone, Elasticsearch, Weaviate, Milvus, provedores de LLM e tracers (só `httptest`).
+(inclui `sqlsaver`/`sqlstore`), Neo4j 5, SurrealDB e MariaDB 11.8. **Não verificado contra o serviço real**: Atlas `$vectorSearch`, Astra DB (só `httptest`), Qdrant, Chroma,
+Pinecone, Elasticsearch, Weaviate, Milvus, Typesense, Upstash, Astra, provedores de LLM e tracers (só `httptest`).
 
 ## Observabilidade
 
