@@ -10,6 +10,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
+	"github.com/fsvxavier/golang-chain-eco/internal/jsonpatch"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/store"
 )
 
@@ -41,6 +42,7 @@ Prioritize retention of surprising (pattern deviation) and persistent (frequentl
 const (
 	removeTool = "RemoveDoc"
 	doneTool   = "Done"
+	patchTool  = "PatchDoc"
 	idArg      = "json_doc_id"
 )
 
@@ -50,6 +52,7 @@ type config struct {
 	inserts      bool
 	updates      bool
 	deletes      bool
+	patchUpdates bool
 
 	// store manager only
 	store          store.Store
@@ -76,6 +79,13 @@ func WithInserts(b bool) Option { return func(c *config) { c.inserts = b } }
 
 // WithUpdates allows (default) or forbids changing existing memories.
 func WithUpdates(b bool) Option { return func(c *config) { c.updates = b } }
+
+// WithPatchUpdates makes updates of existing memories go through PatchDoc:
+// RFC 6902 operations on the stored content instead of resending the whole
+// memory (trustcall's PatchDoc). A failed patch is returned to the model for
+// one retry; a second failure falls back to replacing the memory with its
+// complete content. Replacement stays the default.
+func WithPatchUpdates() Option { return func(c *config) { c.patchUpdates = true } }
 
 // WithDeletes allows or forbids removing memories. Default: false for a
 // Manager, true for a StoreManager (as in LangMem).
@@ -130,10 +140,29 @@ func (m *Manager) toolDefs(live []Extracted, withDone bool) []tools.Definition {
 		desc := s.Description
 		if m.cfg.updates && len(live) > 0 {
 			props[idArg] = map[string]any{"type": "string", "description": "ID of an existing memory to replace with this complete content. Omit to create a new memory."}
-			desc += " To update an existing memory, set " + idArg + " and provide its complete new content."
+			if m.cfg.patchUpdates {
+				desc += " To update an existing memory, use " + patchTool + ". Set " + idArg + " and provide the complete new content only if " + patchTool + " failed twice."
+			} else {
+				desc += " To update an existing memory, set " + idArg + " and provide its complete new content."
+			}
 		}
 		delete(p, "title")
 		defs = append(defs, tools.Definition{Name: s.Name, Description: desc, Parameters: p})
+	}
+	if m.cfg.patchUpdates && m.cfg.updates && len(live) > 0 {
+		defs = append(defs, tools.Definition{
+			Name: patchTool,
+			Description: "Update an existing memory with RFC 6902 JSON Patch operations on its content. " +
+				"Paths are JSON Pointers into the content, e.g. \"/content\" for the default schema. " +
+				"planned_edits briefly states what changes. Each patch is {op, path, value|from}; ops: add, remove, replace, move, copy, test.",
+			Parameters: map[string]any{"type": "object", "required": []string{idArg, "planned_edits", "patches"},
+				"properties": map[string]any{
+					idArg:           map[string]any{"type": "string", "description": "ID of the memory to patch"},
+					"planned_edits": map[string]any{"type": "string", "description": "What you plan to change, in one or two sentences"},
+					"patches": map[string]any{"type": "array", "description": "JSON Patch operations (RFC 6902)",
+						"items": map[string]any{"type": "object", "required": []string{"op", "path"}}},
+				}},
+		})
 	}
 	if m.cfg.deletes && len(live) > 0 {
 		defs = append(defs, tools.Definition{
@@ -201,19 +230,24 @@ func (m *Manager) Extract(ctx context.Context, msgs []messages.Message, existing
 		renderExisting(live()) + "\n\n" + session
 	convo := []messages.Message{messages.System("You are a memory subroutine for an AI."), messages.Human(user)}
 
-	for i := 0; i < steps; i++ {
+	// patchFails counts failed PatchDoc calls per memory. A failure asks for
+	// one more round (retry); the second one tells the model to replace the
+	// memory instead. The loop cap allows those two extra rounds at most.
+	patchFails := map[string]int{}
+	for i := 0; i < steps+2; i++ {
 		ai, err := m.Model.Generate(ctx, convo, models.WithToolDefinitions(m.toolDefs(live(), i >= 1)...), models.WithToolChoice("any"))
 		if err != nil {
 			return nil, fmt.Errorf("langmem: extract: %w", err)
 		}
 		var results []messages.Message
-		done := false
+		done, retry := false, false
 		for _, tc := range ai.ToolCalls {
-			out, isDone := m.apply(tc, cur, &order)
+			out, isDone, isRetry := m.apply(tc, cur, &order, patchFails)
 			done = done || isDone
+			retry = retry || isRetry
 			results = append(results, messages.Tool(out, tc.ID))
 		}
-		if done || len(ai.ToolCalls) == 0 || i == steps-1 {
+		if done || len(ai.ToolCalls) == 0 || (i >= steps-1 && !retry) {
 			break
 		}
 		convo = append(convo, ai)
@@ -232,9 +266,10 @@ func (m *Manager) Extract(ctx context.Context, msgs []messages.Message, existing
 	return out, nil
 }
 
-// apply executes one tool call against the working set and returns the
-// message shown back to the model.
-func (m *Manager) apply(tc messages.ToolCall, cur map[string]Extracted, order *[]string) (string, bool) {
+// apply executes one tool call against the working set. It returns the
+// message shown back to the model, whether the model called Done, and whether
+// a failed PatchDoc asks for another round.
+func (m *Manager) apply(tc messages.ToolCall, cur map[string]Extracted, order *[]string, patchFails map[string]int) (string, bool, bool) {
 	args := map[string]any{}
 	for k, v := range tc.Args {
 		args[k] = v
@@ -243,42 +278,86 @@ func (m *Manager) apply(tc messages.ToolCall, cur map[string]Extracted, order *[
 	delete(args, idArg)
 	known := func() bool { e, ok := cur[id]; return ok && !e.Deleted }
 
+	if tc.Name == patchTool && m.cfg.patchUpdates {
+		msg, retry := m.patch(tc.Args, cur, patchFails)
+		return msg, false, retry
+	}
 	switch tc.Name {
 	case doneTool:
-		return "Done.", true
+		return "Done.", true, false
 	case removeTool:
 		if !m.cfg.deletes {
-			return "Error: deleting memories is disabled.", false
+			return "Error: deleting memories is disabled.", false, false
 		}
 		if !known() {
-			return fmt.Sprintf("Error: memory %q does not exist.", id), false
+			return fmt.Sprintf("Error: memory %q does not exist.", id), false, false
 		}
 		e := cur[id]
 		e.Deleted, e.Content = true, nil
 		cur[id] = e
-		return fmt.Sprintf("Memory %s deleted.", id), false
+		return fmt.Sprintf("Memory %s deleted.", id), false, false
 	}
 	s, ok := m.schemaByName(tc.Name)
 	if !ok {
-		return fmt.Sprintf("Error: unknown tool %q.", tc.Name), false
+		return fmt.Sprintf("Error: unknown tool %q.", tc.Name), false, false
 	}
 	if err := jsonschema.Validate(s.Parameters, args); err != nil {
-		return fmt.Sprintf("Error: invalid %s: %v", s.Name, err), false
+		return fmt.Sprintf("Error: invalid %s: %v", s.Name, err), false, false
 	}
 	switch {
 	case id != "" && known():
 		if !m.cfg.updates {
-			return "Error: updating memories is disabled.", false
+			return "Error: updating memories is disabled.", false, false
 		}
+		delete(patchFails, id)
 		cur[id] = Extracted{ID: id, Kind: s.Name, Content: args}
-		return fmt.Sprintf("Memory %s updated.", id), false
+		return fmt.Sprintf("Memory %s updated.", id), false, false
 	case m.cfg.inserts:
 		nid := messages.NewID()
 		cur[nid] = Extracted{ID: nid, Kind: s.Name, Content: args}
 		*order = append(*order, nid)
-		return fmt.Sprintf("Memory %s inserted.", nid), false
+		return fmt.Sprintf("Memory %s inserted.", nid), false, false
 	}
-	return "Error: inserting memories is disabled; update an existing memory by id.", false
+	return "Error: inserting memories is disabled; update an existing memory by id.", false, false
+}
+
+// patch applies a PatchDoc call to the memory's content. Failures are
+// reported to the model; the first one allows a retry, the second one points
+// the model at the replacement path (full content with json_doc_id).
+func (m *Manager) patch(args map[string]any, cur map[string]Extracted, patchFails map[string]int) (string, bool) {
+	id, _ := args[idArg].(string)
+	e, ok := cur[id]
+	if !ok || e.Deleted {
+		return fmt.Sprintf("Error: memory %q does not exist; insert it instead.", id), false
+	}
+	fallback := fmt.Sprintf("Error: patching %s failed twice. Call the memory tool (%s) with %s %q and the complete new content.", id, e.Kind, idArg, id)
+	if patchFails[id] >= 2 {
+		return fallback, true
+	}
+	fail := func(err error) (string, bool) {
+		patchFails[id]++
+		if patchFails[id] >= 2 {
+			return fmt.Sprintf("%s Last error: %v", fallback, err), true
+		}
+		return fmt.Sprintf("Error: patch failed: %v. Fix the patches and call %s again with %s %q (one retry).", err, patchTool, idArg, id), true
+	}
+	patches, ok := args["patches"].([]any)
+	if !ok {
+		return fail(fmt.Errorf("patches must be an array"))
+	}
+	res, err := jsonpatch.Apply(e.Content, patches)
+	if err != nil {
+		return fail(err)
+	}
+	if s, ok := m.schemaByName(e.Kind); ok {
+		if err := jsonschema.Validate(s.Parameters, res); err != nil {
+			return fail(fmt.Errorf("result does not match %s: %v", e.Kind, err))
+		}
+	}
+	delete(patchFails, id)
+	e.Content = res
+	cur[id] = e
+	return fmt.Sprintf("Memory %s patched.", id), false
 }
 
 // ExistingNotes turns plain strings into default-schema memories with fresh
