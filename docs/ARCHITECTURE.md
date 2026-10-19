@@ -117,3 +117,9 @@ todo list, PII scrubbing, human-in-the-loop.
 - **Namespaces are templates** resolved from `runnables.Config.Configurable`; a missing variable is an error, never a shared namespace.
 - **Summaries are incremental and non-destructive**: the model sees `summarized_messages`, `messages` stays complete, and `RunningSummary` travels in the checkpointed state.
 - **Background formation** is a debounced timer per thread, not a queue worker; see docs/LANGMEM.md for the remote-executor gap.
+
+## agentprotocol, ciam, openswe
+
+- **agentprotocol** serves compiled graphs. The thread is the unit: one `hub` per thread holds a ring buffer of typed streaming events (monotonic `seq`, replay by `since`), fed by a translator that maps graph events and callbacks onto the protocol's channels; REST handlers, SSE, commands and a small RFC 6455 WebSocket all read the same hub. Thread records live in memory and are rebuilt from the checkpointer, so state survives a restart even though run records do not. `graph.Compiled.Saver()` was added so the server can list, copy and delete checkpoints.
+- **ciam** keeps chunks, file hashes and memories in any `store.Store`; searching loads the project's corpus once (BM25 statistics + vectors) and fuses cosine and BM25 with RRF. Memories are `langmem` memories. Capabilities are `tools.Tool` values first and are served over `mcp/server` second, so in-process agents and editors share one implementation.
+- **openswe** is composition: `deepagents` + a per-thread sandbox backend + guard middleware + GitHub tools. Rules are enforced twice (prompt and code). Durable state (findings, watches, automations, PR<->thread links, sandbox ids) goes through `store.Store`, never a bespoke database; a thread's work is serialised by the `triggers.Dispatcher` (one active run per thread, queue for the rest).

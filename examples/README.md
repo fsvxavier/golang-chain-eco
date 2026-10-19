@@ -3,7 +3,7 @@
 Cada exemplo é um programa independente: `go run ./examples/<grupo>/<nome>`.
 Sem chave de API eles usam um modelo fake com respostas calculadas (saída determinística);
 com `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` usam o provedor real.
-Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositórios de mesmo nome; `langmem` foi portado do LangMem e `integrations` são exemplos próprios deste projeto.
+Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositórios de mesmo nome; `langmem`, `agentprotocol`, `ciam` e `openswe` foram portados dos projetos de mesmo nome (LangMem, Agent Protocol, context-ia-manager e Open SWE) e `integrations` são exemplos próprios deste projeto.
 
 ## langchain
 
@@ -67,6 +67,34 @@ Memória de longo prazo do [LangMem](https://github.com/langchain-ai/langmem) in
 | `langmem/profile_episodic` | coleção (inserir/atualizar/apagar), perfil de um documento com semente, episódios | `extract_semantic_memories`, `manage_user_profile`, `extract_episodic_memories` |
 | `langmem/prompt_optimizer` | prompt que aprende com feedback (metaprompt) e otimizador de vários prompts | `optimize_memory_prompt`, `optimize_compound_system` |
 | `langmem/summarization` | resumo incremental em um grafo com checkpointer; histórico completo, modelo vê o resumido | `summarization` |
+
+## agentprotocol
+
+Servir agents pelo [Agent Protocol](https://github.com/langchain-ai/agent-protocol) (pacote [`agentprotocol`](../agentprotocol), referência em [docs/AGENT-PROTOCOL.md](../docs/AGENT-PROTOCOL.md)). Rodam offline (servidor `httptest` em processo).
+
+| Exemplo | Mostra | Origem |
+|---|---|---|
+| `agentprotocol/serve_and_call` | descoberta de agents, threads multi-turno, runs (wait/stream), histórico, fork, cópia, store | OpenAPI do protocolo |
+| `agentprotocol/human_in_the_loop` | streaming por thread: canais `lifecycle`/`messages`/`tools`/`input`, `run.start`, `input.respond`, `state.*` | Agent Streaming Protocol |
+
+## ciam
+
+Contexto cirúrgico para assistentes de IA (pacote [`ciam`](../ciam), referência em [docs/CIAM.md](../docs/CIAM.md)). Rodam offline com embeddings por hashing; com Ollama, use `providers/ollama.Embeddings`.
+
+| Exemplo | Mostra | Origem |
+|---|---|---|
+| `ciam/project_context` | índice incremental, busca híbrida por tipo, compressão, ADR/PRD/plano (supersede), contexto de decisão, memória, servidor MCP | context-ia-manager |
+| `ciam/agent_with_context` | agent que descobre uma decisão (ADR) pelo contexto antes de implementar | context-ia-manager |
+
+## openswe
+
+Fábrica de software com agents (pacote [`openswe`](../openswe), referência em [docs/OPENSWE.md](../docs/OPENSWE.md)). Usam um GitHub simulado ([`internal/fakegithub`](internal/fakegithub)), modelo roteirizado e git/sandbox reais em diretórios temporários.
+
+| Exemplo | Mostra | Origem |
+|---|---|---|
+| `openswe/engineer` | issue → sandbox por thread → atalho `gh pr create` bloqueado → PR em rascunho → comentário e vínculo PR↔thread | open-swe |
+| `openswe/reviewer` | review única com finding ancorado no diff, push recusado (somente-leitura), re-revisão que reconcilia a resposta humana | open-swe |
+| `openswe/factory` | webhook (menção, fila de follow-ups, duplicata, estranho em repo público), PR novo → revisão, cron, vigia de CI sem desperdício | open-swe |
 
 ## integrations
 

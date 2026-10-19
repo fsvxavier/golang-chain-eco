@@ -13,6 +13,9 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 - Vai para produção: capítulos 12 e 14.
 - Procurando um código pronto: capítulo 15.
 - Agent que lembra entre conversas e aprende com feedback: capítulo 16.
+- Expor seus agents por uma API aberta (UI, outros serviços): capítulo 17.
+- Dar contexto de projeto barato e preciso a assistentes de IA / editores: capítulo 18.
+- Agent que abre PRs, revisa código, vigia CI e responde ao GitHub: capítulo 19.
 
 ## Índice
 
@@ -34,11 +37,15 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 | 14 | [Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) | Checklist, riscos, testes, erros comuns, limitações |
 | 15 | [Exemplos e receitas](15-exemplos-e-receitas.md) | Catálogo dos exemplos, receitas, equivalência com Python, glossário |
 | 16 | [Memória de longo prazo (LangMem)](16-memoria-langmem.md) | Memória semântica, episódica e procedural, tools, background, otimização de prompts, resumo |
+| 17 | [Agent Protocol](17-agent-protocol.md) | Servir agents por uma API aberta: agents, threads, runs, store, streaming tipado, aprovação humana, WebSocket |
+| 18 | [ciam: contexto de projeto](18-ciam-contexto.md) | Índice local com busca híbrida, ADR/PRD/planos, memória, servidor MCP para editores |
+| 19 | [Open SWE](19-open-swe.md) | Fábrica de software: engenheiro com sandbox por thread, revisor de PRs, vigia de CI, webhooks e automações |
 
 ## Documentos relacionados
 
 - [README do projeto](../../README.md) — visão geral e início rápido
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — decisões de design
+- [AGENT-PROTOCOL.md](../AGENT-PROTOCOL.md), [CIAM.md](../CIAM.md) e [OPENSWE.md](../OPENSWE.md) — referência dos pacotes `agentprotocol`, `ciam` e `openswe`
 - [LANGMEM.md](../LANGMEM.md) — referência do pacote `langmem` e diferenças em relação ao LangMem Python
 - [INTEGRATIONS.md](../INTEGRATIONS.md) — integrações e nível de verificação de cada uma
 - [PROVIDERS.md](../PROVIDERS.md) e [PROVIDERS-ANALISE.md](../PROVIDERS-ANALISE.md) — cobertura dos 504 provedores da LangChain

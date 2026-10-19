@@ -14,7 +14,7 @@ go run ./examples/integrations/graph_rag
 ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com modelo real
 ```
 
-## 15.2 Catálogo (47 exemplos)
+## 15.2 Catálogo (54 exemplos)
 
 ### `examples/langchain`
 
@@ -76,6 +76,28 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com mod
 | `profile_episodic` | Coleção, perfil de um documento e episódios |
 | `prompt_optimizer` | Prompt que aprende com feedback; vários prompts |
 | `summarization` | Resumo incremental num grafo com checkpointer |
+
+### `examples/agentprotocol`
+
+| Exemplo | Mostra |
+|---|---|
+| `serve_and_call` | Agent servido pelo Agent Protocol e cliente: agents, threads, runs, histórico/fork, SSE, store |
+| `human_in_the_loop` | Streaming por thread: eventos de mensagens/ferramentas, `input.requested` e `input.respond` |
+
+### `examples/ciam`
+
+| Exemplo | Mostra |
+|---|---|
+| `project_context` | Índice incremental, busca híbrida, compressão, ADR/PRD/plano, contexto de decisão, memória, MCP |
+| `agent_with_context` | Agent que consulta o contexto de decisão antes de implementar |
+
+### `examples/openswe`
+
+| Exemplo | Mostra |
+|---|---|
+| `engineer` | Issue → sandbox por thread → atalho `gh pr create` bloqueado → PR em rascunho → comentário |
+| `reviewer` | Review única com finding ancorado, push recusado, re-revisão com reconciliação |
+| `factory` | Webhooks (menção, fila, duplicata, estranhos), PR novo, cron, vigia de CI |
 
 ### `examples/integrations`
 
@@ -226,6 +248,8 @@ agent, _ := agents.Create(agents.Options{Model: m, Tools: ts})
 | `InMemorySaver` / `InMemoryStore` | `checkpoint.NewMemory()` / `store.NewMemory()` |
 | `create_memory_store_manager` / `create_manage_memory_tool` | `langmem.NewStoreManager` / `langmem.ManageMemory` (cap. 16) |
 | `create_prompt_optimizer` / `summarize_messages` | `langmem.NewPromptOptimizer` / `langmem.SummarizeMessages` |
+| Agent Protocol (`/runs`, `/threads`, `/store`, streaming) | `agentprotocol.New` / `agentprotocol.NewClient` (cap. 17) |
+| Open SWE (`open_pull_request`, reviewer, baby-sit) | `openswe.NewAgent` / `openswe.ReviewerRunner` / `babysit.Watcher` (cap. 19) |
 
 ## 15.5 Glossário
 

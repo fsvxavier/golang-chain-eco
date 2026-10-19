@@ -408,6 +408,9 @@ func Thread(id string) runnables.Config {
 	return runnables.Config{Configurable: map[string]any{"thread_id": id}}
 }
 
+// Saver returns the checkpointer the graph was compiled with (nil if none).
+func (c *Compiled) Saver() checkpoint.Saver { return c.saver }
+
 // Nodes returns the node names in insertion order.
 func (c *Compiled) Nodes() []string { return append([]string(nil), c.g.order...) }
 

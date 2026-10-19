@@ -43,6 +43,24 @@ ts, err := client.Tools(ctx, "meu")                     // como tools.Tool, com 
 
 Exemplo: `examples/deepagents/mcp_docs_agent`.
 
+### Servir as suas tools por MCP (`mcp/server`)
+
+O inverso do cliente: exponha qualquer `[]tools.Tool` a editores e outros agents (VS Code, Cursor, Claude Code...).
+
+```go
+import "github.com/fsvxavier/golang-chain-eco/mcp/server"
+
+s := server.New("minhas-tools", "1.0")
+s.AddTool(tools.New("soma", "Soma dois números", func(ctx context.Context, a struct{ A, B int }) (any, error) { return a.A + a.B, nil })...)
+s.AddPrompt(server.Prompt{Name: "revisar", Description: "...", Get: func(ctx context.Context, args map[string]string) ([]server.PromptMessage, error) { ... }})
+s.OnCall = func(name string, args map[string]any, d time.Duration, err error) { /* métricas */ }
+
+s.ServeStdio(ctx, os.Stdin, os.Stdout) // editores
+http.Handle("/mcp", s.Handler())        // HTTP (POST JSON-RPC)
+```
+
+Falha de tool vira resultado com `isError` (o modelo lê), nunca erro de protocolo. O `mcp.Client` deste projeto conversa com este servidor (há teste por pipes). Veja o `ciam` (cap. 18), que se serve assim.
+
 ## 11.2 Cliente do Agent Server (`remote.Client`)
 
 Conecta a um Agent Server (LangGraph Platform ou ao `remote/server` deste projeto):
@@ -133,5 +151,7 @@ http.ListenAndServe(":8080", nil)
 - Só aceita `POST`.
 
 Exemplo: `examples/integrations/agui_server` (roda offline e imprime os eventos).
+
+Para a **API aberta do Agent Protocol** (agents, threads, runs, store e streaming tipado), veja o [capítulo 17](17-agent-protocol.md).
 
 Próximo: [12. Observabilidade](12-observabilidade.md).

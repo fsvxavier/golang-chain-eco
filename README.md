@@ -1,13 +1,13 @@
 # golang-chain-eco
 
-Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent com middleware (`create_agent`), **Deep Agents**, cliente **MCP**, **RemoteGraph**, tracing **LangSmith** e a memória de longo prazo do **LangMem**.
+Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent com middleware (`create_agent`), **Deep Agents**, cliente e servidor **MCP**, **RemoteGraph**, tracing **LangSmith**, a memória de longo prazo do **LangMem**, o **Agent Protocol**, o **ciam** (contexto para assistentes) e o **Open SWE** (fábrica de software com agents).
 
 - O código da biblioteca usa **só a stdlib**: nenhum pacote de produção importa dependência de terceiros. O `go.mod` lista drivers SQL (`pgx`, `mysql`, `go-ora`, `modernc.org/sqlite`), mas eles são usados apenas pelos testes em `internal/pgtest` e `internal/sqlitetest`; quem usa a biblioteca traz o driver que quiser.
 - Tipado com generics: `Runnable[I, O]`, `Structured[T]`, `tools.New[Args]`.
 - Concorrência nativa: nós de um grafo rodam em goroutines, streaming usa `iter.Seq2`.
 - Todo exemplo roda offline com um modelo fake; basta definir `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` para usar um provedor real.
 
-> **Manual completo de utilização:** [docs/manual/](docs/manual/README.md) — 16 capítulos, da instalação à produção.
+> **Manual completo de utilização:** [docs/manual/](docs/manual/README.md) — 19 capítulos, da instalação à produção.
 
 ## Sumário
 
@@ -31,6 +31,7 @@ Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent 
   - [Tracing com LangSmith](#13-tracing-com-langsmith)
   - [API funcional](#14-api-funcional-entrypoint--task)
   - [Memória de longo prazo (LangMem)](#15-memória-de-longo-prazo-langmem)
+  - [Agent Protocol, ciam e Open SWE](#16-agent-protocol-ciam-e-open-swe)
 - [Configuração](#configuração)
 - [Exemplos executáveis](#exemplos-executáveis)
 - [Testes](#testes)
@@ -107,6 +108,10 @@ go test -race ./...
 | `integrations/{graphretriever,spicedb,permit,vectara,aws}` | Graph RAG, retrievers filtrados por permissão (SpiceDB, Permit), Vectara, Bedrock Knowledge Bases, Kendra, tool Lambda | retrievers |
 | `integrations/{kubernetes,jenkins,salesforce,messaging,memgraph,agui}` | Sandbox em pod, Jenkins, SOQL somente leitura, SMS (Plivo/Telnyx), Memgraph (Bolt), protocolo AG-UI | tools / protocolos |
 | `providers/{google,cohere,bedrock,watsonx,replicate}` | Gemini/Vertex, Cohere (chat, embeddings, rerank), Bedrock Converse, IBM watsonx.ai, Replicate | parceiros |
+| `agentprotocol` | API aberta do Agent Protocol (agents, threads, runs, store) + streaming por thread (SSE e WebSocket) e cliente | `agent-protocol` |
+| `ciam` | Contexto para assistentes: índice incremental, busca híbrida, ADR/PRD/planos, memória, tools e servidor MCP | `context-ia-manager` |
+| `mcp/server` | Servidor MCP genérico para qualquer `[]tools.Tool` (stdio e HTTP) | — |
+| `openswe/{prompts,github,sandbox,guards,review,babysit,triggers}` e `openswe` | Fábrica de software: engenheiro com sandbox por thread, revisor de PRs, vigia de CI, webhooks, cron e automações | `open-swe` |
 | `langmem` | Memória de longo prazo: managers semântico/episódico, tools de memória, otimização de prompts, resumo incremental, background e middleware | `langmem` |
 | `remote/server` | Servidor de grafos compatível com a API de threads/runs | Agent Server |
 | `langgraph/store/sqlstore` | Store de longo prazo em SQLite/Postgres | `PostgresStore` |
@@ -711,6 +716,31 @@ mw := langmem.SummarizationMiddleware{SummarizeOptions: langmem.SummarizeOptions
 
 Perfil (um documento), episódios, vários prompts, `Middleware` pronto (injeta memórias + tools + formação em background): veja os 5 exemplos em `examples/langmem/`.
 
+### 16. Agent Protocol, ciam e Open SWE
+
+Três sistemas integrados ao ecossistema (referências: [Agent Protocol](docs/AGENT-PROTOCOL.md), [ciam](docs/CIAM.md), [Open SWE](docs/OPENSWE.md); tutoriais: capítulos [17](docs/manual/17-agent-protocol.md), [18](docs/manual/18-ciam-contexto.md) e [19](docs/manual/19-open-swe.md) do manual).
+
+```go
+// Agent Protocol: qualquer grafo compilado vira uma API aberta (agents, threads, runs, store, streaming)
+srv, _ := agentprotocol.New(agentprotocol.Options{Agents: []agentprotocol.AgentSpec{{ID: "bot", Graph: agent}}})
+http.ListenAndServe(":8123", srv)
+c := agentprotocol.NewClient("http://localhost:8123", "")
+out, _ := c.CreateAndWait(ctx, agentprotocol.RunCreate{AgentID: "bot", Input: json.RawMessage(`"oi"`)})
+
+// ciam: contexto cirúrgico para assistentes (busca híbrida + ADR/PRD) como tools e como servidor MCP
+m := ciam.New(embedder, nil)
+m.Index(ctx, "/projeto", ciam.IndexOptions{})
+dc, _ := m.DecisionContext(ctx, "projeto", "adicionar refresh token", 3) // código + ADR + PRD + planos
+ciam.Toolkit{M: m, Project: "/projeto"}.MCPServer(nil).ServeStdio(ctx, os.Stdin, os.Stdout)
+
+// Open SWE: engenheiro (sandbox por thread, PR pela tool auditada), revisor, vigia de CI e gatilhos
+eng, _ := openswe.NewAgent(openswe.Config{Model: model, GitHub: gh, Sandbox: sb, DraftPRs: true})
+d := &triggers.Dispatcher{Runners: map[string]triggers.Runner{triggers.KindAgent: openswe.AgentRunner{Graph: eng}}, Queue: queue}
+http.Handle("/webhooks/github", &triggers.Webhook{Secret: secret, Dispatcher: d, Bot: "openswe", BotLogins: []string{"openswe[bot]"}})
+```
+
+Exemplos offline em `examples/agentprotocol/`, `examples/ciam/` e `examples/openswe/`. A CLI `cmd/ciam` indexa projetos e serve MCP (`go install ./cmd/ciam`).
+
 ## Configuração
 
 | Variável | Uso |
@@ -730,7 +760,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-47 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 6 de integrações e 5 do LangMem) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+54 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 6 de integrações, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 3 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser
@@ -740,6 +770,9 @@ go run ./examples/deepagents/research     # deep agent com subagents
 go run ./examples/integrations/graph_rag  # retrieval que segue links
 go run ./examples/integrations/agui_server # grafo servido pelo protocolo AG-UI
 go run ./examples/langmem/hot_path        # agent com memória de longo prazo por usuário
+go run ./examples/agentprotocol/serve_and_call  # agent servido pelo Agent Protocol + cliente
+go run ./examples/ciam/project_context    # índice, busca híbrida, ADR e MCP
+go run ./examples/openswe/engineer        # issue → sandbox → PR em rascunho, com as regras impostas
 
 ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com modelo real
 ```
@@ -778,6 +811,9 @@ rodam contra o serviço real e **se pulam sozinhos** quando a variável de ambie
 | `create_manage_memory_tool(...)` | `langmem.ManageMemory(langmem.ToolConfig{...})` |
 | `create_prompt_optimizer(model, kind=...)` | `langmem.NewPromptOptimizer(model, kind, cfg)` |
 | `summarize_messages(...)` | `langmem.SummarizeMessages(ctx, msgs, running, opts)` |
+| Agent Protocol `POST /runs/wait` | `agentprotocol.NewClient(url, key).CreateAndWait(ctx, req)` |
+| `ciam index` / `ciam_decision_context` | `ciam.Manager.Index` / `Manager.DecisionContext` |
+| Open SWE `open_pull_request`, reviewer, baby-sit | `openswe.NewAgent`, `openswe.ReviewerRunner`, `babysit.Watcher` |
 
 Detalhes de design em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -787,6 +823,7 @@ Detalhes de design em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - No `sqlsaver`, números inteiros voltam como `int` e demais como `float64`; tipos próprios exigem `checkpoint.Register`. SQLite e PostgreSQL foram testados contra bancos reais.
 - Em `graph.Interrupt`, o nó reexecuta desde o início; subgrafos com checkpointer próprio não propagam interrupts para o grafo pai.
 - `langmem`: atualização de memória por substituição (sem JSON patch do trustcall), sem `ReflectionExecutor` remoto e busca semântica por varredura; lista completa em [docs/LANGMEM.md](docs/LANGMEM.md#diferenças-em-relação-ao-langmem-python).
+- `agentprotocol`: só o namespace raiz no streaming (subgrafos não viram namespaces filhos) e registros de runs em memória; `ciam`: sem API HTTP própria (use o MCP) e índice por varredura; `openswe`: sem Slack/Linear/dashboard/contas e os guards leem comandos (não são fronteira de segurança). Detalhes em [docs/AGENT-PROTOCOL.md](docs/AGENT-PROTOCOL.md), [docs/CIAM.md](docs/CIAM.md) e [docs/OPENSWE.md](docs/OPENSWE.md).
 - Não portado: modos de durabilidade, Studio/CLI, backends gerenciados do LangSmith, evals.
 - `LocalShell` e servidores MCP via stdio executam código no host; use apenas com agents e servidores confiáveis. Para isolamento, use `kubernetes.Sandbox` ou outro runner com `backends.Remote`.
 - Integrações de SaaS/API paga só têm teste de contrato; 123 provedores da lista da LangChain dependem de documentação de API que não estava disponível ([docs/PROVIDERS-ANALISE.md](docs/PROVIDERS-ANALISE.md)).
