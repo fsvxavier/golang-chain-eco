@@ -325,3 +325,65 @@ g.AddNode("responder", knowledge.Node(router, "question", "answer"))
 ```
 
 `knowledge.Node(a, questionKey, answerKey)` lê `state[questionKey]` (string) e grava `state[answerKey]` com o texto e `state[answerKey+"_sources"]` com as fontes.
+
+## `integrations/graphstore`: grafo em Neo4j e Memgraph
+
+Dois adapters de `kag.GraphStore`, ambos em Cypher. Troque `kag.NewMemory()` por um deles e o resto (extrator, engine, tools) continua igual.
+
+```go
+// Neo4j 5.19+ ou Aura, pela Query API HTTP
+g := &graphstore.Neo4j{URL: "http://localhost:7474", Username: "neo4j", Password: os.Getenv("NEO4J_PASS"), Database: "neo4j", Label: "Entity"}
+
+// Memgraph, pelo cliente Bolt do repositório
+g := &graphstore.Memgraph{Client: &memgraph.Client{Addr: "localhost:7687"}, Label: "Entity"}
+```
+
+`Label` (padrão `Entity`) separa grafos no mesmo banco: use um rótulo por base de conhecimento.
+
+### Modelo no banco
+
+- Entidade: nó `:<Label>` com `id`, `name`, `type`, `props` (JSON em texto), `vector` (lista de floats) e `entity = true`. `id` tem restrição de unicidade, criada na primeira gravação.
+- Relação: aresta direcionada cujo **tipo** é o `Relation.Type`; `props` e `source` ficam na aresta. Relação para uma entidade ainda inexistente cria um nó provisório (`entity = false`),
+  ignorado por `Entity()` e `FindEntities()`; quando a entidade chega, o nó é completado. `kag.Memory` não tem nós provisórios.
+- `Upsert` usa `MERGE`: repetir a gravação é idempotente.
+
+### Segurança
+
+Tipo de relação e rótulo não podem ser parâmetros em Cypher, então são interpolados no texto da consulta. Por isso:
+
+- tipo de relação precisa casar `^[A-Z][A-Z0-9_]*$` (o extrator já normaliza assim); qualquer outro valor devolve erro **antes** de qualquer requisição ao banco;
+- `Label` precisa casar `^[A-Za-z_][A-Za-z0-9_]*$`;
+- o limite de saltos do `Path` é um inteiro validado e positivo;
+- todos os valores (ids, nomes, props, vetores) vão como parâmetros, nunca no texto.
+
+### Diferenças entre os dois
+
+| | Neo4j | Memgraph |
+|---|---|---|
+| Transporte | HTTP, `POST /db/<db>/query/v2`, basic auth | Bolt 4.x (`integrations/memgraph`) |
+| `Path` | `allShortestPaths((a)-[*1..N]->(b))` | `(a)-[*ALLSHORTEST ..N (r, n \| 1) w]->(b)` |
+| Linha malformada em `Neighbors` | ignorada | erro |
+
+No Memgraph, `allShortestPaths(...)` não existe e `*BFS` devolve só um dos caminhos mínimos; `*ALLSHORTEST` devolve todos (verificado num grafo com dois caminhos de mesmo tamanho).
+
+### Limites
+
+- `FindEntities` lê as entidades do rótulo e pontua em Go (cosseno quando há vetor dos dois lados, senão fração dos termos no nome), para ter o mesmo resultado do `kag.Memory`.
+  Funciona bem até algumas dezenas de milhares de entidades; acima disso, use o índice vetorial do banco (`vector.similarity.cosine` no Neo4j, índice vetorial no Memgraph) numa evolução futura.
+- Não há transações entre `UpsertEntities` e `UpsertRelations`: uma falha entre as duas deixa entidades sem as relações. Reexecutar a extração é seguro (idempotente).
+- Neo4j é falado só por HTTP (Query API); Bolt para Neo4j não está implementado.
+
+### Testes contra os bancos reais
+
+Os testes de contrato (`httptest`, validação de identificadores, conversão de linhas) rodam sempre. Os testes reais pulam sozinhos sem a variável de ambiente e passam
+a suíte `conformance.Graph`, a mesma do `kag.Memory`:
+
+```bash
+docker run -d --name lcg-neo4j -p 7474:7474 -p 7688:7687 -e NEO4J_AUTH=neo4j/lcgtestpass neo4j:5.26
+docker run -d --name lcg-memgraph -p 7687:7687 memgraph/memgraph
+
+NEO4J_URL=http://127.0.0.1:7474 NEO4J_USER=neo4j NEO4J_PASS=lcgtestpass \
+MEMGRAPH_ADDR=127.0.0.1:7687 go test -race -count=1 -v ./integrations/graphstore
+```
+
+Cada execução usa um rótulo único e apaga o que criou.

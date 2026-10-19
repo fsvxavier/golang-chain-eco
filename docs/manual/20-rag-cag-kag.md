@@ -69,7 +69,7 @@ A contagem de tokens é uma estimativa (~4 caracteres por token). Perto do limit
 ## 20.4 KAG
 
 ```go
-g := kag.NewMemory() // qualquer kag.GraphStore; bancos de grafo entram na fase de integrações
+g := kag.NewMemory() // ou &graphstore.Neo4j{...} / &graphstore.Memgraph{...} para um banco de grafo
 
 x := &kag.Extractor{Model: model, Embedder: emb, Graph: g,
     Schema: kag.Schema{RelationTypes: []string{"PRESCREVEU", "INTERAGE_COM", "PRESCRITA_A"}}}
