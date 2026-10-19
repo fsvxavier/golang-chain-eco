@@ -89,13 +89,14 @@ Contexto cirúrgico para assistentes de IA (pacote [`ciam`](../ciam), referênci
 
 ## openswe
 
-Fábrica de software com agents (pacote [`openswe`](../openswe), referência em [docs/OPENSWE.md](../docs/OPENSWE.md)). Usam um GitHub simulado ([`internal/fakegithub`](internal/fakegithub)), modelo roteirizado e git/sandbox reais em diretórios temporários.
+Fábrica de software com agents (pacote [`openswe`](../openswe), referência em [docs/OPENSWE.md](../docs/OPENSWE.md)). Usam GitHub, Slack e Linear simulados ([`internal/fakegithub`](internal/fakegithub), [`internal/fakeslack`](internal/fakeslack), [`internal/fakelinear`](internal/fakelinear)), modelo roteirizado e git/sandbox reais em diretórios temporários.
 
 | Exemplo | Mostra | Origem |
 |---|---|---|
 | `openswe/engineer` | issue → sandbox por thread → atalho `gh pr create` bloqueado → PR em rascunho → comentário e vínculo PR↔thread | open-swe |
 | `openswe/reviewer` | review única com finding ancorado no diff, push recusado (somente-leitura), re-revisão que reconcilia a resposta humana | open-swe |
 | `openswe/factory` | webhook (menção, fila de follow-ups, duplicata, estranho em repo público), PR novo → revisão, cron, vigia de CI sem desperdício | open-swe |
+| `openswe/slack_trigger` | Slack: `url_verification`, menção numa thread, retry ignorado, resposta final postada na thread | open-swe |
 
 ## evals
 

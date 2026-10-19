@@ -311,6 +311,17 @@ func (r AgentRunner) Run(ctx context.Context, t triggers.Task) error {
 	if len(t.Messages) == 0 {
 		return fmt.Errorf("openswe: task %q has no messages", t.Reason)
 	}
-	_, err := r.Graph.Invoke(ctx, graph.State{"messages": t.Messages})
-	return err
+	out, err := r.Graph.Invoke(ctx, graph.State{"messages": t.Messages})
+	if err != nil {
+		return err
+	}
+	if ms, _ := messages.Coerce(out["messages"]); len(ms) > 0 {
+		for i := len(ms) - 1; i >= 0; i-- {
+			if ms[i].Role == messages.RoleAI && strings.TrimSpace(ms[i].Text()) != "" {
+				triggers.SetResult(ctx, ms[i].Text())
+				break
+			}
+		}
+	}
+	return nil
 }

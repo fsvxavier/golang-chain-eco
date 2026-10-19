@@ -16,6 +16,8 @@ Tutorial: [manual/19-open-swe.md](manual/19-open-swe.md). Exemplos: [`examples/o
 | `openswe/review` | findings ancorados no diff, publicação, reconciliação com threads, estilo por repositório | `review/**`, `tools/add_finding.py`, `publish_review.py` |
 | `openswe/babysit` | vigia de CI durável, sem gastar tokens parado; re-run de flaky com orçamento | `baby_sit.py`, `bundled_skills/baby-sit` |
 | `openswe/triggers` | webhook, despacho "uma run por thread", cron, automações | `webhooks/**`, `schedules/**`, `dispatch.py` |
+| `openswe/slack` | cliente Web API (`chat.postMessage`, `chat.update`, `reactions.add`), Events API com assinatura v0, `Notifier` que devolve a resposta à thread | integração Slack |
+| `openswe/linear` | cliente GraphQL (issue, `commentCreate`), webhook com `Linear-Signature`, `Notifier` que comenta no issue | integração Linear |
 
 ## O engenheiro
 
@@ -65,6 +67,46 @@ Tools: `fetch_review_diff` (escreve o diff num arquivo do sandbox), `add_finding
 
 Automações: `Automation{Prompt, Repo, Triggers: [{schedule, cron}|{github, issues.opened|pull_request.opened|closed|merged}]}` em `AutomationStore`; `Scheduler.Tick/Run` dispara cada minuto de cron **uma vez** (claim por automação+minuto, seguro com várias réplicas; recuperação limitada após pausa).
 
+## Slack e Linear
+
+Os dois entram pelo mesmo `triggers.Dispatcher` que o GitHub: cada evento vira um `triggers.Task` com `Kind: KindAgent`, e **uma thread externa é uma thread do openswe** (`triggers.ThreadKey`, chaveado por `slack:<canal>:<thread_ts>` ou `linear:issue:<id>`), então contexto e sandbox são reaproveitados como no GitHub.
+
+```go
+d := &triggers.Dispatcher{
+    Runners: map[string]triggers.Runner{triggers.KindAgent: // notifiers encadeados; cada um passa adiante o que não é seu
+        slack.Notifier{Client: slack.NewClient(os.Getenv("SLACK_BOT_TOKEN")),
+            Inner: linear.Notifier{Client: linear.NewClient(os.Getenv("LINEAR_API_KEY")),
+                Inner: openswe.AgentRunner{Graph: agent}}}},
+    Queue: &guards.MemoryQueue{}, // sem fila, mensagem para thread ocupada é erro
+}
+slackH := &slack.Handler{SigningSecret: os.Getenv("SLACK_SIGNING_SECRET"), BotUserID: "U0BOT",
+    Channels: []string{"C0CODE"}, Dispatcher: d} // Channels é obrigatório: vazio ignora tudo
+linearH := &linear.Webhook{Secret: os.Getenv("LINEAR_WEBHOOK_SECRET"), Dispatcher: d,
+    BotUserID: "linear-user-id", BotName: "openswe", TriggerLabel: "openswe"}
+mux.Handle("/slack/events", slackH)
+mux.Handle("/linear/webhook", linearH)
+```
+
+**Slack** (`openswe/slack`)
+
+- `Handler` verifica `X-Slack-Signature` (`v0=` + HMAC-SHA256 de `v0:<timestamp>:<corpo>`, comparação em tempo constante) e recusa timestamps com mais de 5 minutos de diferença. `url_verification` recebe o `challenge`.
+- `app_mention` num canal configurado inicia a run; a thread é `thread_ts`, ou o próprio `ts` quando a menção começa a thread.
+- Resposta em thread só vira follow-up se mencionar o bot **ou** se a thread já foi acionada por este processo. Esse conhecimento fica em memória: após reinício, é preciso mencionar o bot de novo.
+- Entregas repetidas (mesmo `event_id`, inclusive com `X-Slack-Retry-Num`) e o par `app_mention` + `message` do mesmo `ts` rodam uma vez. O handler responde `200` sempre; falhas de despacho vão para `OnError` (o Slack não reenvia).
+- `Notifier` posta a **resposta final do agente** na thread ao fim da run (ou "The run failed: …"). Menções que pingam (`<!channel>`, `<@U…>`) são neutralizadas antes do envio. `Describe` acrescenta, por exemplo, o link do PR (`PRLinks.ForThread`).
+- O texto de quem escreveu no Slack vai dentro de `<untrusted_slack author="…">`.
+
+**Linear** (`openswe/linear`)
+
+- `Webhook` verifica `Linear-Signature` (HMAC-SHA256 hex do corpo cru) e recusa `webhookTimestamp` com mais de 60 s de diferença.
+- Um issue criado ou atualizado **atribuído ao bot** (`BotUserID`) ou com o label `TriggerLabel` inicia a run. Em `update`, só conta quando `updatedFrom` traz `labelIds` ou `assigneeId`. Limite conhecido: se outro label mudar no mesmo evento, o label já presente também dispara uma nova run (que vai para a fila da thread, sem se perder).
+- Comentário `create` que menciona `@BotName` (ou o link `mention://user/<BotUserID>`), escrito por outra conta, inicia a run na thread do issue.
+- Entrega repetida (`Linear-Delivery`) roda uma vez.
+- `Notifier` comenta a resposta final no issue (`commentCreate`).
+- `linear.Client` envia a chave pessoal direto no header `Authorization`; para um token OAuth, defina `AuthPrefix: "Bearer "`. Erros GraphQL (`errors`) viram `*linear.APIError`, inclusive com HTTP 200.
+
+Exemplo offline (Slack falso, GitHub falso, modelo roteirizado): [`examples/openswe/slack_trigger`](../examples/openswe/slack_trigger/).
+
 ## Sandbox
 
 `sandbox.Manager`: um sandbox por thread, guardado (provedor + id) no `store.Store`. Provedores: `Local` (diretório no host, `backends.LocalShell`: **sem isolamento**; registra um aviso no primeiro comando, sem `AllowedCommands`) e `Kubernetes` (pod, via `integrations/kubernetes`); para qualquer outro ambiente que execute comandos (SSH, Docker, nuvem), implemente `sandbox.Provider` sobre `backends.Remote`. Regra herdada do original: sandbox que não responde **não é substituído em silêncio** (`ErrUnreachable`, "nenhuma substituição foi iniciada"): um novo estaria vazio e jogaria fora trabalho não publicado; só `Replace` (ato deliberado) cria outro. `PrepareRepo` clona/atualiza, define a identidade de commit, entra na branch de trabalho **sem** resetar nem limpar o que uma run anterior deixou, e guarda o token numa credencial `0600` (nunca na URL do remote).
@@ -81,7 +123,8 @@ Automações: `Automation{Prompt, Repo, Triggers: [{schedule, cron}|{github, iss
 
 Declarado, não escondido:
 
-- Integrações **Slack** (conversas, botões, canais de código, revisão humana e revisão expedita por cartões) e **Linear**.
+- **Slack**: botões interativos, cartões de revisão humana, revisão expedita por cartões e canais de código dedicados (o bot responde em qualquer canal da lista `Channels`, sem canal próprio por repositório).
+- **Linear**: projetos, ciclos, sincronização de estados do issue e criação de issues pelo agente. Apenas issue (criação/atualização com label ou atribuição) e comentários com menção são acionadores.
 - **Dashboard/UI**, app desktop, CLI e *bridge* local.
 - **Contas e autorização**: OAuth, perfis, "act as", administração de workspaces, feature flags, trilha de auditoria, analytics e custo por run. Os pacotes recebem identidade (`Requester`, `Approver`) de quem os integra.
 - **Persistência em PostgreSQL** das tabelas do produto (usa `store.Store` genérico).
@@ -94,4 +137,4 @@ Declarado, não escondido:
 
 ## Testes
 
-`go test -race ./openswe/...`, 100% offline (GitHub e CI simulados com `httptest`, git real em diretórios temporários): cliente GitHub (idempotência de PR, JWT de App com verificação de assinatura, cache de token, webhooks), prompts, parsing de shell e todos os guards (incluindo `git push` real com workflows), sandbox (persistência, não-substituição, roteamento por thread, clone/continuação sem perder trabalho, token fora da URL), revisor (âncoras, dedupe, ranking, aprovação, reconciliação, estilo), baby-sit (dedupe de wakes, orçamento de re-runs, webhooks repetidos, falhas de API), gatilhos (cron, claims, fila, segurança de webhooks, automações) e ponta a ponta: engenheiro entregando PR, revisor publicando uma vez e sem poder escrever, menção → run com follow-up na mesma run.
+`go test -race ./openswe/...`, 100% offline (GitHub e CI simulados com `httptest`, git real em diretórios temporários): Slack (assinatura v0 com vetor fixo, janela de 5 min, `url_verification`, menção e follow-up por thread, retentativas e duplicatas, resposta final e neutralização de menções) e Linear (`Linear-Signature` com vetor fixo, janela de 60 s, atribuição e label, menção de comentário, entrega repetida, comentário com erro GraphQL); cliente GitHub (idempotência de PR, JWT de App com verificação de assinatura, cache de token, webhooks), prompts, parsing de shell e todos os guards (incluindo `git push` real com workflows), sandbox (persistência, não-substituição, roteamento por thread, clone/continuação sem perder trabalho, token fora da URL), revisor (âncoras, dedupe, ranking, aprovação, reconciliação, estilo), baby-sit (dedupe de wakes, orçamento de re-runs, webhooks repetidos, falhas de API), gatilhos (cron, claims, fila, segurança de webhooks, automações) e ponta a ponta: engenheiro entregando PR, revisor publicando uma vez e sem poder escrever, menção → run com follow-up na mesma run.

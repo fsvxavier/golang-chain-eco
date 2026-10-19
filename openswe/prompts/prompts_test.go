@@ -36,6 +36,10 @@ func TestSystemPromptSections(t *testing.T) {
 	if !strings.Contains(cli, "own machine") {
 		t.Fatal("cli source")
 	}
+	sl, _ := prompts.System(prompts.SystemData{WorkingDir: "/w", Source: "slack"})
+	if !strings.Contains(sl, "triggered from a Slack thread") {
+		t.Fatal("slack source")
+	}
 	generic, _ := prompts.System(prompts.SystemData{WorkingDir: "/w", Source: "whatever", BotName: "Robo"})
 	if !strings.Contains(generic, "You are Robo") || !strings.Contains(generic, "Do not assume a particular channel") {
 		t.Fatal("generic source")

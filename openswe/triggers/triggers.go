@@ -28,7 +28,14 @@ const (
 // and its context and sandbox are reused. kind namespaces the id (the coding
 // thread and the reviewer thread of one PR must differ).
 func ThreadID(kind, owner, repo string, number int) string {
-	sum := sha256.Sum256([]byte(strings.ToLower(fmt.Sprintf("%s|%s/%s#%d", kind, owner, repo, number))))
+	return ThreadKey(kind, fmt.Sprintf("%s/%s#%d", owner, repo, number))
+}
+
+// ThreadKey is ThreadID for an arbitrary thread key (Slack channel+thread,
+// Linear issue). key must be unique across integrations: prefix it with the
+// integration name ("slack:C123:1700.01").
+func ThreadKey(kind, key string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(kind + "|" + key)))
 	b := sum[:16]
 	b[6] = (b[6] & 0x0f) | 0x50 // version 5 layout
 	b[8] = (b[8] & 0x3f) | 0x80
@@ -55,6 +62,39 @@ type Task struct {
 // Runner executes a task to completion.
 type Runner interface {
 	Run(ctx context.Context, t Task) error
+}
+
+type resultBox struct {
+	mu    sync.Mutex
+	final string
+}
+
+type resultKey struct{}
+
+// WithResultSink returns a context that carries the run's final answer. A
+// runner that produces one calls SetResult; the returned func reads it after
+// the run (empty when none was set). Nested integrations share one sink, so
+// a Notifier wrapped by another Notifier sees the same answer.
+func WithResultSink(ctx context.Context) (context.Context, func() string) {
+	box, ok := ctx.Value(resultKey{}).(*resultBox)
+	if !ok {
+		box = &resultBox{}
+		ctx = context.WithValue(ctx, resultKey{}, box)
+	}
+	return ctx, func() string {
+		box.mu.Lock()
+		defer box.mu.Unlock()
+		return box.final
+	}
+}
+
+// SetResult records the run's final answer on the sink carried by ctx, if any.
+func SetResult(ctx context.Context, final string) {
+	if box, ok := ctx.Value(resultKey{}).(*resultBox); ok {
+		box.mu.Lock()
+		box.final = final
+		box.mu.Unlock()
+	}
 }
 
 // RunnerFunc adapts a function to Runner.

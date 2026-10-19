@@ -111,7 +111,7 @@ go test -race ./...
 | `agentprotocol` | API aberta do Agent Protocol (agents, threads, runs, store) + streaming por thread (SSE e WebSocket) e cliente | `agent-protocol` |
 | `ciam` | Contexto para assistentes: índice incremental, busca híbrida, ADR/PRD/planos, memória, tools e servidor MCP | `context-ia-manager` |
 | `mcp/server` | Servidor MCP genérico para qualquer `[]tools.Tool` (stdio e HTTP) | — |
-| `openswe/{prompts,github,sandbox,guards,review,babysit,triggers}` e `openswe` | Fábrica de software: engenheiro com sandbox por thread, revisor de PRs, vigia de CI, webhooks, cron e automações | `open-swe` |
+| `openswe/{prompts,github,sandbox,guards,review,babysit,triggers,slack,linear}` e `openswe` | Fábrica de software: engenheiro com sandbox por thread, revisor de PRs, vigia de CI, webhooks, cron, automações, Slack e Linear | `open-swe` |
 | `langmem` | Memória de longo prazo: managers semântico/episódico, tools de memória, otimização de prompts, resumo incremental, background e middleware | `langmem` |
 | `remote/server` | Servidor de grafos compatível com a API de threads/runs | Agent Server |
 | `langgraph/store/sqlstore` | Store de longo prazo em SQLite/Postgres | `PostgresStore` |
@@ -762,7 +762,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-56 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 1 de evals, 6 de integrações, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 3 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+57 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 1 de evals, 6 de integrações, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 4 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser
@@ -816,6 +816,7 @@ rodam contra o serviço real e **se pulam sozinhos** quando a variável de ambie
 | Agent Protocol `POST /runs/wait` | `agentprotocol.NewClient(url, key).CreateAndWait(ctx, req)` |
 | `ciam index` / `ciam_decision_context` | `ciam.Manager.Index` / `Manager.DecisionContext` |
 | Open SWE `open_pull_request`, reviewer, baby-sit | `openswe.NewAgent`, `openswe.ReviewerRunner`, `babysit.Watcher` |
+| Open SWE Slack / Linear | `slack.Handler` + `slack.Notifier`, `linear.Webhook` + `linear.Notifier` |
 
 Detalhes de design em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -825,7 +826,7 @@ Detalhes de design em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - No `sqlsaver`, escalares Go (`int64`, `float32`, `time.Time`, `[]byte`…) voltam com o tipo original; números sem tipo explícito voltam como `int` ou `float64`; tipos próprios exigem `checkpoint.Register` (`checkpoint.Strict(true)` faz o struct não registrado falhar ao gravar). SQLite e PostgreSQL foram testados contra bancos reais.
 - Em `graph.Interrupt`, o nó reexecuta desde o início, como no LangGraph Python; subgrafos (com ou sem checkpointer próprio) propagam interrupts para o grafo pai. Dois subgrafos interrompidos no mesmo superpasso ainda não têm ordem de retomada determinística.
 - `langmem`: atualização por substituição por padrão (JSON patch RFC 6902 com `WithPatchUpdates()`); `ReflectionExecutor` remoto via `remote/server`; busca semântica por varredura ou por índice vetorial opcional (`vectorstore.NewHNSW`); lista completa em [docs/LANGMEM.md](docs/LANGMEM.md#diferenças-em-relação-ao-langmem-python).
-- `agentprotocol`: subgrafos viram namespaces filhos com `graph.Subgraphs()`; registros de runs persistem com `NewStoreRunStore`, mas o buffer de eventos vive no processo (sem multi-réplica); `ciam`: API HTTP (`ciam api`) e MCP, índice vetorial opcional; `openswe`: sem Slack/Linear/dashboard/contas e os guards leem comandos (não são fronteira de segurança). Detalhes em [docs/AGENT-PROTOCOL.md](docs/AGENT-PROTOCOL.md), [docs/CIAM.md](docs/CIAM.md) e [docs/OPENSWE.md](docs/OPENSWE.md).
+- `agentprotocol`: subgrafos viram namespaces filhos com `graph.Subgraphs()`; registros de runs persistem com `NewStoreRunStore`, mas o buffer de eventos vive no processo (sem multi-réplica); `ciam`: API HTTP (`ciam api`) e MCP, índice vetorial opcional; `openswe`: Slack e Linear como gatilhos (sem botões/cartões de revisão do Slack nem projetos/ciclos do Linear; validados só contra fakes), sem dashboard/contas, e os guards inspecionam comandos e scripts gravados pelo agent (são guarda-corpos, não fronteira de segurança). Detalhes em [docs/AGENT-PROTOCOL.md](docs/AGENT-PROTOCOL.md), [docs/CIAM.md](docs/CIAM.md) e [docs/OPENSWE.md](docs/OPENSWE.md).
 - Não portado: Studio, build/deploy da CLI (`langgraph dev` é um servidor de demonstração; seus grafos são servidos com `dev.Serve`), backends gerenciados do LangSmith e experimentos/filas de anotação hospedados (os evals rodam localmente, ver [docs/EVALS.md](docs/EVALS.md)).
 - `LocalShell` e servidores MCP via stdio executam código no host (registram um aviso na primeira execução; `LocalShell.AllowedCommands` restringe os programas); use apenas com agents e servidores confiáveis. Para isolamento, use `kubernetes.Sandbox` ou outro runner com `backends.Remote`.
 - Integrações de SaaS/API paga só têm teste de contrato; 123 provedores da lista da LangChain dependem de documentação de API que não estava disponível ([docs/PROVIDERS-ANALISE.md](docs/PROVIDERS-ANALISE.md)).

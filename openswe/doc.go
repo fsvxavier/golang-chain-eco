@@ -18,9 +18,12 @@
 //   - openswe/review: findings anchored to the diff, publish/reconcile, per-repo style.
 //   - openswe/babysit: durable CI watches that spend no tokens while nothing changes.
 //   - openswe/triggers: webhooks, one-run-per-thread dispatch, cron and automations.
+//   - openswe/slack, openswe/linear: Slack Events API and Linear webhooks into the dispatcher,
+//     and the replies posted back into the thread or issue.
 //
 // This package wires them into agents: NewAgent builds the engineer, and
-// ReviewerRunner runs a review. What is not ported (Slack, Linear, the
-// dashboard, user accounts and Postgres, the Managed Deep Agents runtime) is
-// listed in docs/OPENSWE.md.
+// ReviewerRunner runs a review. Slack and Linear are integrated through
+// openswe/slack and openswe/linear. What is not ported (Slack buttons and
+// review cards, Linear projects and cycles, the dashboard, user accounts and
+// Postgres, the Managed Deep Agents runtime) is listed in docs/OPENSWE.md.
 package openswe

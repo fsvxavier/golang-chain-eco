@@ -574,3 +574,18 @@ func TestSchedulerCatchUpIsBounded(t *testing.T) {
 	}
 	d.Wait()
 }
+
+func TestResultSinkSharedByNestedRunners(t *testing.T) {
+	inner := triggers.RunnerFunc(func(ctx context.Context, _ triggers.Task) error {
+		triggers.SetResult(ctx, "answer")
+		return nil
+	})
+	ctx, outer := triggers.WithResultSink(context.Background())
+	ctx2, read := triggers.WithResultSink(ctx) // a second integration wraps the first
+	if err := inner.Run(ctx2, triggers.Task{}); err != nil {
+		t.Fatal(err)
+	}
+	if outer() != "answer" || read() != "answer" {
+		t.Fatalf("outer=%q inner=%q", outer(), read())
+	}
+}

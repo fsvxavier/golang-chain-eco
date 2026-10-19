@@ -129,7 +129,7 @@ Publique o engenheiro e o revisor com o capítulo 17 (`agentprotocol`): `Options
 
 ## 19.6 Limites e próximos passos
 
-- Slack, Linear, dashboard, contas/OAuth, auditoria e o runtime gerenciado do projeto original **não** foram portados; o `Approver`, o `Requester` e a atribuição de PR são os pontos onde você pluga a sua identidade e os seus canais.
+- Slack e Linear existem como gatilhos (`openswe/slack`, `openswe/linear`; ver [OPENSWE.md](../OPENSWE.md#slack-e-linear)), sem botões/cartões de revisão nem projetos/ciclos. Dashboard, contas/OAuth, auditoria e o runtime gerenciado do projeto original **não** foram portados; o `Approver`, o `Requester` e a atribuição de PR são os pontos onde você pluga a sua identidade e os seus canais.
 - `Local` não isola. Para produção use `Kubernetes` (ou implemente `sandbox.Provider` para o seu ambiente).
 - Teste o seu fluxo com modelo roteirizado antes de ligar um modelo real: os testes de `openswe/openswe_test.go` são bons moldes.
 
