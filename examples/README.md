@@ -117,6 +117,17 @@ Exemplos das integrações (todos rodam offline; o último usa S3 se `S3_ENDPOIN
 | `integrations/vector_indexes` | índices `Flat` (exato) e `Annoy` (aproximado): recall vs `SearchK`, salvar e carregar |
 | `integrations/durable_threads` | estado de uma thread num checkpointer (S3 se configurado, memória se não) |
 
+## knowledge
+
+RAG, CAG e KAG sobre o contrato comum `knowledge.Answerer` (todos rodam offline com modelo fake).
+
+| Exemplo | Mostra |
+|---|---|
+| `knowledge/rag` | indexação incremental (`Added`/`Skipped`/`Removed`), busca vetorial vs híbrida (termo exato), resposta com citações |
+| `knowledge/cag` | corpus em prefixo estável, hash e tokens, `cache_hit` na segunda pergunta, fallback quando o corpus não cabe |
+| `knowledge/kag` | grafo extraído de trechos, pergunta de 3 saltos que a busca vetorial não responde, verificação, grafo com ciclo |
+| `knowledge/router` | roteador escolhendo KAG, CAG ou RAG pela pergunta e pelo perfil, `Force` e fallback para RAG |
+
 ## Não portados
 
 `web-navigation` (precisa de navegador), `lats` (busca em árvore com avaliação por rollouts), `reflexion`, os exemplos `deploy-*`

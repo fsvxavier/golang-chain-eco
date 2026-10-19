@@ -16,6 +16,7 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 - Expor seus agents por uma API aberta (UI, outros serviços): capítulo 17.
 - Dar contexto de projeto barato e preciso a assistentes de IA / editores: capítulo 18.
 - Agent que abre PRs, revisa código, vigia CI e responde ao GitHub: capítulo 19.
+- Dar conhecimento ao modelo com RAG, CAG (cache de prompt) ou KAG (grafo de conhecimento), e deixar um roteador escolher: capítulo 20.
 
 ## Índice
 
@@ -40,12 +41,14 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 | 17 | [Agent Protocol](17-agent-protocol.md) | Servir agents por uma API aberta: agents, threads, runs, store, streaming tipado, aprovação humana, WebSocket |
 | 18 | [ciam: contexto de projeto](18-ciam-contexto.md) | Índice local com busca híbrida, ADR/PRD/planos, memória, servidor MCP para editores |
 | 19 | [Open SWE](19-open-swe.md) | Fábrica de software: engenheiro com sandbox por thread, revisor de PRs, vigia de CI, webhooks e automações |
+| 20 | [RAG, CAG e KAG](20-rag-cag-kag.md) | Quando usar cada um, `rag` (busca híbrida, indexação incremental), `cag` (corpus em prefixo cacheável), `kag` (grafo, planejamento multi-hop) e o roteador |
 
 ## Documentos relacionados
 
 - [README do projeto](../../README.md) — visão geral e início rápido
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — decisões de design
 - [AGENT-PROTOCOL.md](../AGENT-PROTOCOL.md), [CIAM.md](../CIAM.md) e [OPENSWE.md](../OPENSWE.md) — referência dos pacotes `agentprotocol`, `ciam` e `openswe`
+- [KNOWLEDGE.md](../KNOWLEDGE.md) — referência dos pacotes `knowledge`, `rag`, `cag` e `kag`
 - [LANGMEM.md](../LANGMEM.md) — referência do pacote `langmem` e diferenças em relação ao LangMem Python
 - [EVALS.md](../EVALS.md) — avaliação offline de agents e chains (`evals`)
 - [DEV.md](../DEV.md) — servidor de desenvolvimento (`langgraph/dev`, `cmd/langgraph`)

@@ -129,6 +129,13 @@ todo list, PII scrubbing, human-in-the-loop.
 - **Summaries are incremental and non-destructive**: the model sees `summarized_messages`, `messages` stays complete, and `RunningSummary` travels in the checkpointed state.
 - **Background formation** is a debounced timer per thread, not a queue worker; see docs/LANGMEM.md for the remote-executor gap.
 
+## knowledge, rag, cag, kag
+
+- **knowledge** defines `Answerer` (question in, sourced answer out) and the `Router` that picks a technique per question. It imports none of the techniques, so any `Answerer` can be routed.
+- **rag** composes `core/retrievers` and `integrations/retrieval`: an incremental `Indexer` (content hash per source) and a `Pipeline` that fuses vector and BM25 results with RRF.
+- **cag** puts the whole corpus in a byte-stable system prefix and lets the provider cache it (`cache_control` for Anthropic, automatic prefix caching elsewhere); `messages.Usage` reports `CacheReadTokens` and `CacheCreationTokens`.
+- **kag** keeps a knowledge graph behind the `GraphStore` interface (in-memory reference implementation, shared conformance suite). An LLM extractor builds it; the `Engine` plans hops, walks the graph and synthesises from the triples. Relation types coming from the model are normalised before they can reach a query language.
+
 ## agentprotocol, ciam, openswe
 
 - **agentprotocol** serves compiled graphs. The thread is the unit: one `hub` per thread holds a ring buffer of typed streaming events (monotonic `seq`, replay by `since`), fed by a translator that maps graph events and callbacks onto the protocol's channels; REST handlers, SSE, commands and a small RFC 6455 WebSocket all read the same hub. Thread records live in memory and are rebuilt from the checkpointer; run records go through a `RunStore` (memory by default, `NewStoreRunStore` over any `store.Store` to survive restarts). Subgraph events keep their namespace, so `namespaces`/`depth` filters and `agent.getTree` see child graphs. `graph.Compiled.Saver()` was added so the server can list, copy and delete checkpoints.

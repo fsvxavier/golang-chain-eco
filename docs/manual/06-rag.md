@@ -194,4 +194,6 @@ answer, _ := chain.Invoke(ctx, "Qual é a política de reembolso?")
 - Use MMR quando os resultados vierem repetitivos; use `Ensemble` com BM25 quando termos exatos importam.
 - Meça: teste perguntas reais e veja se o pedaço certo aparece nos `K` primeiros.
 
+Quer indexação incremental, busca híbrida pronta, cache de prompt (CAG) ou grafo de conhecimento (KAG)? Veja o [capítulo 20](20-rag-cag-kag.md).
+
 Próximo: [7. LangGraph: StateGraph](07-langgraph.md).

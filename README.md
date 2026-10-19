@@ -59,6 +59,7 @@ Guia detalhado em português, com exemplos e troubleshooting: [docs/manual/READM
 | 13 | [Integrações](docs/manual/13-integracoes.md) |
 | 14 | [Produção, segurança e troubleshooting](docs/manual/14-producao-seguranca-troubleshooting.md) |
 | 15 | [Exemplos e receitas](docs/manual/15-exemplos-e-receitas.md) |
+| 20 | [RAG, CAG e KAG](docs/manual/20-rag-cag-kag.md) |
 
 ## Instalação
 
@@ -86,6 +87,7 @@ go test -race ./...
 | `core/outputparsers` | `Str`, `JSON`, `Struct[T]`, `CommaList`, `ToolCalls` | output parsers |
 | `core/tools` | `tools.New[Args]`, `NewRaw`, validação por JSON Schema | `@tool` |
 | `core/documents`, `textsplitters`, `embeddings`, `vectorstores`, `retrievers` | Pipeline de RAG | idem |
+| `knowledge`, `rag`, `cag`, `kag` | `Answerer` comum, roteador, RAG híbrido com indexação incremental, CAG com prefixo cacheável, KAG com grafo de conhecimento e raciocínio multi-hop (veja [docs/KNOWLEDGE.md](docs/KNOWLEDGE.md)) | RAG / CAG / KAG |
 | `core/callbacks` | Eventos, tracer, logger | callbacks |
 | `core/chathistory` | Histórico de chat (memória, arquivo, store) | `ChatMessageHistory` |
 | `chatmodels` | `Init("anthropic:claude-...")` | `init_chat_model` |
@@ -762,7 +764,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-57 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 1 de evals, 6 de integrações, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 4 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+61 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 1 de evals, 6 de integrações, 4 de RAG/CAG/KAG, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 4 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser
