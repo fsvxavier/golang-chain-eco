@@ -242,3 +242,33 @@ Implemente `knowledge.Classifier` (`MultiHop(ctx, Question) (bool, error)`) para
 ### Limite
 
 As pistas do `KeywordClassifier` são heurísticas: "quem" também aparece em perguntas simples. Para precisão, use `LLMClassifier` ou um classificador próprio.
+
+## `kag.Engine`: planejamento multi-hop
+
+```go
+e := &kag.Engine{Model: model, Graph: g, Embedder: emb, Chunks: ragPipeline, Verify: true}
+ans, err := e.Answer(ctx, knowledge.Question{Text: "Quais pacientes tratados pelo Dr. Silva tiveram interação medicamentosa?"})
+```
+
+Fluxo de uma pergunta:
+
+1. **Plano.** O modelo devolve, por saída estruturada, um `kag.Plan` com até `MaxSteps` passos (padrão 4). Cada `PlanStep` tem `ID`, `Goal`, `Entity`
+   (nome da entidade de partida, ou `"$<id>"` para partir das entidades alcançadas por um passo anterior), `Relations` (tipos a seguir; vazio = todos),
+   `Dir` (`out`, `in` ou `both`, padrão `both`) e `DependsOn`. Referência a passo desconhecido ou posterior é erro.
+2. **Passos.** Cada passo liga a entidade ao grafo (`FindEntities`, com vetor se houver `Embedder`) e percorre `Neighbors` por até `MaxHops` saltos (padrão 3).
+   A travessia guarda as entidades visitadas, então termina em grafos com ciclo, e um conjunto global de triplas evita evidência repetida entre passos.
+3. **Complemento por chunks.** Se um passo não traz tripla nova e `Chunks` está definido, as fontes de `Chunks.Answer` entram como evidência (só as fontes, não o texto da resposta).
+4. **Síntese.** O modelo responde com a evidência numerada (`knowledge.Prompt`). Cada tripla é uma `Source` com `ID` `De|TIPO|Para`, conteúdo `de —TIPO→ para`
+   e `Metadata["source"]` com o chunk de origem.
+5. **Verificação** (`Verify: true`). Uma segunda chamada confere se a resposta é sustentada pela evidência. Se não for, a resposta ganha o prefixo
+   `(não verificado)` e o `Trace` ganha o passo `unverified` com o que faltou. Falha na própria chamada de verificação é erro, não aviso.
+
+O `Trace` tem um passo `step:<id>` por passo do plano, com as triplas encontradas. `Strategy` é `"kag"`. `Usage` é só o da chamada de síntese
+(plano e verificação não entram na soma). Cada etapa emite eventos `callbacks`, então `tracing` e o stream do LangGraph enxergam o plano e os passos.
+
+### Limites
+
+- Um passo cujas triplas já foram coletadas por passo anterior aparece como `sem triplas no grafo` e pode acionar o complemento por chunks sem necessidade.
+- Um passo percorre até `MaxHops` saltos de uma vez; o planejador não é obrigado a dar um salto por passo.
+- `Path` do `GraphStore` não é usado pelo engine hoje; fica disponível para tools de explicação de caminho.
+- A qualidade do plano depende do modelo. Com modelos pequenos, prefira `Schema.RelationTypes` no extrator para o vocabulário ficar previsível.
