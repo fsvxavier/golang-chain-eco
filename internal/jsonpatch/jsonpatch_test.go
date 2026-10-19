@@ -18,7 +18,7 @@ func mustJSON(t *testing.T, s string) any {
 
 // The cases follow RFC 6902 Appendix A (section names in comments) and the
 // pointer examples of RFC 6901 section 5. Written from the RFC text, not
-// downloaded; error cases are the ones the RFC marks as errors.
+// downloaded; suite_test.go runs the official json-patch-tests suite too.
 func TestApplyRFC6902(t *testing.T) {
 	cases := []struct {
 		name    string
