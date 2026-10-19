@@ -115,6 +115,8 @@ go test -race ./...
 | `langmem` | Memória de longo prazo: managers semântico/episódico, tools de memória, otimização de prompts, resumo incremental, background e middleware | `langmem` |
 | `remote/server` | Servidor de grafos compatível com a API de threads/runs | Agent Server |
 | `langgraph/store/sqlstore` | Store de longo prazo em SQLite/Postgres | `PostgresStore` |
+| `evals` | Avaliação offline: datasets JSONL, avaliadores (exato, regex, JSON, embedding, LLM-as-judge, trajetória de tools), relatório texto/JSON | `langsmith.evaluation`, `openevals`, `agentevals` |
+| `langgraph/dev` e `cmd/langgraph` | Servidor de desenvolvimento (Agent Protocol) para seus grafos; `langgraph dev` serve um agent de demonstração | `langgraph dev` |
 
 ## Início rápido
 
@@ -739,7 +741,7 @@ d := &triggers.Dispatcher{Runners: map[string]triggers.Runner{triggers.KindAgent
 http.Handle("/webhooks/github", &triggers.Webhook{Secret: secret, Dispatcher: d, Bot: "openswe", BotLogins: []string{"openswe[bot]"}})
 ```
 
-Exemplos offline em `examples/agentprotocol/`, `examples/ciam/` e `examples/openswe/`. A CLI `cmd/ciam` indexa projetos e serve MCP (`go install ./cmd/ciam`).
+Exemplos offline em `examples/agentprotocol/`, `examples/ciam/` e `examples/openswe/`. A CLI `cmd/ciam` indexa projetos e serve MCP (`go install ./cmd/ciam`); `cmd/langgraph dev` sobe um servidor de desenvolvimento ([docs/DEV.md](docs/DEV.md)).
 
 ## Configuração
 
@@ -760,7 +762,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-55 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 6 de integrações, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 3 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+56 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 1 de evals, 6 de integrações, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 3 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser
@@ -824,7 +826,7 @@ Detalhes de design em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - Em `graph.Interrupt`, o nó reexecuta desde o início, como no LangGraph Python; subgrafos (com ou sem checkpointer próprio) propagam interrupts para o grafo pai. Dois subgrafos interrompidos no mesmo superpasso ainda não têm ordem de retomada determinística.
 - `langmem`: atualização por substituição por padrão (JSON patch RFC 6902 com `WithPatchUpdates()`); `ReflectionExecutor` remoto via `remote/server`; busca semântica por varredura ou por índice vetorial opcional (`vectorstore.NewHNSW`); lista completa em [docs/LANGMEM.md](docs/LANGMEM.md#diferenças-em-relação-ao-langmem-python).
 - `agentprotocol`: subgrafos viram namespaces filhos com `graph.Subgraphs()`; registros de runs persistem com `NewStoreRunStore`, mas o buffer de eventos vive no processo (sem multi-réplica); `ciam`: API HTTP (`ciam api`) e MCP, índice vetorial opcional; `openswe`: sem Slack/Linear/dashboard/contas e os guards leem comandos (não são fronteira de segurança). Detalhes em [docs/AGENT-PROTOCOL.md](docs/AGENT-PROTOCOL.md), [docs/CIAM.md](docs/CIAM.md) e [docs/OPENSWE.md](docs/OPENSWE.md).
-- Não portado: modos de durabilidade, Studio/CLI, backends gerenciados do LangSmith, evals.
+- Não portado: Studio, build/deploy da CLI (`langgraph dev` é um servidor de demonstração; seus grafos são servidos com `dev.Serve`), backends gerenciados do LangSmith e experimentos/filas de anotação hospedados (os evals rodam localmente, ver [docs/EVALS.md](docs/EVALS.md)).
 - `LocalShell` e servidores MCP via stdio executam código no host (registram um aviso na primeira execução; `LocalShell.AllowedCommands` restringe os programas); use apenas com agents e servidores confiáveis. Para isolamento, use `kubernetes.Sandbox` ou outro runner com `backends.Remote`.
 - Integrações de SaaS/API paga só têm teste de contrato; 123 provedores da lista da LangChain dependem de documentação de API que não estava disponível ([docs/PROVIDERS-ANALISE.md](docs/PROVIDERS-ANALISE.md)).
 - Os vector stores `Flat`/`Annoy`/`HNSW` são equivalentes em Go puro a FAISS/Annoy/hnswlib. `LoadAnnoyFile` e `LoadFAISSFlat` leem os arquivos nativos (só leitura; Annoy angular/euclidiano, FAISS flat e IDMap), ainda sem verificação contra arquivos gerados pelas bibliotecas oficiais.

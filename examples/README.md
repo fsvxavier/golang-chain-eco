@@ -97,6 +97,12 @@ Fábrica de software com agents (pacote [`openswe`](../openswe), referência em 
 | `openswe/reviewer` | review única com finding ancorado no diff, push recusado (somente-leitura), re-revisão que reconcilia a resposta humana | open-swe |
 | `openswe/factory` | webhook (menção, fila de follow-ups, duplicata, estranho em repo público), PR novo → revisão, cron, vigia de CI sem desperdício | open-swe |
 
+## evals
+
+| Exemplo | Mostra | Origem |
+|---|---|---|
+| `evals/basic` | `evals.Evaluate` com exato, contains, embedding e LLM-as-judge; relatório texto/JSON | próprio (evals offline do LangSmith) |
+
 ## integrations
 
 Exemplos das integrações (todos rodam offline; o último usa S3 se `S3_ENDPOINT` estiver definido).

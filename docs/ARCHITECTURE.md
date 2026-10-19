@@ -114,8 +114,9 @@ todo list, PII scrubbing, human-in-the-loop.
 
 * State is a `map[string]any`, not a TypedDict/Pydantic model; use `graph.NewTyped[T]`
   or `tools.Decode` to work with structs.
-* Not ported: durability modes, Studio/CLI, the managed LangSmith sandbox/context-hub
-  backends, evals.
+* Not ported: Studio, CLI build/deploy, the managed LangSmith sandbox/context-hub
+  backends and hosted experiments. Offline evals live in `evals/`; `langgraph/dev`
+  serves graphs over the Agent Protocol for development.
 
 ## langmem
 

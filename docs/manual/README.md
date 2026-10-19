@@ -47,6 +47,8 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — decisões de design
 - [AGENT-PROTOCOL.md](../AGENT-PROTOCOL.md), [CIAM.md](../CIAM.md) e [OPENSWE.md](../OPENSWE.md) — referência dos pacotes `agentprotocol`, `ciam` e `openswe`
 - [LANGMEM.md](../LANGMEM.md) — referência do pacote `langmem` e diferenças em relação ao LangMem Python
+- [EVALS.md](../EVALS.md) — avaliação offline de agents e chains (`evals`)
+- [DEV.md](../DEV.md) — servidor de desenvolvimento (`langgraph/dev`, `cmd/langgraph`)
 - [INTEGRATIONS.md](../INTEGRATIONS.md) — integrações e nível de verificação de cada uma
 - [PROVIDERS.md](../PROVIDERS.md) e [PROVIDERS-ANALISE.md](../PROVIDERS-ANALISE.md) — cobertura dos 504 provedores da LangChain
 - [examples/README.md](../../examples/README.md) — índice dos exemplos executáveis
