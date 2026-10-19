@@ -41,6 +41,10 @@ type Options struct {
 	Agents []AgentSpec
 	// Store backs /store/*; default is an in-memory store.
 	Store store.Store
+	// RunStore keeps the durable record of runs, so finished runs survive a
+	// restart. Default is in memory (lost on restart). Event buffers are always
+	// in memory.
+	RunStore RunStore
 	// APIKey, when set, is required as "x-api-key" or "Authorization: Bearer".
 	APIKey string
 	// ReplayBuffer is how many streaming events are kept per thread for
@@ -75,6 +79,19 @@ type threadRec struct {
 	cpTimes  map[string]time.Time
 	// memory carries streaming state across the thread's runs.
 	memory *streamMemory
+	// subgraphs holds the namespaces streamed by the thread's runs, by key.
+	subgraphs map[string][]string
+}
+
+// noteSubgraph records a namespace seen in a run and its ancestors (caller
+// holds Server.mu).
+func (th *threadRec) noteSubgraph(ns []string) {
+	if th.subgraphs == nil {
+		th.subgraphs = map[string][]string{}
+	}
+	for i := 1; i <= len(ns); i++ {
+		th.subgraphs[nsKey(ns[:i])] = ns[:i]
+	}
 }
 
 type queuedRun struct {
@@ -112,6 +129,9 @@ func New(o Options) (*Server, error) {
 	if o.Store == nil {
 		o.Store = store.NewMemory()
 	}
+	if o.RunStore == nil {
+		o.RunStore = NewMemoryRunStore()
+	}
 	if o.ReplayBuffer <= 0 {
 		o.ReplayBuffer = 2000
 	}
@@ -132,6 +152,9 @@ func New(o Options) (*Server, error) {
 		}
 		s.agents[a.ID] = &a
 		s.order = append(s.order, a.ID)
+	}
+	if err := recoverRuns(context.Background(), o.RunStore); err != nil {
+		return nil, fmt.Errorf("agentprotocol: recover runs: %w", err)
 	}
 	s.mux = http.NewServeMux()
 	s.routes()

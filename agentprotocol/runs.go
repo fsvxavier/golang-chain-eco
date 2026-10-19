@@ -102,8 +102,9 @@ func (s *Server) startRun(ctx context.Context, body RunCreate, in graph.State, c
 	rec.cond = sync.NewCond(&rec.evMu)
 	s.runs[rec.RunID] = rec
 	th.active, th.status, th.updated = rec, ThreadBusy, now
-	s.evictRuns()
+	evicted := s.evictRuns()
 	s.mu.Unlock()
+	_ = s.forgetRuns(context.WithoutCancel(ctx), evicted...)
 
 	rctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	rec.cancel = cancel
@@ -135,9 +136,11 @@ func resumeValue(body RunCreate, in graph.State) any {
 	return map[string]any(in)
 }
 
-func (s *Server) evictRuns() {
+// evictRuns drops half of the finished runs once maxRetainedRuns is exceeded
+// and returns their ids; the caller forgets them in the RunStore too.
+func (s *Server) evictRuns() []string {
 	if len(s.runs) <= maxRetainedRuns {
-		return
+		return nil
 	}
 	var finished []*runRec
 	for _, r := range s.runs {
@@ -148,9 +151,22 @@ func (s *Server) evictRuns() {
 		}
 	}
 	sort.Slice(finished, func(i, j int) bool { return finished[i].UpdatedAt.Before(finished[j].UpdatedAt) })
+	var ids []string
 	for _, r := range finished[:len(finished)/2] {
 		delete(s.runs, r.RunID)
+		ids = append(ids, r.RunID)
 	}
+	return ids
+}
+
+// forgetRuns drops the durable records of runs.
+func (s *Server) forgetRuns(ctx context.Context, ids ...string) error {
+	for _, id := range ids {
+		if err := s.opts.RunStore.Delete(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) execute(ctx context.Context, rec *runRec, th *threadRec, agent *AgentSpec, body RunCreate, in graph.State, cmd *graph.Command) {
@@ -176,7 +192,7 @@ func (s *Server) execute(ctx context.Context, rec *runRec, th *threadRec, agent 
 			rec.rollbackTo = snap.CheckpointID
 		}
 	}
-	s.setRun(rec, RunPending, "")
+	s.setRun(ctx, rec, RunPending, "")
 	rec.addEvent("metadata", map[string]any{"run_id": rec.RunID, "thread_id": th.id})
 	tr.lifecycle("started", nil)
 	tr.lifecycle("running", nil)
@@ -187,14 +203,20 @@ func (s *Server) execute(ctx context.Context, rec *runRec, th *threadRec, agent 
 	}
 	var final graph.State
 	var runErr error
-	for ev, err := range agent.Graph.StreamEvents(ctx, input, graph.ModeValues, graph.ModeUpdates, graph.ModeMessages, graph.ModeCustom) {
+	for ev, err := range agent.Graph.StreamEvents(ctx, input, graph.ModeValues, graph.ModeUpdates, graph.ModeMessages, graph.ModeCustom, graph.Subgraphs()) {
 		if err != nil {
 			runErr = err
 			break
 		}
 		tr.handle(ev)
 		rec.addGraphEvent(ev)
-		if ev.Mode == graph.ModeValues {
+		if len(ev.Namespace) > 0 {
+			s.mu.Lock()
+			th.noteSubgraph(ev.Namespace)
+			s.mu.Unlock()
+		}
+		// subgraph values are not the run's result nor a thread checkpoint
+		if ev.Mode == graph.ModeValues && len(ev.Namespace) == 0 {
 			if st, ok := ev.Data.(graph.State); ok {
 				final = st
 			}
@@ -258,6 +280,8 @@ func (s *Server) execute(ctx context.Context, rec *runRec, th *threadRec, agent 
 	}
 	view := rec.Run
 	s.mu.Unlock()
+	// persisted before finish, so a delete waiting on done cannot be undone
+	s.persistRun(context.WithoutCancel(ctx), rec, view)
 	rec.finish()
 
 	if body.Webhook != "" {
@@ -270,6 +294,7 @@ func (s *Server) execute(ctx context.Context, rec *runRec, th *threadRec, agent 
 			delete(s.threads, th.id)
 		}
 		s.mu.Unlock()
+		_ = s.forgetRuns(context.WithoutCancel(ctx), rec.RunID)
 		if rec.ephemeral && saver != nil {
 			_ = saver.DeleteThread(context.Background(), th.id)
 		}
@@ -281,10 +306,30 @@ func (s *Server) execute(ctx context.Context, rec *runRec, th *threadRec, agent 
 	}
 }
 
-func (s *Server) setRun(rec *runRec, status, errMsg string) {
+func (s *Server) setRun(ctx context.Context, rec *runRec, status, errMsg string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	rec.Status, rec.Error, rec.UpdatedAt = status, errMsg, time.Now().UTC()
+	view := rec.Run
+	s.mu.Unlock()
+	s.persistRun(context.WithoutCancel(ctx), rec, view)
+}
+
+// persistRun writes the durable record of a run. A failed write cannot fail a
+// run that is already executing, so it is reported on the run's event stream.
+func (s *Server) persistRun(ctx context.Context, rec *runRec, run Run) {
+	if err := s.opts.RunStore.Put(ctx, run); err != nil {
+		rec.addEvent("error", map[string]any{"error": "RunStoreError", "message": err.Error()})
+	}
+}
+
+// restoredRec wraps a stored run that has no live state: it is finished, has
+// no events (they do not survive a restart) and cannot be cancelled.
+func restoredRec(run Run) *runRec {
+	done := make(chan struct{})
+	close(done)
+	rec := &runRec{Run: run, threadID: run.ThreadID, cancel: func() {}, done: done, finished: true}
+	rec.cond = sync.NewCond(&rec.evMu)
+	return rec
 }
 
 // publishCheckpoint announces the checkpoint a values event belongs to.
@@ -428,25 +473,47 @@ func (s *Server) createAndWait(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.waitResponse(rec))
 }
 
-func (s *Server) findRun(id string) *runRec {
+// findRun returns the in-process record of a run, or else the stored one.
+// It returns nil when the run is unknown.
+func (s *Server) findRun(ctx context.Context, id string) (*runRec, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.runs[id]
+	rec := s.runs[id]
+	s.mu.Unlock()
+	if rec != nil {
+		return rec, nil
+	}
+	run, err := s.opts.RunStore.Get(ctx, id)
+	if err != nil || run == nil {
+		return nil, err
+	}
+	return restoredRec(*run), nil
+}
+
+// requireRun is findRun for handlers: it writes the 404 or 500 itself and
+// returns nil when there is no run to act on.
+func (s *Server) requireRun(w http.ResponseWriter, r *http.Request) *runRec {
+	rec, err := s.findRun(r.Context(), r.PathValue("run_id"))
+	if err != nil {
+		writeErr(w, 500, "internal", err.Error())
+		return nil
+	}
+	if rec == nil {
+		writeErr(w, 404, "not_found", "run not found")
+	}
+	return rec
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
-	rec := s.findRun(r.PathValue("run_id"))
+	rec := s.requireRun(w, r)
 	if rec == nil {
-		writeErr(w, 404, "not_found", "run not found")
 		return
 	}
 	writeJSON(w, 200, s.runView(rec))
 }
 
 func (s *Server) waitRun(w http.ResponseWriter, r *http.Request) {
-	rec := s.findRun(r.PathValue("run_id"))
+	rec := s.requireRun(w, r)
 	if rec == nil {
-		writeErr(w, 404, "not_found", "run not found")
 		return
 	}
 	select {
@@ -458,9 +525,8 @@ func (s *Server) waitRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteRun(w http.ResponseWriter, r *http.Request) {
-	rec := s.findRun(r.PathValue("run_id"))
+	rec := s.requireRun(w, r)
 	if rec == nil {
-		writeErr(w, 404, "not_found", "run not found")
 		return
 	}
 	rec.cancel()
@@ -468,6 +534,10 @@ func (s *Server) deleteRun(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	delete(s.runs, rec.RunID)
 	s.mu.Unlock()
+	if err := s.forgetRuns(r.Context(), rec.RunID); err != nil {
+		writeErr(w, 500, "internal", err.Error())
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -477,24 +547,36 @@ func (s *Server) searchRuns(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 422, "invalid_request", err.Error())
 		return
 	}
+	stored, err := s.opts.RunStore.List(r.Context(), req.ThreadID)
+	if err != nil {
+		writeErr(w, 500, "internal", err.Error())
+		return
+	}
+	// the in-process record is newer than the stored one for the same run
+	byID := make(map[string]Run, len(stored))
+	for _, run := range stored {
+		byID[run.RunID] = run
+	}
 	s.mu.Lock()
-	out := []Run{}
 	for _, rec := range s.runs {
-		if req.Status != "" && rec.Status != req.Status || req.ThreadID != "" && rec.ThreadID != req.ThreadID ||
-			req.AgentID != "" && rec.AgentID != req.AgentID || !matchMeta(rec.Metadata, req.Metadata) {
-			continue
-		}
-		out = append(out, rec.Run)
+		byID[rec.RunID] = rec.Run
 	}
 	s.mu.Unlock()
+	out := []Run{}
+	for _, run := range byID {
+		if req.Status != "" && run.Status != req.Status || req.ThreadID != "" && run.ThreadID != req.ThreadID ||
+			req.AgentID != "" && run.AgentID != req.AgentID || !matchMeta(run.Metadata, req.Metadata) {
+			continue
+		}
+		out = append(out, run)
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 	writeJSON(w, 200, page(out, req.Limit, req.Offset))
 }
 
 func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
-	rec := s.findRun(r.PathValue("run_id"))
+	rec := s.requireRun(w, r)
 	if rec == nil {
-		writeErr(w, 404, "not_found", "run not found")
 		return
 	}
 	action := r.URL.Query().Get("action")
@@ -524,6 +606,7 @@ func (s *Server) rollback(ctx context.Context, rec *runRec) {
 	agent, _ := s.defaultAgent("", th)
 	delete(s.runs, rec.RunID)
 	s.mu.Unlock()
+	_ = s.forgetRuns(ctx, rec.RunID)
 	if agent != nil && agent.Graph.Saver() != nil && rec.rollbackTo != "" {
 		_, _ = agent.Graph.UpdateState(threadCtx(ctx, rec.threadID, rec.rollbackTo), graph.State{}, "")
 	}

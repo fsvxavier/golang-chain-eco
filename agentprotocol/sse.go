@@ -104,9 +104,8 @@ func (s *Server) pumpRun(ctx context.Context, sw *sseWriter, rec *runRec, modes 
 }
 
 func (s *Server) streamRun(w http.ResponseWriter, r *http.Request) {
-	rec := s.findRun(r.PathValue("run_id"))
+	rec := s.requireRun(w, r)
 	if rec == nil {
-		writeErr(w, 404, "not_found", "run not found")
 		return
 	}
 	sw, ok := newSSE(w)

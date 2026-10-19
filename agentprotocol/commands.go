@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
@@ -438,10 +441,27 @@ func (s *Server) cmdTree(th *threadRec) any {
 	case ThreadError:
 		status = "failed"
 	}
-	s.mu.Unlock()
 	name := ""
 	if agent != nil {
 		name = agent.Name
 	}
-	return map[string]any{"tree": map[string]any{"namespace": []string{}, "status": status, "graphName": name, "children": []any{}}}
+	tree := treeNode(th.subgraphs, []string{}, status, name)
+	s.mu.Unlock()
+	return map[string]any{"tree": tree}
+}
+
+// treeNode builds the node of namespace ns with its child subgraphs, in
+// namespace order. Subgraph nodes take the status of the thread's latest run
+// (per-subgraph status is not tracked).
+func treeNode(subs map[string][]string, ns []string, status, name string) map[string]any {
+	keys := slices.Sorted(maps.Keys(subs))
+	children := []any{}
+	for _, k := range keys {
+		c := subs[k]
+		if len(c) == len(ns)+1 && slices.Equal(c[:len(ns)], ns) {
+			node, _, _ := strings.Cut(c[len(c)-1], ":")
+			children = append(children, treeNode(subs, c, status, node))
+		}
+	}
+	return map[string]any{"namespace": ns, "status": status, "graphName": name, "children": children}
 }

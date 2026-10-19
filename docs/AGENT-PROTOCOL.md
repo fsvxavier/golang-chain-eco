@@ -41,7 +41,7 @@ O grafo precisa de **checkpointer** para ter estado de thread (`graph.WithCheckp
 - **Thread interrompida**: o próximo `run` com `input` **retoma** o grafo (`Command{Resume}`). O valor de retomada é `input.resume`, se existir; senão as `messages`, se for só isso; senão o objeto de `input` inteiro. Para responder por `interruptId` (com `update`/`goto`), use o comando `input.respond`.
 - **Run sem `thread_id`** (stateless): thread efêmera, apagada (com o checkpoint) ao final.
 - `on_completion: delete` apaga a run; `on_disconnect: cancel` cancela se o cliente sumir (padrão `continue`); `webhook` recebe `POST {run, values, messages}` ao terminar; `if_not_exists: create` cria a thread na hora (padrão `reject`).
-- **Persistência após reinício**: registros de threads/runs ficam em memória, mas um `GET /threads/{id}` reconstrói a thread a partir do checkpointer. Runs finalizadas não sobrevivem ao reinício.
+- **Persistência após reinício**: um `GET /threads/{id}` reconstrói a thread a partir do checkpointer. Os registros de runs são gravados a cada mudança de status num `RunStore` (`Options.RunStore`): o padrão (`NewMemoryRunStore`) mantém só em memória, e `NewStoreRunStore(store)` os grava num `langgraph/store.Store` (namespace `["agentprotocol","runs",threadID]`), que sobrevive ao reinício quando o store é durável. Após reinício, `GET /runs/{id}` e `POST /runs/search` devolvem essas runs; `DELETE` as remove do store. Uma run que ainda estava `pending` quando o processo morreu é marcada como `error` (com a mensagem `server stopped before the run finished`) na inicialização, pois o protocolo não tem estado de falha por queda. O buffer de eventos (`GET /runs/{id}/stream`, streaming de thread) continua só em memória: após reinício, uma run restaurada não tem eventos para reenviar. Cancelar ou fazer rollback de uma run restaurada não atua no grafo (a run não está mais em execução).
 
 ### Mensagens
 
@@ -82,11 +82,12 @@ Garantias: cada evento tem `seq` monotônico e `eventId` (`evt_<seq>`); **mensag
 ## Diferenças e limites (sem maquiagem)
 
 - **Streaming de run (REST)**: `POST /runs/stream` emite `event: <modo>` (`metadata`, `values`, `updates`, `messages`, `custom`, `end`); no modo `messages` o dado é `{chunk, node}`. O formato exato do SDK Python da LangGraph Platform pode diferir.
-- **Namespaces**: só a raiz (`[]`). Subgrafos e subagents **não** aparecem como namespaces filhos; `agent.getTree` devolve só a raiz, sem `children`.
+- **Namespaces**: o streaming pede `graph.Subgraphs()`, então os eventos de subgrafos chegam com `namespace` = caminho do subgrafo (`["sub:0"]`, um elemento `nó:id` por nível; raiz = `[]`). Os filtros `namespaces` e `depth` do SSE valem sobre esse caminho, e `agent.getTree` monta `children` a partir dos namespaces vistos nas runs da thread. Limites: o `status` de cada filho é o da última run da thread (não há status por subgrafo), e o histórico de eventos segue o buffer circular da thread.
 - **`run.start` com run ativa** enfileira (não injeta input no grafo em andamento: o runtime não suporta).
 - **`state.fork`** cria **nova thread** com o histórico até o checkpoint, e roda se houver `input`.
 - **Timestamps de checkpoint** são os do momento em que o servidor os viu (não são persistidos pelo checkpointer); checkpoints anteriores a um reinício usam a data de criação da thread.
-- **Sem multi-processo**: o buffer de eventos e o registro de runs vivem no processo. Para várias réplicas, use afinidade por thread ou um servidor por thread.
+- **Sem multi-processo**: o buffer de eventos e as runs em execução vivem no processo, e a recuperação marca como `error` todo registro `pending` do store na inicialização, o que assume um único processo por store. Várias réplicas sobre o mesmo store se atrapalhariam; use afinidade por thread ou um servidor por thread. Não há Redis nem outro backend distribuído aqui.
+- **Retenção**: no máximo 5000 runs finalizadas por processo; ao estourar, metade das mais antigas é apagada também do `RunStore`. Runs de um processo anterior não entram nessa conta e não são podadas.
 - **Sem métricas/limites de taxa**; `APIKey` é uma chave única. Coloque um gateway na frente para multi-tenant.
 - `GET /store/items` aceita `namespace` repetido (`?namespace=a&namespace=b`) e o formato `a.b` dos SDKs; nomes de namespace com ponto precisam do primeiro formato.
 

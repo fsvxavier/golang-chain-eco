@@ -3,10 +3,13 @@ package agentprotocol
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/fsvxavier/golang-chain-eco/core/callbacks"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
+	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
 )
 
@@ -15,20 +18,24 @@ var rootNS = []string{}
 // translator turns graph runtime events into streaming-protocol events on a
 // thread hub: the messages channel with explicit start/delta/finish
 // boundaries, tools lifecycle, updates, values, checkpoints, custom and the
-// lifecycle status machine.
+// lifecycle status machine. Every event keeps the namespace of the (sub)graph
+// that emitted it, and each namespace streams its own message at a time.
 type translator struct {
 	h     *hub
 	graph string
 
-	mu        sync.Mutex
-	cur       *openMessage      // message being streamed
-	mem       *streamMemory     // shared with the thread's other runs
-	toolRuns  map[string]string // callback run id -> tool call id
-	anon      int
-	lastValue graph.State
+	mu       sync.Mutex
+	open     map[string]*openMessage // namespace key -> message being streamed
+	mem      *streamMemory           // shared with the thread's other runs
+	toolRuns map[string]string       // callback run id -> tool call id
+	anon     int
 }
 
+// nsKey identifies a namespace in maps.
+func nsKey(ns []string) string { return strings.Join(ns, "|") }
+
 type openMessage struct {
+	ns        []string
 	id        string
 	node      string
 	text      string
@@ -52,7 +59,7 @@ func newStreamMemory() *streamMemory { return &streamMemory{streamed: map[string
 
 // newTranslator builds a translator over a thread's memory.
 func newTranslator(h *hub, graphName string, mem *streamMemory) *translator {
-	return &translator{h: h, graph: graphName, mem: mem, toolRuns: map[string]string{}}
+	return &translator{h: h, graph: graphName, mem: mem, open: map[string]*openMessage{}, toolRuns: map[string]string{}}
 }
 
 func (t *translator) lifecycle(status string, extra map[string]any) {
@@ -67,28 +74,27 @@ func (t *translator) lifecycle(status string, extra map[string]any) {
 func (t *translator) handle(ev graph.Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	ns := ev.Namespace
 	switch ev.Mode {
 	case graph.ModeMessages:
 		if m, ok := ev.Data.(messages.Message); ok {
-			t.chunk(ev.Node, m)
+			t.chunk(ns, ev.Node, m)
 		}
 	case graph.ModeUpdates:
-		t.closeMessage()
+		t.closeMessage(ns)
 		if upd := unwrapUpdate(ev); upd != nil {
-			t.updates(ev.Node, upd)
+			t.updates(ns, ev.Node, upd)
 		}
 	case graph.ModeValues:
 		if st, ok := ev.Data.(graph.State); ok {
-			t.lastValue = st
-			t.h.publish("values", rootNS, "", jsonState(st))
+			t.h.publish("values", ns, "", jsonState(st))
 		}
 	case graph.ModeCustom:
-		payload := map[string]any{"payload": ev.Data}
-		t.h.publish("custom", rootNS, ev.Node, payload)
+		t.h.publish("custom", ns, ev.Node, map[string]any{"payload": ev.Data})
 	}
 }
 
-func (t *translator) updates(node string, upd map[string]any) {
+func (t *translator) updates(ns []string, node string, upd map[string]any) {
 	vals := map[string]any{}
 	for k, v := range upd {
 		vals[k] = v
@@ -97,7 +103,7 @@ func (t *translator) updates(node string, upd map[string]any) {
 	if node != "" {
 		data["node"] = node
 	}
-	t.h.publish("updates", rootNS, node, data)
+	t.h.publish("updates", ns, node, data)
 	// models that do not stream still deserve message events
 	if v, ok := upd["messages"]; ok {
 		ms, err := messages.Coerce(v)
@@ -107,28 +113,28 @@ func (t *translator) updates(node string, upd map[string]any) {
 		for _, m := range ms {
 			if m.Role == messages.RoleAI && m.ID != "" && !t.mem.streamed[m.ID] {
 				t.mem.streamed[m.ID] = true
-				t.emitWhole(node, m)
+				t.emitWhole(ns, node, m)
 			}
 		}
 	}
 }
 
-func (t *translator) emitWhole(node string, m messages.Message) {
-	t.h.publish("messages", rootNS, node, map[string]any{"event": "message-start", "role": "ai", "id": m.ID})
+func (t *translator) emitWhole(ns []string, node string, m messages.Message) {
+	t.h.publish("messages", ns, node, map[string]any{"event": "message-start", "role": "ai", "id": m.ID})
 	idx := 0
 	if text := m.Text(); text != "" {
 		blk := map[string]any{"type": "text", "text": text}
-		t.h.publish("messages", rootNS, node, map[string]any{"event": "content-block-start", "index": idx, "content": map[string]any{"type": "text", "text": ""}})
-		t.h.publish("messages", rootNS, node, map[string]any{"event": "content-block-delta", "index": idx, "delta": map[string]any{"type": "text-delta", "text": text}})
-		t.h.publish("messages", rootNS, node, map[string]any{"event": "content-block-finish", "index": idx, "content": blk})
+		t.h.publish("messages", ns, node, map[string]any{"event": "content-block-start", "index": idx, "content": map[string]any{"type": "text", "text": ""}})
+		t.h.publish("messages", ns, node, map[string]any{"event": "content-block-delta", "index": idx, "delta": map[string]any{"type": "text-delta", "text": text}})
+		t.h.publish("messages", ns, node, map[string]any{"event": "content-block-finish", "index": idx, "content": blk})
 		idx++
 	}
 	for _, tc := range m.ToolCalls {
-		t.toolBlock(node, idx, tc)
+		t.toolBlock(ns, node, idx, tc)
 		t.mem.pending = append(t.mem.pending, tc)
 		idx++
 	}
-	t.h.publish("messages", rootNS, node, finishData(m.Usage))
+	t.h.publish("messages", ns, node, finishData(m.Usage))
 }
 
 func finishData(u *messages.Usage) map[string]any {
@@ -139,40 +145,43 @@ func finishData(u *messages.Usage) map[string]any {
 	return d
 }
 
-func (t *translator) toolBlock(node string, idx int, tc messages.ToolCall) {
-	t.h.publish("messages", rootNS, node, map[string]any{"event": "content-block-start", "index": idx,
+func (t *translator) toolBlock(ns []string, node string, idx int, tc messages.ToolCall) {
+	t.h.publish("messages", ns, node, map[string]any{"event": "content-block-start", "index": idx,
 		"content": map[string]any{"type": "tool_call_chunk", "id": tc.ID, "name": tc.Name, "args": ""}})
-	t.h.publish("messages", rootNS, node, map[string]any{"event": "content-block-finish", "index": idx,
+	t.h.publish("messages", ns, node, map[string]any{"event": "content-block-finish", "index": idx,
 		"content": map[string]any{"type": "tool_call", "id": tc.ID, "name": tc.Name, "args": tc.Args}})
 }
 
 // chunk handles one streamed model chunk, opening and closing the message and
 // its content blocks so clients never have to infer boundaries.
-func (t *translator) chunk(node string, c messages.Message) {
+func (t *translator) chunk(ns []string, node string, c messages.Message) {
+	k := nsKey(ns)
+	cur := t.open[k]
 	id := c.ID
-	if id == "" && t.cur != nil && t.cur.node == node {
-		id = t.cur.id
+	if id == "" && cur != nil && cur.node == node {
+		id = cur.id
 	}
 	if id == "" {
 		t.anon++
 		id = fmt.Sprintf("msg_%d", t.anon)
 	}
-	if t.cur != nil && t.cur.id != id {
-		t.closeMessage()
+	if cur != nil && cur.id != id {
+		t.closeMessage(ns)
+		cur = nil
 	}
-	if t.cur == nil {
-		t.cur = &openMessage{id: id, node: node}
+	if cur == nil {
+		cur = &openMessage{ns: ns, id: id, node: node}
+		t.open[k] = cur
 		t.mem.streamed[id] = true
-		t.h.publish("messages", rootNS, node, map[string]any{"event": "message-start", "role": "ai", "id": id})
+		t.h.publish("messages", ns, node, map[string]any{"event": "message-start", "role": "ai", "id": id})
 	}
-	cur := t.cur
 	if c.Content != "" {
 		if !cur.textOpen {
 			cur.textOpen = true
-			t.h.publish("messages", rootNS, node, map[string]any{"event": "content-block-start", "index": cur.nextIndex, "content": map[string]any{"type": "text", "text": ""}})
+			t.h.publish("messages", ns, node, map[string]any{"event": "content-block-start", "index": cur.nextIndex, "content": map[string]any{"type": "text", "text": ""}})
 		}
 		cur.text += c.Content
-		t.h.publish("messages", rootNS, node, map[string]any{"event": "content-block-delta", "index": cur.nextIndex, "delta": map[string]any{"type": "text-delta", "text": c.Content}})
+		t.h.publish("messages", ns, node, map[string]any{"event": "content-block-delta", "index": cur.nextIndex, "delta": map[string]any{"type": "text-delta", "text": c.Content}})
 	}
 	if len(c.ToolCalls) > 0 {
 		cur.calls = append(cur.calls, c.ToolCalls...)
@@ -182,51 +191,63 @@ func (t *translator) chunk(node string, c messages.Message) {
 	}
 }
 
-// closeMessage finishes the open message (text block first, then tool-call
-// blocks, then message-finish) and queues its tool calls for correlation.
-func (t *translator) closeMessage() {
-	cur := t.cur
+// closeMessage finishes the namespace's open message (text block first, then
+// tool-call blocks, then message-finish) and queues its tool calls for
+// correlation.
+func (t *translator) closeMessage(ns []string) {
+	k := nsKey(ns)
+	cur := t.open[k]
 	if cur == nil {
 		return
 	}
-	t.cur = nil
+	delete(t.open, k)
 	if cur.textOpen {
-		t.h.publish("messages", rootNS, cur.node, map[string]any{"event": "content-block-finish", "index": cur.nextIndex,
+		t.h.publish("messages", ns, cur.node, map[string]any{"event": "content-block-finish", "index": cur.nextIndex,
 			"content": map[string]any{"type": "text", "text": cur.text}})
 		cur.nextIndex++
 	}
 	for _, tc := range cur.calls {
-		t.toolBlock(cur.node, cur.nextIndex, tc)
+		t.toolBlock(ns, cur.node, cur.nextIndex, tc)
 		t.mem.pending = append(t.mem.pending, tc)
 		cur.nextIndex++
 	}
-	t.h.publish("messages", rootNS, cur.node, finishData(cur.usage))
+	t.h.publish("messages", ns, cur.node, finishData(cur.usage))
 }
 
 // finish flushes anything still open at the end of a run.
 func (t *translator) finish() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.closeMessage()
+	for _, cur := range t.open {
+		t.closeMessage(cur.ns)
+	}
 }
 
 // callbacksHandler reports tool execution on the tools channel.
 func (t *translator) callbacksHandler() callbacks.Handler {
-	return callbacks.HandlerFunc(func(_ context.Context, e callbacks.Event) {
+	return callbacks.HandlerFunc(func(hctx context.Context, e callbacks.Event) {
+		ns := graph.NamespaceOf(hctx)
 		switch e.Kind {
 		case callbacks.ToolStart:
+			// A tool node runs each call with its call id in ctx: that id is the
+			// one the messages channel announced, whatever the event order.
+			callID := tools.CallID(hctx)
 			t.mu.Lock()
-			callID := e.RunID
-			for i, tc := range t.mem.pending { // FIFO match by tool name
-				if tc.Name == e.Name {
-					callID = tc.ID
-					t.mem.pending = append(t.mem.pending[:i], t.mem.pending[i+1:]...)
-					break
+			if callID == "" { // a tool outside a tool node: match the call by name
+				for _, tc := range t.mem.pending {
+					if tc.Name == e.Name {
+						callID = tc.ID
+						break
+					}
 				}
 			}
+			if callID == "" {
+				callID = e.RunID
+			}
+			t.mem.pending = slices.DeleteFunc(t.mem.pending, func(tc messages.ToolCall) bool { return tc.ID == callID })
 			t.toolRuns[e.RunID] = callID
 			t.mu.Unlock()
-			t.h.publish("tools", rootNS, "tools", map[string]any{"event": "tool-started", "toolCallId": callID, "toolName": e.Name, "input": e.Input})
+			t.h.publish("tools", ns, "tools", map[string]any{"event": "tool-started", "toolCallId": callID, "toolName": e.Name, "input": e.Input})
 		case callbacks.ToolEnd, callbacks.ToolError:
 			t.mu.Lock()
 			callID := t.toolRuns[e.RunID]
@@ -237,10 +258,10 @@ func (t *translator) callbacksHandler() callbacks.Handler {
 				if e.Err != nil {
 					msg = e.Err.Error()
 				}
-				t.h.publish("tools", rootNS, "tools", map[string]any{"event": "tool-error", "toolCallId": callID, "message": msg})
+				t.h.publish("tools", ns, "tools", map[string]any{"event": "tool-error", "toolCallId": callID, "message": msg})
 				return
 			}
-			t.h.publish("tools", rootNS, "tools", map[string]any{"event": "tool-finished", "toolCallId": callID, "output": e.Output})
+			t.h.publish("tools", ns, "tools", map[string]any{"event": "tool-finished", "toolCallId": callID, "output": e.Output})
 		}
 	})
 }

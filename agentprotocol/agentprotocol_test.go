@@ -27,6 +27,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/langgraph/channels"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
+	"github.com/fsvxavier/golang-chain-eco/langgraph/store"
 )
 
 type cityArgs struct {
@@ -896,5 +897,164 @@ func TestResumedRunDoesNotReplayAndKeepsToolCallIDs(t *testing.T) {
 	}
 	if toolID != "pay_1" {
 		t.Fatalf("tool id after a resume must still be the streamed call id, got %q", toolID)
+	}
+}
+
+func TestFinishedRunsSurviveRestart(t *testing.T) {
+	ctx := context.Background()
+	st := store.NewMemory()
+	opts := agentprotocol.Options{
+		Agents:   []agentprotocol.AgentSpec{{ID: "chat", Graph: chatAgent(t)}},
+		Store:    st,
+		RunStore: agentprotocol.NewStoreRunStore(st),
+	}
+	c1, _ := newServer(t, opts)
+	out, err := c1.CreateAndWait(ctx, agentprotocol.RunCreate{ThreadID: "keep", IfNotExists: "create", Input: json.RawMessage(`"weather?"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := out.Run.RunID
+
+	c2, _ := newServer(t, opts) // fresh process, same store
+	run, err := c2.GetRun(ctx, id)
+	if err != nil || run.Status != "success" || run.ThreadID != "keep" {
+		t.Fatalf("%+v %v", run, err)
+	}
+	runs, err := c2.SearchRuns(ctx, agentprotocol.RunSearchRequest{ThreadID: "keep"})
+	if err != nil || len(runs) != 1 || runs[0].RunID != id {
+		t.Fatalf("%+v %v", runs, err)
+	}
+	if err := c2.DeleteRun(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	c3, _ := newServer(t, opts)
+	if _, err := c3.GetRun(ctx, id); statusOf(err) != 404 {
+		t.Fatalf("deleted run came back after restart: %v", err)
+	}
+}
+
+func TestInFlightRunBecomesErrorAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	st := store.NewMemory()
+	started, release := make(chan struct{}, 1), make(chan struct{})
+	t.Cleanup(func() { close(release) }) // lets the abandoned first process finish
+	opts := agentprotocol.Options{
+		Agents:   []agentprotocol.AgentSpec{{ID: "slow", Graph: slowGraph(t, started, release)}},
+		Store:    st,
+		RunStore: agentprotocol.NewStoreRunStore(st),
+	}
+	c1, _ := newServer(t, opts)
+	r, err := c1.CreateRun(ctx, agentprotocol.RunCreate{ThreadID: "t", IfNotExists: "create", Input: json.RawMessage(`"x"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started // the pending record is written before the graph runs
+
+	c2, _ := newServer(t, opts) // the first process dies here; its run never finishes
+	run, err := c2.GetRun(ctx, r.RunID)
+	if err != nil || run.Status != agentprotocol.RunError || run.Error == "" {
+		t.Fatalf("in-flight run must be reported as error: %+v %v", run, err)
+	}
+	if runs, _ := c2.SearchRuns(ctx, agentprotocol.RunSearchRequest{Status: agentprotocol.RunError}); len(runs) != 1 {
+		t.Fatalf("search by status: %d", len(runs))
+	}
+}
+
+// nestedAgent is a graph whose node "sub" runs a subgraph with one node.
+func nestedAgent(t *testing.T) *graph.Compiled {
+	t.Helper()
+	inner, err := graph.NewStateGraph(graph.Schema{"log": graph.Append()}).
+		AddNode("leaf", func(context.Context, graph.State) (any, error) {
+			return graph.State{"log": []any{"inner"}}, nil
+		}).AddEdge(graph.Start, "leaf").AddEdge("leaf", graph.End).Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer, err := graph.NewStateGraph(graph.Schema{"log": graph.Append()}).
+		AddNode("sub", func(ctx context.Context, _ graph.State) (any, error) {
+			o, err := inner.Invoke(ctx, graph.State{})
+			return graph.State{"log": o["log"]}, err
+		}).AddEdge(graph.Start, "sub").AddEdge("sub", graph.End).Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return outer
+}
+
+// replay reads the thread's events recorded so far (the backlog from seq 1).
+func replay(t *testing.T, c *agentprotocol.Client, thread string, f agentprotocol.Filter) []agentprotocol.Event {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	f.Since = 1
+	var out []agentprotocol.Event
+	for ev, err := range c.Events(ctx, thread, f) {
+		if err != nil {
+			break // the live tail ends with the deadline
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+func TestSubgraphEventsNamespacesAndTree(t *testing.T) {
+	ctx := context.Background()
+	c, _ := newServer(t, agentprotocol.Options{Agents: []agentprotocol.AgentSpec{{ID: "nested", Graph: nestedAgent(t)}}})
+	collect(t, ctx, c, "n1", agentprotocol.Filter{Channels: []string{"lifecycle"}}, func() {
+		res, err := c.Command(ctx, "n1", "run.start", map[string]any{"assistantId": "nested", "input": map[string]any{"log": []any{}}})
+		if err != nil || res.Type != "success" {
+			t.Errorf("run.start: %+v %v", res, err)
+		}
+	})
+	chans := []string{"updates", "values", "lifecycle"}
+
+	// the child's events carry its namespace; the root's have none
+	var childLeaf, rootUpdates int
+	for _, e := range replay(t, c, "n1", agentprotocol.Filter{Channels: chans}) {
+		ns, _ := e.Params["namespace"].([]any)
+		switch {
+		case len(ns) == 1 && ns[0] == "sub:0" && e.Method == "updates" && e.Params["node"] == "leaf":
+			childLeaf++
+		case len(ns) == 0 && e.Method == "updates":
+			rootUpdates++
+		}
+	}
+	if childLeaf != 1 || rootUpdates != 1 {
+		t.Fatalf("child leaf updates=%d root updates=%d", childLeaf, rootUpdates)
+	}
+
+	// namespaces filter: only the child's events
+	for _, e := range replay(t, c, "n1", agentprotocol.Filter{Channels: chans, Namespaces: [][]string{{"sub:0"}}}) {
+		if ns, _ := e.Params["namespace"].([]any); len(ns) != 1 || ns[0] != "sub:0" {
+			t.Fatalf("namespace filter let through %v", e.Params)
+		}
+	}
+
+	// depth 0: the root only
+	zero := 0
+	for _, e := range replay(t, c, "n1", agentprotocol.Filter{Channels: chans, Depth: &zero}) {
+		if ns, _ := e.Params["namespace"].([]any); len(ns) != 0 {
+			t.Fatalf("depth 0 let through %v", e.Params)
+		}
+	}
+
+	// getTree lists the subgraph as a child of the root
+	res, err := c.Command(ctx, "n1", "agent.getTree", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Tree struct {
+			Children []struct {
+				Namespace []string `json:"namespace"`
+				GraphName string   `json:"graphName"`
+			} `json:"children"`
+		} `json:"tree"`
+	}
+	if err := json.Unmarshal(res.Result, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Tree.Children) != 1 || fmt.Sprint(out.Tree.Children[0].Namespace) != "[sub:0]" || out.Tree.Children[0].GraphName != "sub" {
+		t.Fatalf("tree %s", res.Result)
 	}
 }
