@@ -85,6 +85,27 @@ Comportamento que qualquer adapter deve repetir:
 
 A suíte `conformance.Graph(t, store)` (pacote `internal/conformance`) verifica esse contrato e deve rodar sobre todo adapter novo.
 
+### Extração de triplas (`Extractor`)
+
+```go
+x := &kag.Extractor{Model: model, Embedder: emb, Graph: g,
+    Schema: kag.Schema{RelationTypes: []string{"PRESCREVEU", "INTERAGE_COM"}}}
+stats, err := x.Extract(ctx, chunks) // ExtractStats{Entities, Relations, Dropped}
+```
+
+Para cada documento o modelo devolve, por saída estruturada, `{entities:[{name,type}], relations:[{from,type,to}]}`.
+
+- IDs vêm de `NormalizeID(name)`. Relação com ponta que o modelo não listou cria a entidade.
+- `Relation.Source` é o `ID` do documento ou o `metadata["source"]`, para rastrear de onde veio cada tripla.
+- Vazios e duplicatas são descartados e contados em `Dropped`. Documento em branco é pulado sem chamar o modelo.
+- `Embedder` é opcional: sem ele, as entidades não têm vetor e a busca cai para nome. Se o embedder falhar, nada é gravado e o erro volta.
+- Um chunk com saída inválida não derruba o lote: os erros são juntados (`errors.Join`, a mensagem cita `chunk N`) e os chunks bons são gravados.
+- `Schema.RelationTypes` filtra os tipos aceitos. `Schema.EntityTypes` só entra no prompt, não é imposto.
+
+**Segurança.** O tipo de relação vem de um LLM e depois vira tipo de relacionamento em Cypher (Neo4j e Memgraph), onde não pode ser parâmetro.
+O extrator normaliza todo tipo para `^[A-Z][A-Z0-9_]*$`: maiúsculas, qualquer outro caractere vira `_`, repetições colapsam, `_` das pontas sai,
+e tipo vazio ou começado por dígito é descartado. `trata com; DROP` vira `TRATA_COM_DROP`. A normalização é só ASCII, então acentos viram `_`.
+
 ## `rag`: indexador e pipeline
 
 ### `Indexer`
@@ -184,24 +205,3 @@ só não economizam: a economia aparece em `Usage.CacheReadTokens`.
 
 - A contagem de tokens é a heurística de `knowledge.Heuristic` (~4 caracteres por token). Corpus perto da janela merece um contador próprio.
 - O CAG não tem estado de cache local: depende do cache do provedor, que expira (minutos no Anthropic) e cobra a primeira escrita.
-
-### Extração de triplas (`Extractor`)
-
-```go
-x := &kag.Extractor{Model: model, Embedder: emb, Graph: g,
-    Schema: kag.Schema{RelationTypes: []string{"PRESCREVEU", "INTERAGE_COM"}}}
-stats, err := x.Extract(ctx, chunks) // ExtractStats{Entities, Relations, Dropped}
-```
-
-Para cada documento o modelo devolve, por saída estruturada, `{entities:[{name,type}], relations:[{from,type,to}]}`.
-
-- IDs vêm de `NormalizeID(name)`. Relação com ponta que o modelo não listou cria a entidade.
-- `Relation.Source` é o `ID` do documento ou o `metadata["source"]`, para rastrear de onde veio cada tripla.
-- Vazios e duplicatas são descartados e contados em `Dropped`. Documento em branco é pulado sem chamar o modelo.
-- `Embedder` é opcional: sem ele, as entidades não têm vetor e a busca cai para nome. Se o embedder falhar, nada é gravado e o erro volta.
-- Um chunk com saída inválida não derruba o lote: os erros são juntados (`errors.Join`, a mensagem cita `chunk N`) e os chunks bons são gravados.
-- `Schema.RelationTypes` filtra os tipos aceitos. `Schema.EntityTypes` só entra no prompt, não é imposto.
-
-**Segurança.** O tipo de relação vem de um LLM e depois vira tipo de relacionamento em Cypher (Neo4j e Memgraph), onde não pode ser parâmetro.
-O extrator normaliza todo tipo para `^[A-Z][A-Z0-9_]*$`: maiúsculas, qualquer outro caractere vira `_`, repetições colapsam, `_` das pontas sai,
-e tipo vazio ou começado por dígito é descartado. `trata com; DROP` vira `TRATA_COM_DROP`. A normalização é só ASCII, então acentos viram `_`.
