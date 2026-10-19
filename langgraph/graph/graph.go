@@ -14,6 +14,12 @@
 // super-steps. The compile-time default is set with WithDurability; a run
 // overrides it with WithRunDurability. Pauses of subgraphs with their own
 // checkpointer are always saved.
+//
+// The state is a map (State). For a struct state, NewTyped[T] builds the
+// Schema from the `graph:"key[,reducer=name]"` tags of T and wraps nodes, runs
+// and routers with T: nodes return an Update (a partial map validated against
+// the tags), runs take and return T, and a Validate() error method on T guards
+// every node's input. The map-based API is unchanged; see typed.go.
 package graph
 
 import (

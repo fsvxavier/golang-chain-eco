@@ -90,6 +90,43 @@ schema := graph.Schema{"best": maxCh}
 
 `channels.Overwrite{Value: v}` força a substituição ignorando o reducer. Outros canais: `AnyValue`, `Topic(accumulate)`, `NamedBarrier(nomes...)`, `Ephemeral(guard)`.
 
+### Estado tipado com struct (`graph.NewTyped`)
+
+Se você prefere uma struct a `map[string]any`, `graph.NewTyped[T]()` monta o `Schema` a partir das tags `graph:"chave[,reducer=nome]"` de `T`. A API baixo nível continua a mesma; o tipado é só uma camada por cima (`langgraph/graph/typed.go`):
+
+```go
+type OrderState struct {
+	Messages []messages.Message `graph:"messages,reducer=messages"`
+	Total    int                `graph:"total,reducer=sum"`
+	Log      []string           `graph:"log,reducer=append"`
+	Approved bool               `graph:"approved"`
+	Items    int                `graph:"items"`
+}
+
+g := graph.NewTyped[OrderState]().
+	AddNode("price", func(ctx context.Context, s OrderState) (graph.Update, error) {
+		return graph.Update{"total": s.Items * 10, "log": []string{"precificado"}}, nil
+	}).
+	SetEntryPoint("price").SetFinishPoint("price")
+
+c, err := g.Compile(graph.WithCheckpointer(checkpoint.NewMemory()))
+out, interrupts, err := c.Invoke(ctx, OrderState{Items: 3}) // out é OrderState
+out, _, err = c.Invoke(ctx, graph.Command{Resume: true})    // retomar a mesma thread
+```
+
+Regras:
+
+- Só campos exportados com tag entram no estado. Campos sem tag são ignorados; `graph:"-"` ignora explicitamente.
+- Reducers: `last` (padrão), `messages` (add_messages), `append` (concatena os elementos de cada update; campo slice), `sum` (campo numérico). Reducer desconhecido, chave duplicada, campo não exportado ou tipo incompatível com o reducer são erros de `Compile`.
+- Um nó tipado recebe `T` e devolve um `graph.Update` (mapa parcial). Uma struct não consegue dizer "este campo não foi atualizado", porque o zero também é um valor válido; por isso o nó nomeia as chaves que escreve. Chave que não é tag de `T` falha o nó.
+- `Invoke(ctx, in)` aceita `T` (escreve todos os campos com tag, zeros inclusive) ou `graph.Command` (resume ou atualização parcial). Devolve `(T, []graph.InterruptInfo, error)`.
+- `Stream(ctx, in)` devolve `iter.Seq2[T, error]`. Para eventos completos (`StreamEvents`), `GetState` e o `Saver`, use `c.Unwrap()`, que devolve o `*graph.Compiled`.
+- Se `T` (ou `*T`) tem `Validate() error`, ela roda na entrada de cada nó; erro retornado falha a execução.
+- Os tipos de campo struct são registrados em `checkpoint.Register` com o nome `pacote.Tipo` quando `NewTyped` roda, então sobrevivem a `checkpoint.Strict(true)`. Structs anônimas não podem ser registradas.
+- Arestas, arestas condicionais (o roteador recebe `T`) e `AddJoin` existem no builder tipado; o que faltar está em `g.Graph()`.
+
+Exemplo offline completo: `go run ./examples/langgraph/typed_state`.
+
 ## 7.4 Roteamento condicional
 
 O router devolve o nome do próximo nó, `graph.End`, ou uma lista de `graph.Send`:

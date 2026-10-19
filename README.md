@@ -760,7 +760,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-54 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 6 de integrações, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 3 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+55 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 6 de integrações, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 3 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser

@@ -41,6 +41,7 @@ Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositóri
 | `langgraph/adaptive_rag` | roteador escolhe vector store ou web | `rag/langgraph_adaptive_rag.ipynb` |
 | `langgraph/sql_agent` | agent de SQL com guarda somente-leitura | `tutorials/sql-agent.ipynb` |
 | `langgraph/map_reduce` | fan-out com `Send` e redução | Send API |
+| `langgraph/typed_state` | estado tipado com struct (`NewTyped`, tags de reducer, `Validate`) | próprio |
 
 ## deepagents
 
