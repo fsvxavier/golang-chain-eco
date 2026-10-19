@@ -154,6 +154,9 @@ type RunRequest struct {
 	StreamMode []string
 	// Multitask: interrupt, rollback, reject or enqueue (default reject).
 	Multitask string
+	// AfterSeconds delays the run on the server; a later run on the same
+	// thread with Multitask rollback or interrupt cancels it while pending.
+	AfterSeconds float64
 }
 
 func (r RunRequest) body() map[string]any {
@@ -175,6 +178,9 @@ func (r RunRequest) body() map[string]any {
 	}
 	if r.Multitask != "" {
 		b["multitask_strategy"] = r.Multitask
+	}
+	if r.AfterSeconds > 0 {
+		b["after_seconds"] = r.AfterSeconds
 	}
 	return b
 }

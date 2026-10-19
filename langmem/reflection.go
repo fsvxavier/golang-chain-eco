@@ -34,9 +34,8 @@ func (f *Future) Wait() ([]Put, error) { <-f.done; return f.puts, f.err }
 // so the manager sees the complete, longer conversation once instead of
 // fragments many times.
 //
-// The remote mode of LangMem (running the reflector on a LangGraph Platform
-// server so it survives serverless shutdowns) is not ported: submit to your
-// own queue and call StoreManager.Invoke there.
+// For the remote mode of LangMem (running the reflector on a LangGraph
+// server so it survives serverless shutdowns) use RemoteReflectionExecutor.
 type ReflectionExecutor struct {
 	// Manager does the work. Alternatively set Run.
 	Manager *StoreManager

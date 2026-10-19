@@ -64,12 +64,13 @@ func fail(w http.ResponseWriter, code int, msg string) {
 }
 
 type runBody struct {
-	AssistantID string         `json:"assistant_id"`
-	Input       map[string]any `json:"input"`
-	Command     map[string]any `json:"command"`
-	Config      map[string]any `json:"config"`
-	StreamMode  []string       `json:"stream_mode"`
-	Multitask   string         `json:"multitask_strategy"`
+	AssistantID  string         `json:"assistant_id"`
+	Input        map[string]any `json:"input"`
+	Command      map[string]any `json:"command"`
+	Config       map[string]any `json:"config"`
+	StreamMode   []string       `json:"stream_mode"`
+	Multitask    string         `json:"multitask_strategy"`
+	AfterSeconds float64        `json:"after_seconds"`
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +182,20 @@ func (s *Server) start(ctx context.Context, threadID string, b runBody) (*run, e
 	}
 	go func() {
 		defer close(ru.done)
+		if b.AfterSeconds > 0 {
+			// Pending until the delay passes; cancelling rctx meanwhile
+			// turns it into an interrupted run without invoking the graph.
+			select {
+			case <-time.After(time.Duration(b.AfterSeconds * float64(time.Second))):
+			case <-rctx.Done():
+			}
+		}
+		if rctx.Err() != nil {
+			s.mu.Lock()
+			ru.Status = "interrupted"
+			s.mu.Unlock()
+			return
+		}
 		s.setStatus(ru, "running", "")
 		out, err := g.Invoke(rctx, input)
 		s.mu.Lock()
