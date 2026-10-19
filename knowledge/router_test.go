@@ -212,3 +212,27 @@ func TestLLMClassifier(t *testing.T) {
 		}
 	}
 }
+
+// strictRAG rejects any Force other than "" and "rag", like rag.Pipeline.
+type strictRAG struct{}
+
+func (strictRAG) Answer(_ context.Context, q Question) (Answer, error) {
+	if q.Force != "" && q.Force != "rag" {
+		return Answer{}, errors.New("rag: cannot answer with strategy " + q.Force)
+	}
+	return Answer{Text: "rag: " + q.Text}, nil
+}
+
+func TestRouterFallbackClearsForce(t *testing.T) {
+	r := Router{RAG: strictRAG{}, KAG: stub{name: "kag", err: errBoom}, Profile: withGraph(smallCorpu), Fallback: true}
+	ans, err := r.Answer(context.Background(), Question{Text: plain, Force: "kag"})
+	if err != nil {
+		t.Fatalf("fallback with Force failed: %v", err)
+	}
+	if ans.Strategy != "rag" {
+		t.Errorf("Strategy = %q, want rag", ans.Strategy)
+	}
+	if got := ans.Trace[0].Detail; !strings.HasPrefix(got, "kag — ") {
+		t.Errorf("route step %q should keep the original decision (kag)", got)
+	}
+}

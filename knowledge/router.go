@@ -106,18 +106,21 @@ func (r *Router) Answer(ctx context.Context, q Question) (Answer, error) {
 	if err != nil {
 		return Answer{}, err
 	}
+	routed := strategy
 	ans, err := r.get(strategy).Answer(ctx, q)
 	var fallback *Step
 	if err != nil && r.Fallback && strategy != "rag" && r.RAG != nil {
 		fallback = &Step{Name: "fallback", Detail: fmt.Sprintf("%s → rag: %v", strategy, err)}
 		strategy = "rag"
-		ans, err = r.RAG.Answer(ctx, q)
+		rq := q
+		rq.Force = "" // the forced strategy just failed; RAG rejects any other Force
+		ans, err = r.RAG.Answer(ctx, rq)
 	}
 	if err != nil {
 		return Answer{}, fmt.Errorf("knowledge: %s: %w", strategy, err)
 	}
 	ans.Strategy = strategy
-	trace := []Step{{Name: "route", Detail: strategy + " — " + reason}}
+	trace := []Step{{Name: "route", Detail: routed + " — " + reason}}
 	if fallback != nil {
 		trace = append(trace, *fallback)
 	}
