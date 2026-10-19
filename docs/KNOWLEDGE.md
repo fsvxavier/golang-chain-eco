@@ -84,3 +84,56 @@ Comportamento que qualquer adapter deve repetir:
 - `Neighbors` devolve em ordem estável (`From|Type|To`).
 
 A suíte `conformance.Graph(t, store)` (pacote `internal/conformance`) verifica esse contrato e deve rodar sobre todo adapter novo.
+
+## `cag`: corpus em prefixo cacheável
+
+O CAG coloca o corpus inteiro na mensagem `system` e deixa o cache de prompt do provedor fazer o resto. Não há busca em tempo de execução.
+
+### `Corpus`
+
+- `cag.NewCorpus(docs)` ordena os documentos por `metadata["source"]`, depois por `ID` e por conteúdo, então a ordem de entrada não muda o prefixo.
+- `Text()` monta blocos `<document source="...">...</document>`; `Hash()` é o sha256 desse texto; `Tokens(counter)` estima o tamanho com um `knowledge.TokenCounter`
+  (`nil` usa `knowledge.Heuristic`); `Documents()` devolve os documentos já ordenados.
+- Os métodos aceitam `*Corpus` nulo.
+
+### `Engine`
+
+```go
+e := &cag.Engine{
+    Model:    model,
+    Corpus:   cag.NewCorpus(docs),
+    Window:   200000, // janela do modelo em tokens (padrão)
+    Reserve:  4096,   // folga para histórico, pergunta e resposta (padrão)
+    Fallback: ragPipeline, // opcional: qualquer knowledge.Answerer
+}
+ans, err := e.Answer(ctx, knowledge.Question{Text: "..."})
+```
+
+Ordem das mensagens: `system` (instrução + corpus), depois `Question.History`, depois a pergunta. O histórico nunca vem antes do corpus, senão o prefixo mudaria a cada turno e o cache não acertaria.
+
+| Situação | Resultado |
+|---|---|
+| corpus + `Reserve` cabe em `Window` | resposta com `Strategy == "cag"`; `Trace` traz `corpus_hash` |
+| resposta traz `Usage.CacheReadTokens > 0` | `Trace` ganha o passo `cache_hit` |
+| não cabe e há `Fallback` | o `Fallback` responde; `Trace` começa com o passo `fallback` e o motivo |
+| não cabe e não há `Fallback` | `cag.ErrCorpusTooLarge` |
+| corpus vazio | `cag.ErrEmptyCorpus` |
+| pergunta vazia | `knowledge.ErrEmptyQuestion` |
+
+`Engine.SetCorpus(c)` troca o corpus e devolve `true` quando o hash mudou, ou seja, quando o cache do provedor será reconstruído.
+É seguro chamar junto com `Answer`.
+
+### Marcação do prefixo (`PrefixCacher`)
+
+| Implementação | Efeito | Usada para |
+|---|---|---|
+| `cag.AnthropicCache` | envia o system como um bloco com `cache_control: {type: ephemeral}` | modelos `anthropic:*` |
+| `cag.StablePrefix` | não altera a mensagem; só garante prefixo idêntico byte a byte | OpenAI e compatíveis (cache automático por prefixo) |
+
+`cag.CacherFor(modelID)` escolhe pelo prefixo do id do modelo; `Engine.Cacher` sobrescreve. Provedores sem cache de prompt funcionam,
+só não economizam: a economia aparece em `Usage.CacheReadTokens`.
+
+### Limites
+
+- A contagem de tokens é a heurística de `knowledge.Heuristic` (~4 caracteres por token). Corpus perto da janela merece um contador próprio.
+- O CAG não tem estado de cache local: depende do cache do provedor, que expira (minutos no Anthropic) e cobra a primeira escrita.
