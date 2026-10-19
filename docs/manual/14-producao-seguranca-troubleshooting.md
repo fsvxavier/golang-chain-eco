@@ -61,7 +61,7 @@ No encerramento do processo: pare de aceitar requisições, espere as em andamen
 
 | Componente | Risco | Mitigação |
 |---|---|---|
-| `backends.LocalShell` | Executa comandos no **host**, sem sandbox | Só em ambiente confiável; em produção use `kubernetes.Sandbox` ou outro runner isolado |
+| `backends.LocalShell` | Executa comandos no **host**, sem sandbox | Só em ambiente confiável; `AllowedCommands` restringe os programas; em produção use `kubernetes.Sandbox` ou outro runner isolado via `backends.Remote` |
 | `mcp.Stdio` | Inicia processo com suas permissões | Só servidores confiáveis; fixe versões; restrinja `Env` |
 | `backends.Filesystem` | Acesso ao disco | Confinado à `Root` (bloqueia `..` e symlinks que escapam); defina `Permissions` |
 
@@ -121,7 +121,7 @@ Para os **seus** testes:
 | `Interrupt` não pausa / não retoma | Sem checkpointer, ou `thread_id` diferente na retomada | Use o mesmo `thread_id`; envie `graph.Command{Resume: ...}` |
 | Efeito colateral executado duas vezes após retomar | O nó reexecuta desde o início | Mova a ação para depois do `Interrupt` ou torne-a idempotente |
 | Estado volta com `float64` ou `map[string]any` em vez do tipo próprio | Serialização JSON do checkpoint | `checkpoint.Register("nome", Tipo{})` |
-| Número inteiro volta como `float64` (ou o contrário) | Números inteiros voltam como `int`; os demais como `float64` | Faça a conversão ao ler o estado, ou use `checkpoint.Register` para um tipo próprio |
+| Número volta como `float64` (ou `int`) em vez do tipo esperado | Números sem tipo explícito voltam como `int` ou `float64`; escalares Go como `int64` e `float32` já são preservados | Use o tipo escalar no estado, ou `checkpoint.Register` para um tipo próprio; `checkpoint.Strict(true)` acusa structs não registrados |
 | Escritas de ramos paralelos se perdem/conflitam | Canal sem reducer | Use `graph.Append()`, `graph.Sum()` ou `channels.BinOp` |
 | Tool nunca é chamada | Descrição vaga, schema confuso ou modelo sem suporte a tools | Melhore nome/descrição/`description` dos campos; teste com outro modelo |
 | Tool chamada com argumentos inválidos | Schema permissivo | Use `jsonschema:"enum=..."`, `minimum`, `required`; devolva `tools.Errorf` explicando |
@@ -137,7 +137,7 @@ Para os **seus** testes:
 ## 14.8 Limitações conhecidas
 
 - O estado é `map[string]any`, não TypedDict/Pydantic. Use `tools.Decode` para ligar em structs.
-- No `sqlsaver`, inteiros voltam como `int` e demais números como `float64`; tipos próprios exigem `checkpoint.Register`.
+- No `sqlsaver`, escalares Go (`int64`, `float32`, `time.Time`, `[]byte`…) voltam com o tipo original; números sem tipo explícito voltam como `int` ou `float64`; tipos próprios exigem `checkpoint.Register`.
 - Em `graph.Interrupt`, o nó reexecuta desde o início. Subgrafos com checkpointer próprio não propagam interrupts ao pai.
 - Não portado da versão Python: modos de durabilidade, Studio/CLI, backends gerenciados do LangSmith e avaliações (evals).
 - Sem parser de PDF nativo (use `Unstructured` ou converta antes).

@@ -48,6 +48,46 @@ func Saver(t *testing.T, s checkpoint.Saver) {
 	if _, ok, _ = s.Get(ctx, checkpoint.Config{ThreadID: th}); ok {
 		t.Fatal("thread not deleted")
 	}
+	Namespaces(t, s)
+}
+
+// Namespaces checks that checkpoints of a subgraph (namespace "sub:0") stay
+// apart from the root graph's, and that DeleteThread removes both.
+func Namespaces(t *testing.T, s checkpoint.Saver) {
+	ctx, th := context.Background(), fmt.Sprintf("ns-%d", time.Now().UnixNano())
+	const sub = "sub:0|inner:1"
+	put := func(id, ns string, step int) {
+		if _, err := s.Put(ctx, checkpoint.Checkpoint{ID: id, ThreadID: th, Namespace: ns, Step: step, Source: "loop",
+			Channels: map[string]any{"n": step}, Next: []checkpoint.Task{{Node: "x"}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("r0", "", 0)
+	put("s0", sub, 0)
+	put("s1", sub, 1)
+	put("r1", "", 1)
+
+	if got, ok, _ := s.Get(ctx, checkpoint.Config{ThreadID: th}); !ok || got.ID != "r1" || got.Namespace != "" {
+		t.Fatalf("root latest: %+v %v", got, ok)
+	}
+	if got, ok, _ := s.Get(ctx, checkpoint.Config{ThreadID: th, Namespace: sub}); !ok || got.ID != "s1" || got.Namespace != sub || got.Step != 1 {
+		t.Fatalf("namespace latest: %+v %v", got, ok)
+	}
+	if got, ok, _ := s.Get(ctx, checkpoint.Config{ThreadID: th, Namespace: sub, CheckpointID: "r0"}); ok {
+		t.Fatalf("root id found in namespace: %+v", got)
+	}
+	if got, ok, _ := s.Get(ctx, checkpoint.Config{ThreadID: th, CheckpointID: "s0"}); ok {
+		t.Fatalf("namespace id found in root: %+v", got)
+	}
+	if list, _ := s.List(ctx, th, 0); len(list) != 2 || list[0].ID != "r1" || list[1].ID != "r0" {
+		t.Fatalf("List must return root checkpoints only: %v", list)
+	}
+	if err := s.DeleteThread(ctx, th); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.Get(ctx, checkpoint.Config{ThreadID: th, Namespace: sub}); ok {
+		t.Fatal("DeleteThread left a namespace behind")
+	}
 }
 
 // Store exercises put/get/search/list/delete.

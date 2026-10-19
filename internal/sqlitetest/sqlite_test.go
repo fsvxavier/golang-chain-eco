@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
+	"github.com/fsvxavier/golang-chain-eco/internal/conformance"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint/sqlsaver"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
@@ -167,5 +169,65 @@ func TestLangmemIndexedStoreOverSQLite(t *testing.T) {
 	}
 	if _, leaked := hits[0].Value["_embedding"]; leaked {
 		t.Fatal("embedding leaked")
+	}
+}
+
+func TestSaverNamespaces(t *testing.T) {
+	conformance.Namespaces(t, open(t))
+}
+
+// A checkpoints_go table written before the checkpoint_ns column existed must
+// still be readable, and the migration must be repeatable.
+func TestSaverMigratesOldTable(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "old.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.ExecContext(ctx, `CREATE TABLE checkpoints_go (
+		thread_id TEXT NOT NULL, checkpoint_id TEXT NOT NULL, seq BIGINT NOT NULL, data TEXT NOT NULL,
+		PRIMARY KEY (thread_id, checkpoint_id))`); err != nil {
+		t.Fatal(err)
+	}
+	b, err := checkpoint.Marshal(checkpoint.Checkpoint{ID: "old", ThreadID: "t", Step: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO checkpoints_go (thread_id, checkpoint_id, seq, data) VALUES ('t', 'old', 1, ?)`, string(b)); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		s, err := sqlsaver.New(ctx, db, sqlsaver.SQLite)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cp, ok, err := s.Get(ctx, checkpoint.Config{ThreadID: "t"})
+		if err != nil || !ok || cp.ID != "old" || cp.Step != 3 {
+			t.Fatalf("old row: %+v %v %v", cp, ok, err)
+		}
+	}
+}
+
+// Scalars that plain JSON would widen (int64, time.Time, []byte) must come back
+// from a real database with their exact Go types.
+func TestSaverKeepsScalarTypes(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	when := time.Date(2026, 10, 19, 12, 30, 0, 500, time.UTC)
+	id, err := s.Put(ctx, checkpoint.Checkpoint{ThreadID: "t", Step: 1, Channels: map[string]any{
+		"big": int64(1<<62 + 3), "when": when, "raw": []byte("ok"), "n": 7,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cp, ok, err := s.Get(ctx, checkpoint.Config{ThreadID: "t", CheckpointID: id})
+	if err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if cp.Channels["big"] != int64(1<<62+3) || cp.Channels["n"] != 7 || string(cp.Channels["raw"].([]byte)) != "ok" {
+		t.Fatalf("%#v", cp.Channels)
+	}
+	if got, ok := cp.Channels["when"].(time.Time); !ok || !got.Equal(when) {
+		t.Fatalf("when: %#v", cp.Channels["when"])
 	}
 }

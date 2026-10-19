@@ -11,6 +11,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/fsvxavier/golang-chain-eco/core/callbacks"
@@ -62,23 +63,35 @@ const (
 	ModeMessages StreamMode = "messages"
 )
 
+// modeSubgraphs is the pseudo mode behind Subgraphs.
+const modeSubgraphs StreamMode = "subgraphs"
+
+// Subgraphs is a StreamEvents option: pass it among the modes to also receive
+// the events of subgraphs run by nodes, tagged with Event.Namespace. Without
+// it, subgraph events are not forwarded.
+func Subgraphs() StreamMode { return modeSubgraphs }
+
 // Event is one streamed item.
 type Event struct {
 	Mode StreamMode
 	Node string // set for updates / messages / custom
-	Data any
+	// Namespace is the path of the subgraph that emitted the event, one
+	// "node:id" element per nesting level; nil for the root graph.
+	Namespace []string
+	Data      any
 }
 
 // Compiled is an executable graph.
 type Compiled struct {
-	g      *StateGraph
-	name   string
-	specs  map[string]channels.Spec
-	saver  checkpoint.Saver
-	store  store.Store
-	cache  Cache
-	before map[string]bool
-	after  map[string]bool
+	g          *StateGraph
+	name       string
+	specs      map[string]channels.Spec
+	saver      checkpoint.Saver
+	store      store.Store
+	cache      Cache
+	before     map[string]bool
+	after      map[string]bool
+	durability Durability // compile-time default; "" means sync
 }
 
 var _ runnables.Runnable[any, State] = (*Compiled)(nil)
@@ -92,6 +105,59 @@ type taskCtx struct {
 	node    string
 	emit    func(Event)
 	writer  bool
+	// ns is the checkpoint namespace of the subgraphs this task invokes.
+	ns string
+	// evNS is the namespace of the run executing this task (Event.Namespace).
+	evNS []string
+	// subs holds the stream modes of the enclosing stream when it asked for
+	// Subgraphs; nil otherwise. Subgraphs run inside this task inherit them.
+	subs map[StreamMode]bool
+	// cur is the resume cursor of the enclosing node when this task runs
+	// inside a subgraph; nil when tc holds its own cursor.
+	cur *taskCtx
+}
+
+// cursor returns the taskCtx whose resume values and index are in use.
+func (tc *taskCtx) cursor() *taskCtx {
+	if tc.cur != nil {
+		return tc.cur
+	}
+	return tc
+}
+
+// position returns the cursor index under lock.
+func (tc *taskCtx) position() int {
+	c := tc.cursor()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.idx
+}
+
+// childNS builds the namespace of a subgraph run by task id inside ns, in
+// upstream form "node:id|node:id".
+func childNS(ns, id string) string {
+	if ns == "" {
+		return id
+	}
+	return ns + "|" + id
+}
+
+// splitNS turns a checkpoint namespace into Event.Namespace form.
+func splitNS(ns string) []string {
+	if ns == "" {
+		return nil
+	}
+	return strings.Split(ns, "|")
+}
+
+// NamespaceOf returns the namespace of the graph run executing ctx (nil at the
+// root), for callbacks that want to tag their events like the graph does.
+func NamespaceOf(ctx context.Context) []string {
+	tc, _ := ctx.Value(tcKey{}).(*taskCtx)
+	if tc == nil {
+		return nil
+	}
+	return tc.evNS
 }
 
 type tcKey struct{}
@@ -106,14 +172,15 @@ func Interrupt(ctx context.Context, value any) any {
 	if tc == nil {
 		panic("graph: Interrupt called outside a graph node")
 	}
-	tc.mu.Lock()
-	if tc.idx < len(tc.resumes) {
-		v := tc.resumes[tc.idx]
-		tc.idx++
-		tc.mu.Unlock()
+	cur := tc.cursor()
+	cur.mu.Lock()
+	if cur.idx < len(cur.resumes) {
+		v := cur.resumes[cur.idx]
+		cur.idx++
+		cur.mu.Unlock()
 		return v
 	}
-	tc.mu.Unlock()
+	cur.mu.Unlock()
 	panic(&interruptPanic{value})
 }
 
@@ -141,13 +208,119 @@ type run struct {
 	c       *Compiled
 	chans   map[string]channels.Channel
 	thread  string
+	ns      string // checkpoint namespace; "" for the root graph
 	step    int
 	tasks   []checkpoint.Task
 	parent  string
 	emit    func(Event)
 	want    map[StreamMode]bool
 	nested  *taskCtx
+	base    int // cursor position when this subgraph was invoked
 	pending []InterruptInfo
+	// dur is how this run writes checkpoints; see Durability.
+	dur Durability
+	w   writer
+	// ready is set once the input or resume is applied, so the state is
+	// meaningful; dirty is set while a super-step is half applied.
+	ready, dirty bool
+}
+
+// writer persists the checkpoints of one run. Sync and exit runs write inline.
+// An async run hands each checkpoint to one background goroutine through a
+// one-slot queue: saves stay in order and a save waits for the previous one
+// when the queue is full.
+type writer struct {
+	saver  checkpoint.Saver
+	parent string // ID of the last stored checkpoint, the ParentID of the next
+	queue  chan saveJob
+	done   chan struct{}
+	closed bool
+	mu     sync.Mutex
+	err    error // first error of an async save
+}
+
+type saveJob struct {
+	ctx context.Context
+	cp  checkpoint.Checkpoint
+}
+
+func (w *writer) put(ctx context.Context, cp checkpoint.Checkpoint) error {
+	cp.ParentID = w.parent
+	id, err := w.saver.Put(ctx, cp)
+	if err != nil {
+		return err
+	}
+	w.parent = id
+	return nil
+}
+
+func (w *writer) enqueue(ctx context.Context, cp checkpoint.Checkpoint) error {
+	if err := w.failed(); err != nil {
+		return err
+	}
+	if w.closed {
+		return errors.New("graph: checkpoint writer already stopped")
+	}
+	if w.queue == nil {
+		w.queue = make(chan saveJob, 1)
+		w.done = make(chan struct{})
+		go w.loop()
+	}
+	select {
+	case w.queue <- saveJob{ctx, cp}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (w *writer) loop() {
+	defer close(w.done)
+	for j := range w.queue {
+		if w.failed() != nil {
+			continue // a failed save aborts the run: drop the rest
+		}
+		if err := w.put(j.ctx, j.cp); err != nil {
+			w.mu.Lock()
+			w.err = err
+			w.mu.Unlock()
+		}
+	}
+}
+
+func (w *writer) failed() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.err
+}
+
+// stop waits for the queued saves and returns the first error. It is safe to
+// call more than once, and it ends the goroutine (no leak on cancel).
+func (w *writer) stop() error {
+	if w.queue != nil {
+		close(w.queue)
+		<-w.done
+		w.queue = nil
+		w.closed = true
+	}
+	return w.failed()
+}
+
+// setCursor moves the shared resume cursor to the subgraph's saved position.
+func (r *run) setCursor(pos int) {
+	c := r.nested.cursor()
+	c.mu.Lock()
+	c.idx = pos
+	c.mu.Unlock()
+}
+
+// cursorOffset is the subgraph's consumption of resume values so far, relative
+// to base, so it can be saved and replayed by a later invocation.
+func (r *run) cursorOffset() int {
+	if r.nested == nil {
+		return 0
+	}
+	return r.nested.position() - r.base
 }
 
 func (c *Compiled) fresh() map[string]channels.Channel {
@@ -187,8 +360,10 @@ func (r *run) restore(cp checkpoint.Checkpoint) {
 	}
 	r.tasks = slices.Clone(cp.Next)
 	r.step = cp.Step
-	r.parent = cp.ID
 }
+
+// pending reports whether the checkpoint holds an unfinished run.
+func pending(cp checkpoint.Checkpoint) bool { return len(cp.Next) > 0 }
 
 // applyWrites groups writes per channel and updates every channel (channels
 // without writes get Update(nil) so ephemerals clear).
@@ -213,19 +388,29 @@ func (r *run) applyWrites(ws []checkpoint.Write) error {
 	return nil
 }
 
+// save persists the current state. The snapshot is taken here, so an async
+// save does not see later super-steps.
 func (r *run) save(ctx context.Context, source string) error {
 	if r.c.saver == nil || r.thread == "" {
 		return nil
 	}
-	id, err := r.c.saver.Put(ctx, checkpoint.Checkpoint{
-		ThreadID: r.thread, ParentID: r.parent, Step: r.step, Source: source,
-		Channels: r.snapshot(), Next: slices.Clone(r.tasks),
-	})
-	if err != nil {
-		return err
+	cp := checkpoint.Checkpoint{
+		ThreadID: r.thread, Namespace: r.ns, Step: r.step, Source: source,
+		Channels: r.snapshot(), Next: slices.Clone(r.tasks), ResumeCursor: r.cursorOffset(),
 	}
-	r.parent = id
-	return nil
+	if r.dur == DurabilityAsync {
+		return r.w.enqueue(ctx, cp)
+	}
+	return r.w.put(ctx, cp)
+}
+
+// boundary saves at a super-step boundary. Exit mode skips it and writes once
+// when the run ends, pauses or fails.
+func (r *run) boundary(ctx context.Context, source string) error {
+	if r.dur == DurabilityExit {
+		return nil
+	}
+	return r.save(ctx, source)
 }
 
 func (r *run) emitValues() {
@@ -306,34 +491,92 @@ func threadOf(ctx context.Context) (thread, cpID string) {
 
 func (c *Compiled) run(ctx context.Context, input any, modes []StreamMode, emit func(Event)) (State, error) {
 	r := &run{c: c, chans: c.fresh(), emit: emit, want: map[StreamMode]bool{}}
+	r.w.saver = c.saver
+	defer r.w.stop() // also on panic, so an async writer never leaks
 	for _, m := range modes {
 		r.want[m] = true
 	}
+	dur, err := c.durabilityOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r.dur = dur
 	r.nested, _ = ctx.Value(tcKey{}).(*taskCtx)
 	var cpID string
 	r.thread, cpID = threadOf(ctx)
+	if r.nested != nil {
+		// A subgraph runs in its own namespace and always continues its latest
+		// checkpoint: the caller's checkpoint_id belongs to the parent.
+		r.ns, cpID = r.nested.ns, ""
+		r.base = r.nested.position()
+		if emit == nil && r.nested.subs != nil {
+			// the enclosing stream asked for Subgraphs: forward our events
+			// there, tagged with our namespace, in the same modes
+			parent, ns := r.nested.emit, splitNS(r.ns)
+			r.emit = func(e Event) {
+				e.Namespace = ns
+				parent(e)
+			}
+			r.want = r.nested.subs
+		}
+	}
 	if c.saver != nil && r.thread == "" {
 		return nil, errors.New("graph: a checkpointer needs Configurable[\"thread_id\"] (use graph.Thread)")
 	}
 	if c.store != nil {
 		ctx = context.WithValue(ctx, storeKey{}, c.store)
 	}
-	if emit != nil && r.want[ModeMessages] {
+	// Installed once by the root run: its handler also sees the tokens of
+	// subgraphs and routes each one to the emitter of the task running it.
+	if r.nested == nil && emit != nil && r.want[ModeMessages] {
 		ctx = callbacks.WithHandlers(ctx, callbacks.HandlerFunc(func(hctx context.Context, e callbacks.Event) {
-			if e.Kind == callbacks.ModelNewToken {
-				node := ""
-				if tc, _ := hctx.Value(tcKey{}).(*taskCtx); tc != nil {
-					node = tc.node
-				}
-				emit(Event{Mode: ModeMessages, Node: node, Data: e.Chunk})
+			if e.Kind != callbacks.ModelNewToken {
+				return
+			}
+			tc, _ := hctx.Value(tcKey{}).(*taskCtx)
+			switch {
+			case tc == nil:
+				emit(Event{Mode: ModeMessages, Data: e.Chunk})
+			case tc.emit != nil: // nil: the subgraph's events are not streamed
+				tc.emit(Event{Mode: ModeMessages, Node: tc.node, Data: e.Chunk})
 			}
 		}))
 	}
 	ctx, end := callbacks.Start(ctx, callbacks.ChainStart, c.name, input)
 
 	out, err := r.execute(ctx, input, cpID)
+	if err != nil && r.dur == DurabilityExit && r.ready && !r.dirty {
+		// Failed between super-steps: keep the last good state so the thread
+		// can be resumed or inspected.
+		if serr := r.save(context.WithoutCancel(ctx), "error"); serr != nil {
+			err = errors.Join(err, serr)
+		}
+	}
+	// Wait for the async saves: the run returns only once they are stored.
+	if ferr := r.w.stop(); err == nil {
+		err = ferr
+	}
+	if err != nil {
+		out = nil
+	}
 	end(out, err)
 	return out, err
+}
+
+// durabilityOf resolves the run's durability: the per-call value in the config
+// wins over the compile-time default.
+func (c *Compiled) durabilityOf(ctx context.Context) (Durability, error) {
+	d := c.durability
+	if s := runnables.GetConfig(ctx).Durability; s != "" {
+		d = Durability(s)
+	}
+	switch d {
+	case "", DurabilitySync:
+		return DurabilitySync, nil
+	case DurabilityAsync, DurabilityExit:
+		return d, nil
+	}
+	return "", fmt.Errorf("graph: unknown durability %q", d)
 }
 
 func (r *run) execute(ctx context.Context, input any, cpID string) (State, error) {
@@ -341,7 +584,7 @@ func (r *run) execute(ctx context.Context, input any, cpID string) (State, error
 	resuming := false
 	var prev *checkpoint.Checkpoint
 	if c.saver != nil {
-		cp, ok, err := c.saver.Get(ctx, checkpoint.Config{ThreadID: r.thread, CheckpointID: cpID})
+		cp, ok, err := c.saver.Get(ctx, checkpoint.Config{ThreadID: r.thread, Namespace: r.ns, CheckpointID: cpID})
 		if err != nil {
 			return nil, err
 		}
@@ -350,7 +593,18 @@ func (r *run) execute(ctx context.Context, input any, cpID string) (State, error
 		}
 		if ok {
 			r.restore(cp)
+			r.w.parent = cp.ID
 			prev = &cp
+			if r.nested != nil && pending(cp) {
+				// The parent node re-ran and invoked us again: continue the
+				// paused run. The input is already applied; interrupt() calls
+				// take their values from the parent's cursor.
+				r.setCursor(r.base + cp.ResumeCursor)
+				for i := range r.tasks {
+					r.tasks[i].Interrupted = false
+				}
+				input = nil
+			}
 		}
 	}
 
@@ -419,10 +673,11 @@ func (r *run) execute(ctx context.Context, input any, cpID string) (State, error
 		if prev != nil {
 			r.step++
 		}
-		if err := r.save(ctx, "input"); err != nil {
+		if err := r.boundary(ctx, "input"); err != nil {
 			return nil, err
 		}
 	}
+	r.ready = true
 	r.emitValues()
 
 	limit := runnables.GetConfig(ctx).RecursionLimit
@@ -430,6 +685,9 @@ func (r *run) execute(ctx context.Context, input any, cpID string) (State, error
 		limit = defaultRecursionLimit
 	}
 	for steps := 0; len(r.tasks) > 0; steps++ {
+		if err := r.w.failed(); err != nil {
+			return nil, err
+		}
 		if steps >= limit {
 			return nil, &GraphRecursionError{Limit: limit}
 		}
@@ -453,9 +711,6 @@ func (r *run) execute(ctx context.Context, input any, cpID string) (State, error
 			}
 		}
 		if len(ints) > 0 {
-			if r.nested != nil && c.saver == nil {
-				panic(&interruptPanic{ints[0].Value})
-			}
 			r.tasks = append(r.tasks, held...)
 			if err := r.save(ctx, "loop"); err != nil {
 				return nil, err
@@ -467,6 +722,7 @@ func (r *run) execute(ctx context.Context, input any, cpID string) (State, error
 		for _, t := range r.tasks {
 			ws = append(ws, plain(t.Writes)...)
 		}
+		r.dirty = true
 		if err := r.applyWrites(ws); err != nil {
 			return nil, err
 		}
@@ -486,12 +742,18 @@ func (r *run) execute(ctx context.Context, input any, cpID string) (State, error
 		ran := r.tasks
 		r.tasks = dedupe(append(next, held...))
 		r.step++
-		if err := r.save(ctx, "loop"); err != nil {
+		r.dirty = false
+		if err := r.boundary(ctx, "loop"); err != nil {
 			return nil, err
 		}
 		r.emitValues()
 		if r.hitsRan(c.after, ran) && len(next) > 0 {
 			return r.paused(ctx, nil)
+		}
+	}
+	if r.dur == DurabilityExit {
+		if err := r.save(ctx, "loop"); err != nil {
+			return nil, err
 		}
 	}
 	return r.state(), nil
@@ -551,19 +813,30 @@ func (r *run) hits2(set map[string]bool, tasks []checkpoint.Task) bool {
 	return false
 }
 
-// paused returns the state with interrupt info after persisting.
+// paused returns the state with interrupt info after persisting. A subgraph
+// cannot return a paused state to its parent node (that would look like a
+// normal return), so it re-raises the interrupt for the enclosing task; the
+// parent then pauses and resumes this subgraph when it re-runs.
 func (r *run) paused(ctx context.Context, ints []InterruptInfo) (State, error) {
 	if ints == nil {
 		if err := r.save(ctx, "loop"); err != nil {
 			return nil, err
 		}
 	}
-	s := r.state()
 	if ints == nil {
 		for _, t := range r.tasks {
 			ints = append(ints, InterruptInfo{Node: t.Node})
 		}
 	}
+	if r.nested != nil {
+		// The parent resumes this subgraph from the store, so the save must
+		// be stored before the panic unwinds.
+		if err := r.w.stop(); err != nil {
+			return nil, err
+		}
+		panic(&interruptPanic{ints[0].Value})
+	}
+	s := r.state()
 	s[InterruptKey] = ints
 	return s, nil
 }
@@ -612,7 +885,7 @@ func (r *run) runTasks(ctx context.Context) ([]taskResult, error) {
 				sem <- struct{}{}
 				defer func() { <-sem }()
 			}
-			res[i] = r.runTask(ctx, t, view)
+			res[i] = r.runTask(ctx, t, view, interruptID(t, i))
 		}()
 	}
 	wg.Wait()
@@ -624,7 +897,7 @@ func (r *run) runTasks(ctx context.Context) ([]taskResult, error) {
 	return res, nil
 }
 
-func (r *run) runTask(ctx context.Context, t checkpoint.Task, view State) (out taskResult) {
+func (r *run) runTask(ctx context.Context, t checkpoint.Task, view State, id string) (out taskResult) {
 	n := r.c.g.nodes[t.Node]
 	if n == nil {
 		return taskResult{err: fmt.Errorf("graph: unknown node %q", t.Node)}
@@ -644,9 +917,13 @@ func (r *run) runTask(ctx context.Context, t checkpoint.Task, view State) (out t
 			return taskResult{writes: ws}
 		}
 	}
-	tc := &taskCtx{resumes: t.Resumes, node: t.Node, emit: r.emit, writer: r.want[ModeCustom]}
+	tc := &taskCtx{resumes: t.Resumes, node: t.Node, emit: r.emit, writer: r.want[ModeCustom],
+		ns: childNS(r.ns, id), evNS: splitNS(r.ns)}
+	if r.want[modeSubgraphs] {
+		tc.subs = r.want
+	}
 	if r.nested != nil {
-		tc = r.nested // share resume cursor with the enclosing node
+		tc.cur = r.nested.cursor() // share resume cursor with the enclosing node
 	}
 	ctx = context.WithValue(ctx, tcKey{}, tc)
 	ctx, end := callbacks.Start(ctx, callbacks.ChainStart, t.Node, in)
@@ -952,8 +1229,10 @@ func (c *Compiled) UpdateState(ctx context.Context, values State, asNode string)
 		return "", err
 	}
 	r := &run{c: c, chans: c.fresh(), thread: thread}
+	r.w.saver = c.saver
 	if ok {
 		r.restore(cp)
+		r.w.parent = cp.ID
 		r.step++
 	}
 	ws, _ := updateWrites(values)
@@ -977,7 +1256,7 @@ func (c *Compiled) UpdateState(ctx context.Context, values State, asNode string)
 	if err := r.save(ctx, "update"); err != nil {
 		return "", err
 	}
-	return r.parent, nil
+	return r.w.parent, nil
 }
 
 // RunInterruptible runs fn so that Interrupt works inside it, feeding the

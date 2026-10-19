@@ -18,6 +18,7 @@ import (
 
 // Saver implements checkpoint.Saver: one object per checkpoint at
 // <prefix><thread>/<seq>_<id>.json, so listing a thread returns them in order.
+// A subgraph namespace adds one directory: <prefix><thread>/<ns>/<seq>_<id>.json.
 // S3 has no atomic append, but keys are unique per checkpoint so concurrent
 // writers never overwrite each other.
 type Saver struct {
@@ -36,7 +37,15 @@ func NewSaver(c *Client, bucket, prefix string) *Saver {
 	return &Saver{c: c, bucket: bucket, prefix: prefix}
 }
 
-func (s *Saver) dir(thread string) string { return s.prefix + url.PathEscape(thread) + "/" }
+// dir is the prefix of one (thread, namespace); the root namespace has no
+// subdirectory.
+func (s *Saver) dir(thread, ns string) string {
+	d := s.prefix + url.PathEscape(thread) + "/"
+	if ns != "" {
+		d += url.PathEscape(ns) + "/"
+	}
+	return d
+}
 
 func (s *Saver) nextSeq() int64 {
 	s.mu.Lock()
@@ -60,14 +69,20 @@ func (s *Saver) Put(ctx context.Context, cp checkpoint.Checkpoint) (string, erro
 	if err != nil {
 		return "", err
 	}
-	return cp.ID, s.c.Put(ctx, s.bucket, fmt.Sprintf("%s%020d_%s.json", s.dir(cp.ThreadID), s.nextSeq(), url.PathEscape(cp.ID)), b)
+	return cp.ID, s.c.Put(ctx, s.bucket, fmt.Sprintf("%s%020d_%s.json", s.dir(cp.ThreadID, cp.Namespace), s.nextSeq(), url.PathEscape(cp.ID)), b)
 }
 
-func (s *Saver) keys(ctx context.Context, thread string) ([]string, error) {
-	objs, err := s.c.List(ctx, s.bucket, s.dir(thread))
-	keys := make([]string, len(objs))
-	for i, o := range objs {
-		keys[i] = o.Key
+// keys lists one namespace's checkpoint objects, oldest first. The root
+// listing skips the subgraph directories below the thread.
+func (s *Saver) keys(ctx context.Context, thread, ns string) ([]string, error) {
+	dir := s.dir(thread, ns)
+	objs, err := s.c.List(ctx, s.bucket, dir)
+	var keys []string
+	for _, o := range objs {
+		if ns == "" && strings.Contains(strings.TrimPrefix(o.Key, dir), "/") {
+			continue
+		}
+		keys = append(keys, o.Key)
 	}
 	return keys, err // S3 lists in ascending key order = oldest first
 }
@@ -81,7 +96,7 @@ func (s *Saver) load(ctx context.Context, key string) (checkpoint.Checkpoint, er
 }
 
 func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Checkpoint, bool, error) {
-	keys, err := s.keys(ctx, cfg.ThreadID)
+	keys, err := s.keys(ctx, cfg.ThreadID, cfg.Namespace)
 	if err != nil || len(keys) == 0 {
 		return checkpoint.Checkpoint{}, false, err
 	}
@@ -102,7 +117,7 @@ func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Chec
 }
 
 func (s *Saver) List(ctx context.Context, threadID string, limit int) ([]checkpoint.Checkpoint, error) {
-	keys, err := s.keys(ctx, threadID)
+	keys, err := s.keys(ctx, threadID, "")
 	if err != nil {
 		return nil, err
 	}
@@ -122,12 +137,14 @@ func (s *Saver) List(ctx context.Context, threadID string, limit int) ([]checkpo
 }
 
 func (s *Saver) DeleteThread(ctx context.Context, threadID string) error {
-	keys, err := s.keys(ctx, threadID)
+	// Every namespace lives under the thread's directory, so one listing
+	// finds them all.
+	objs, err := s.c.List(ctx, s.bucket, s.dir(threadID, ""))
 	if err != nil {
 		return err
 	}
-	for _, k := range keys {
-		if err := s.c.Delete(ctx, s.bucket, k); err != nil {
+	for _, o := range objs {
+		if err := s.c.Delete(ctx, s.bucket, o.Key); err != nil {
 			return err
 		}
 	}

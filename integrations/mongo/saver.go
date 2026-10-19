@@ -11,6 +11,8 @@ import (
 )
 
 // Saver implements checkpoint.Saver on a collection (default "checkpoints").
+// Documents carry checkpoint_ns; the root namespace also matches documents
+// written before namespaces existed (field missing).
 type Saver struct {
 	c          *Client
 	Collection string
@@ -59,8 +61,17 @@ func (s *Saver) Put(ctx context.Context, cp checkpoint.Checkpoint) (string, erro
 		return "", err
 	}
 	err = s.c.upsert(ctx, s.Collection, cp.ThreadID+"/"+cp.ID, M{
-		"thread_id": cp.ThreadID, "checkpoint_id": cp.ID, "seq": s.nextSeq(), "data": string(b)})
+		"thread_id": cp.ThreadID, "checkpoint_id": cp.ID, "checkpoint_ns": cp.Namespace,
+		"seq": s.nextSeq(), "data": string(b)})
 	return cp.ID, err
+}
+
+// nsFilter matches one namespace; the root also matches a missing field.
+func nsFilter(ns string) any {
+	if ns == "" {
+		return M{"$in": []any{"", nil}}
+	}
+	return ns
 }
 
 func decode(d M) (checkpoint.Checkpoint, error) {
@@ -69,7 +80,7 @@ func decode(d M) (checkpoint.Checkpoint, error) {
 }
 
 func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Checkpoint, bool, error) {
-	filter := M{"thread_id": cfg.ThreadID}
+	filter := M{"thread_id": cfg.ThreadID, "checkpoint_ns": nsFilter(cfg.Namespace)}
 	if cfg.CheckpointID != "" {
 		filter["checkpoint_id"] = cfg.CheckpointID
 	}
@@ -82,7 +93,7 @@ func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Chec
 }
 
 func (s *Saver) List(ctx context.Context, threadID string, limit int) ([]checkpoint.Checkpoint, error) {
-	docs, err := s.c.find(ctx, s.Collection, M{"thread_id": threadID}, D{{"seq", int32(-1)}}, limit)
+	docs, err := s.c.find(ctx, s.Collection, M{"thread_id": threadID, "checkpoint_ns": nsFilter("")}, D{{"seq", int32(-1)}}, limit)
 	if err != nil {
 		return nil, err
 	}

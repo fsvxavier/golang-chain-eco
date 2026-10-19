@@ -13,7 +13,7 @@ import (
 
 // Saver implements checkpoint.Saver. Items: thread_id (HASH), sk =
 // "<seq>#<id>" (RANGE, so a reverse Query yields newest first), checkpoint_id,
-// data (JSON).
+// checkpoint_ns (missing on items written before namespaces), data (JSON).
 type Saver struct {
 	c     *Client
 	table string
@@ -56,19 +56,28 @@ func (s *Saver) Put(ctx context.Context, cp checkpoint.Checkpoint) (string, erro
 	}
 	_, err = s.c.call(ctx, "PutItem", map[string]any{"TableName": s.table, "Item": item{
 		"thread_id": sv(cp.ThreadID), "sk": sv(fmt.Sprintf("%020d#%s", s.nextSeq(), cp.ID)),
-		"checkpoint_id": sv(cp.ID), "data": sv(string(b))}})
+		"checkpoint_id": sv(cp.ID), "checkpoint_ns": sv(cp.Namespace), "data": sv(string(b))}})
 	return cp.ID, err
 }
 
-func (s *Saver) query(ctx context.Context, threadID, filterID string, limit int) ([]checkpoint.Checkpoint, error) {
+func (s *Saver) query(ctx context.Context, threadID, ns, filterID string, limit int) ([]checkpoint.Checkpoint, error) {
 	in := map[string]any{"TableName": s.table, "ScanIndexForward": false,
 		"KeyConditionExpression":    "thread_id = :t",
 		"ExpressionAttributeValues": map[string]attr{":t": sv(threadID)}}
+	// The root namespace also matches items without the attribute (older rows).
+	vals := in["ExpressionAttributeValues"].(map[string]attr)
+	vals[":n"] = sv(ns)
+	filter := "checkpoint_ns = :n"
+	if ns == "" {
+		filter = "(attribute_not_exists(checkpoint_ns) OR checkpoint_ns = :n)"
+	}
 	if filterID != "" {
-		in["FilterExpression"] = "checkpoint_id = :c"
-		in["ExpressionAttributeValues"].(map[string]attr)[":c"] = sv(filterID)
-	} else if limit > 0 {
-		in["Limit"] = limit // no filter: Limit counts returned items
+		filter += " AND checkpoint_id = :c"
+		vals[":c"] = sv(filterID)
+	}
+	in["FilterExpression"] = filter
+	if limit > 0 {
+		in["Limit"] = limit // per page: pages() reads on until limit matches
 	}
 	items, err := s.c.pages(ctx, "Query", in, limit)
 	if err != nil {
@@ -89,7 +98,7 @@ func (s *Saver) query(ctx context.Context, threadID, filterID string, limit int)
 }
 
 func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Checkpoint, bool, error) {
-	cps, err := s.query(ctx, cfg.ThreadID, cfg.CheckpointID, 1)
+	cps, err := s.query(ctx, cfg.ThreadID, cfg.Namespace, cfg.CheckpointID, 1)
 	if err != nil || len(cps) == 0 {
 		return checkpoint.Checkpoint{}, false, err
 	}
@@ -97,7 +106,7 @@ func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Chec
 }
 
 func (s *Saver) List(ctx context.Context, threadID string, limit int) ([]checkpoint.Checkpoint, error) {
-	return s.query(ctx, threadID, "", limit)
+	return s.query(ctx, threadID, "", "", limit)
 }
 
 func (s *Saver) DeleteThread(ctx context.Context, threadID string) error {

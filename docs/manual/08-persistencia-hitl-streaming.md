@@ -17,6 +17,27 @@ out, _ = app.Invoke(ctx, graph.State{"messages": "e agora?"}) // continua a mesm
 - Cada thread tem sua própria linha do tempo de checkpoints.
 - A mesma regra vale para `agents.Create` (via `Options.Compile`) e `deepagents.Create` (via `Options.Checkpointer`).
 
+### Durabilidade
+
+Por padrão (`graph.DurabilitySync`) o checkpoint é gravado antes de cada super-step seguir. Duas alternativas trocam garantia por latência:
+
+| Modo | Quando grava | Uso |
+|------|--------------|-----|
+| `DurabilitySync` | A cada super-step, antes de continuar (padrão) | Máxima garantia: uma queda perde no máximo o passo em curso |
+| `DurabilityAsync` | A cada super-step, em uma goroutine de fundo, em ordem | Reduz a latência; `Invoke`/`Stream` só retornam depois do último save. Um erro de save aborta a execução no próximo super-step |
+| `DurabilityExit` | Só ao pausar (interrupt), terminar ou falhar entre super-steps | Menos escritas; uma queda no meio da execução perde os passos desde o último checkpoint |
+
+```go
+app, _ := g.Compile(graph.WithCheckpointer(saver), graph.WithDurability(graph.DurabilityAsync)) // padrão do grafo
+
+// por chamada, sobrescreve o padrão do grafo
+ctx := graph.WithRunDurability(runnables.WithConfig(context.Background(), graph.Thread("usuario-42")), graph.DurabilityExit)
+out, err := app.Invoke(ctx, graph.State{"messages": "oi"})
+```
+
+- Pausas de subgrafos com checkpointer próprio são sempre gravadas, em qualquer modo, porque o pai precisa retomar a partir delas.
+- Em `exit`, uma falha de nó entre super-steps grava o último estado bom, então a thread pode ser retomada. Uma falha de redutor no meio de um super-step não grava nada.
+
 ### Backends de checkpoint
 
 | Backend | Construtor | Observação |
@@ -52,7 +73,7 @@ checkpoint.Register("meuapp.Pedido", Pedido{})
 checkpoint.Register("[]meuapp.Pedido", []Pedido{})
 ```
 
-Já vêm registrados: mensagens, `graph.Send`, arquivos, todos, tasks assíncronas e avaliações de rubrica. Números inteiros voltam como `int`; os demais como `float64`.
+Já vêm registrados: mensagens, `graph.Send`, arquivos, todos, tasks assíncronas e avaliações de rubrica, além dos escalares Go `int8`…`int64`, `uint`…`uint64`, `float32`, `[]byte`, `time.Time` e `time.Duration`, que voltam com o tipo original. Números sem tipo explícito continuam como `int` (inteiros) ou `float64`. Com `checkpoint.Strict(true)`, gravar um struct não registrado passa a ser erro em vez de virar `map[string]any`.
 
 ### Backend próprio
 

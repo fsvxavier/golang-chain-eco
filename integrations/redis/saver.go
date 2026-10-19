@@ -10,8 +10,9 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
 )
 
-// Saver implements checkpoint.Saver. Per thread it keeps a hash
-// (id -> serialised checkpoint) and a sorted set ordering the ids.
+// Saver implements checkpoint.Saver. Per (thread, namespace) it keeps a hash
+// (id -> serialised checkpoint) and a sorted set ordering the ids; a set per
+// thread lists its namespaces so DeleteThread can remove them all.
 type Saver struct {
 	c      *Client
 	Prefix string // key prefix, default "lcg:ckpt:"
@@ -25,8 +26,18 @@ var _ checkpoint.Saver = (*Saver)(nil)
 // NewSaver returns a Redis-backed saver.
 func NewSaver(c *Client) *Saver { return &Saver{c: c, Prefix: "lcg:ckpt:"} }
 
-func (s *Saver) data(t string) string { return s.Prefix + "data:" + t }
-func (s *Saver) idx(t string) string  { return s.Prefix + "idx:" + t }
+// slot names the storage of (thread, namespace). The root namespace keeps the
+// plain thread name, so keys written before namespaces existed still match.
+func slot(thread, ns string) string {
+	if ns == "" {
+		return thread
+	}
+	return thread + "\x1f" + ns
+}
+
+func (s *Saver) data(k string) string       { return s.Prefix + "data:" + k }
+func (s *Saver) idx(k string) string        { return s.Prefix + "idx:" + k }
+func (s *Saver) nsSet(thread string) string { return s.Prefix + "ns:" + thread }
 
 func (s *Saver) nextSeq() int64 {
 	s.mu.Lock()
@@ -50,18 +61,24 @@ func (s *Saver) Put(ctx context.Context, cp checkpoint.Checkpoint) (string, erro
 	if err != nil {
 		return "", err
 	}
-	if _, err := s.c.Do(ctx, "HSET", s.data(cp.ThreadID), cp.ID, b); err != nil {
+	k := slot(cp.ThreadID, cp.Namespace)
+	if _, err := s.c.Do(ctx, "HSET", s.data(k), cp.ID, b); err != nil {
 		return "", err
 	}
 	// score is a float64: UnixMicro stays exact (< 2^53) and still orders puts
-	_, err = s.c.Do(ctx, "ZADD", s.idx(cp.ThreadID), s.nextSeq()/1000, cp.ID)
+	if _, err := s.c.Do(ctx, "ZADD", s.idx(k), s.nextSeq()/1000, cp.ID); err != nil {
+		return "", err
+	}
+	if cp.Namespace != "" {
+		_, err = s.c.Do(ctx, "SADD", s.nsSet(cp.ThreadID), cp.Namespace)
+	}
 	return cp.ID, err
 }
 
 func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Checkpoint, bool, error) {
-	id := cfg.CheckpointID
+	id, k := cfg.CheckpointID, slot(cfg.ThreadID, cfg.Namespace)
 	if id == "" {
-		v, err := s.c.Do(ctx, "ZREVRANGE", s.idx(cfg.ThreadID), 0, 0)
+		v, err := s.c.Do(ctx, "ZREVRANGE", s.idx(k), 0, 0)
 		if err != nil {
 			return checkpoint.Checkpoint{}, false, err
 		}
@@ -71,7 +88,7 @@ func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Chec
 		}
 		id = ids[0]
 	}
-	v, err := s.c.Do(ctx, "HGET", s.data(cfg.ThreadID), id)
+	v, err := s.c.Do(ctx, "HGET", s.data(k), id)
 	if err != nil || v == nil {
 		return checkpoint.Checkpoint{}, false, err
 	}
@@ -84,7 +101,8 @@ func (s *Saver) List(ctx context.Context, threadID string, limit int) ([]checkpo
 	if limit > 0 {
 		stop = limit - 1
 	}
-	v, err := s.c.Do(ctx, "ZREVRANGE", s.idx(threadID), 0, stop)
+	k := slot(threadID, "")
+	v, err := s.c.Do(ctx, "ZREVRANGE", s.idx(k), 0, stop)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +110,7 @@ func (s *Saver) List(ctx context.Context, threadID string, limit int) ([]checkpo
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	args := []any{"HMGET", s.data(threadID)}
+	args := []any{"HMGET", s.data(k)}
 	for _, id := range ids {
 		args = append(args, id)
 	}
@@ -116,6 +134,14 @@ func (s *Saver) List(ctx context.Context, threadID string, limit int) ([]checkpo
 }
 
 func (s *Saver) DeleteThread(ctx context.Context, threadID string) error {
-	_, err := s.c.Do(ctx, "DEL", s.data(threadID), s.idx(threadID))
+	members, err := s.c.Do(ctx, "SMEMBERS", s.nsSet(threadID))
+	if err != nil {
+		return err
+	}
+	args := []any{"DEL", s.nsSet(threadID), s.data(slot(threadID, "")), s.idx(slot(threadID, ""))}
+	for _, ns := range strs(members) {
+		args = append(args, s.data(slot(threadID, ns)), s.idx(slot(threadID, ns)))
+	}
+	_, err = s.c.Do(ctx, args...)
 	return err
 }

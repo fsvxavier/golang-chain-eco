@@ -2,6 +2,18 @@
 // nodes read a shared state, return partial updates, and are executed in
 // bulk-synchronous super-steps with optional checkpointing and human-in-the-
 // loop interrupts.
+//
+// Subgraphs run by a node have checkpoint namespaces ("node:id|node:id"). Their
+// stream events are forwarded to the enclosing stream only when it asks for
+// Subgraphs(); each event then carries Event.Namespace with the same path.
+//
+// A checkpointed graph writes its checkpoints according to its Durability:
+// DurabilitySync (default) before each super-step, DurabilityAsync from a
+// background goroutine (Invoke and Stream still return after the last write),
+// or DurabilityExit only when the run pauses, ends or fails between
+// super-steps. The compile-time default is set with WithDurability; a run
+// overrides it with WithRunDurability. Pauses of subgraphs with their own
+// checkpointer are always saved.
 package graph
 
 import (
@@ -320,6 +332,35 @@ func InterruptBefore(nodes ...string) CompileOption {
 // InterruptAfter pauses after the named nodes ran ("*" for all).
 func InterruptAfter(nodes ...string) CompileOption {
 	return func(c *Compiled) { c.after = toSet(nodes) }
+}
+
+// Durability sets when checkpoints are written.
+type Durability string
+
+const (
+	// DurabilitySync stores a checkpoint at every super-step before the next
+	// one starts. It is the default.
+	DurabilitySync Durability = "sync"
+	// DurabilityAsync stores checkpoints from a background goroutine, in
+	// order. A save waits for the previous one when the queue is full. Invoke
+	// and Stream return only after the last save; a failed save aborts the run
+	// at the next super-step.
+	DurabilityAsync Durability = "async"
+	// DurabilityExit stores a checkpoint only when the run pauses (interrupt),
+	// finishes or fails between super-steps. Faster, but a crash mid-run loses
+	// the steps since the last checkpoint.
+	DurabilityExit Durability = "exit"
+)
+
+// WithDurability sets the default durability of the graph. A run overrides it
+// with WithRunDurability.
+func WithDurability(d Durability) CompileOption { return func(c *Compiled) { c.durability = d } }
+
+// WithRunDurability returns a context that makes the runs started with it use
+// durability d, overriding the compile-time default (sets
+// runnables.Config.Durability). Subgraphs run inside it inherit d.
+func WithRunDurability(ctx context.Context, d Durability) context.Context {
+	return runnables.WithConfig(ctx, runnables.Config{Durability: string(d)})
 }
 
 // WithName names the compiled graph (used in traces).

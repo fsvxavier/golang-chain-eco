@@ -169,6 +169,118 @@ func TestSubgraphInterruptPropagates(t *testing.T) {
 	}
 }
 
+// subgraphWithSaver builds a parent whose node "sub" runs inner (with its own
+// checkpointer, possibly shared with the parent) and returns both graphs.
+func subgraphWithSaver(inner *Compiled, outerSaver checkpoint.Saver) *Compiled {
+	outer, _ := NewStateGraph(schema()).
+		AddNode("sub", func(ctx context.Context, s State) (any, error) {
+			o, err := inner.Invoke(ctx, State{})
+			return State{"log": o["log"]}, err
+		}).AddEdge(Start, "sub").AddEdge("sub", End).Compile(WithCheckpointer(outerSaver))
+	return outer
+}
+
+func TestSubgraphOwnCheckpointerPropagatesInterrupt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		inner func(s checkpoint.Saver) checkpoint.Saver
+	}{
+		{"same saver", func(s checkpoint.Saver) checkpoint.Saver { return s }},
+		{"other saver", func(checkpoint.Saver) checkpoint.Saver { return checkpoint.NewMemory() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outerSaver := checkpoint.NewMemory()
+			inner, _ := NewStateGraph(schema()).
+				AddNode("ask", func(ctx context.Context, _ State) (any, error) {
+					return State{"log": []any{Interrupt(ctx, "q")}}, nil
+				}).AddEdge(Start, "ask").AddEdge("ask", End).Compile(WithCheckpointer(tc.inner(outerSaver)))
+			outer := subgraphWithSaver(inner, outerSaver)
+			ctx := runnables.WithConfig(context.Background(), Thread("s"))
+
+			out, err := outer.Invoke(ctx, State{})
+			if err != nil || len(Interrupts(out)) != 1 || Interrupts(out)[0].Value != "q" {
+				t.Fatalf("parent must pause on the child's interrupt: %v %v", out, err)
+			}
+			// The child's paused checkpoint lives under the namespace "sub:0".
+			cp, ok, _ := inner.Saver().Get(ctx, checkpoint.Config{ThreadID: "s", Namespace: "sub:0"})
+			if !ok || len(cp.Next) == 0 {
+				t.Fatalf("child checkpoint not found in its namespace: %+v %v", cp, ok)
+			}
+			out, err = outer.Invoke(ctx, Command{Resume: "ans"})
+			if err != nil || fmt.Sprint(out["log"]) != "[ans]" || len(Interrupts(out)) != 0 {
+				t.Fatalf("%v %v", out, err)
+			}
+		})
+	}
+}
+
+func TestSubgraphOwnCheckpointerTwoInterrupts(t *testing.T) {
+	outerSaver := checkpoint.NewMemory()
+	inner, _ := NewStateGraph(schema()).
+		AddNode("ask1", func(ctx context.Context, _ State) (any, error) {
+			return State{"log": []any{Interrupt(ctx, "q1")}}, nil
+		}).
+		AddNode("ask2", func(ctx context.Context, _ State) (any, error) {
+			return State{"log": []any{Interrupt(ctx, "q2")}}, nil
+		}).
+		AddEdge(Start, "ask1").AddEdge("ask1", "ask2").AddEdge("ask2", End).
+		Compile(WithCheckpointer(outerSaver))
+	outer := subgraphWithSaver(inner, outerSaver)
+	ctx := runnables.WithConfig(context.Background(), Thread("two"))
+
+	out, _ := outer.Invoke(ctx, State{})
+	if is := Interrupts(out); len(is) != 1 || is[0].Value != "q1" {
+		t.Fatalf("first pause: %v", out)
+	}
+	out, _ = outer.Invoke(ctx, Command{Resume: "a1"})
+	if is := Interrupts(out); len(is) != 1 || is[0].Value != "q2" {
+		t.Fatalf("second pause: %v", out)
+	}
+	out, err := outer.Invoke(ctx, Command{Resume: "a2"})
+	if err != nil || fmt.Sprint(out["log"]) != "[a1 a2]" {
+		t.Fatalf("%v %v", out, err)
+	}
+}
+
+func TestSubgraphNamespacesKeepCheckpointsApart(t *testing.T) {
+	saver := checkpoint.NewMemory()
+	inner, _ := NewStateGraph(schema()).
+		AddNode("ask", func(ctx context.Context, _ State) (any, error) {
+			return State{"log": []any{Interrupt(ctx, "q")}}, nil
+		}).AddEdge(Start, "ask").AddEdge("ask", End).Compile(WithCheckpointer(saver))
+	outer := subgraphWithSaver(inner, saver)
+	ctx := runnables.WithConfig(context.Background(), Thread("ns"))
+
+	if _, err := outer.Invoke(ctx, State{}); err != nil {
+		t.Fatal(err)
+	}
+	rootCps, _ := saver.List(ctx, "ns", 0)
+	for _, cp := range rootCps {
+		if cp.Namespace != "" {
+			t.Fatalf("List returned a subgraph checkpoint: %+v", cp)
+		}
+	}
+	if len(rootCps) == 0 {
+		t.Fatal("no root checkpoints")
+	}
+	child, ok, _ := saver.Get(ctx, checkpoint.Config{ThreadID: "ns", Namespace: "sub:0"})
+	if !ok || child.Namespace != "sub:0" {
+		t.Fatalf("child namespace: %+v %v", child, ok)
+	}
+	// Child checkpoints must not replace the root's: the root's latest is the
+	// parent's paused checkpoint, not the child's.
+	latest, _, _ := saver.Get(ctx, checkpoint.Config{ThreadID: "ns"})
+	if latest.Namespace != "" || latest.ID == child.ID {
+		t.Fatalf("root latest clobbered by child: %+v", latest)
+	}
+	if err := saver.DeleteThread(ctx, "ns"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := saver.Get(ctx, checkpoint.Config{ThreadID: "ns", Namespace: "sub:0"}); ok {
+		t.Fatal("DeleteThread must remove every namespace")
+	}
+}
+
 func TestMessagesReducer(t *testing.T) {
 	g := NewStateGraph(Schema{"messages": Messages()}).
 		AddNode("a", func(context.Context, State) (any, error) { return State{"messages": "hi"}, nil }).
@@ -215,5 +327,56 @@ func TestCacheAndDefer(t *testing.T) {
 	out, err := dc.Invoke(context.Background(), State{})
 	if err != nil || fmt.Sprint(out["log"]) != "[a b b2 d]" {
 		t.Fatalf("%v %v", out, err)
+	}
+}
+
+// nestedGraphs builds outer whose node "sub" invokes inner (two nodes).
+func nestedGraphs(t *testing.T) *Compiled {
+	t.Helper()
+	inner, err := NewStateGraph(schema()).
+		AddNode("leaf", add("in")).AddEdge(Start, "leaf").AddEdge("leaf", End).Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer, err := NewStateGraph(schema()).
+		AddNode("sub", func(ctx context.Context, s State) (any, error) {
+			o, err := inner.Invoke(ctx, State{})
+			return State{"log": o["log"]}, err
+		}).AddEdge(Start, "sub").AddEdge("sub", End).Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return outer
+}
+
+func TestStreamSubgraphsTagsNamespace(t *testing.T) {
+	outer := nestedGraphs(t)
+	var child, root int
+	for ev, err := range outer.StreamEvents(context.Background(), State{}, ModeUpdates, Subgraphs()) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ev.Namespace) == 0 {
+			root++
+			continue
+		}
+		child++
+		if fmt.Sprint(ev.Namespace) != "[sub:0]" || ev.Node != "leaf" {
+			t.Fatalf("child event %+v", ev)
+		}
+	}
+	if root != 1 || child != 1 {
+		t.Fatalf("root=%d child=%d", root, child)
+	}
+}
+
+func TestStreamWithoutSubgraphsSkipsChildEvents(t *testing.T) {
+	for ev, err := range nestedGraphs(t).StreamEvents(context.Background(), State{}, ModeUpdates) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.Namespace != nil {
+			t.Fatalf("child event without Subgraphs(): %+v", ev)
+		}
 	}
 }

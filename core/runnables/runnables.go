@@ -42,6 +42,9 @@ type Config struct {
 	Callbacks      []callbacks.Handler
 	MaxConcurrency int
 	RecursionLimit int
+	// Durability is the checkpoint durability of graph runs ("sync", "async"
+	// or "exit"); see langgraph/graph.Durability.
+	Durability string
 	// Configurable holds per-run values such as "thread_id".
 	Configurable map[string]any
 }
@@ -76,6 +79,9 @@ func WithConfig(ctx context.Context, c Config) context.Context {
 	}
 	if c.RecursionLimit > 0 {
 		cur.RecursionLimit = c.RecursionLimit
+	}
+	if c.Durability != "" {
+		cur.Durability = c.Durability
 	}
 	ctx = callbacks.WithHandlers(ctx, c.Callbacks...)
 	return context.WithValue(ctx, cfgKey{}, cur)

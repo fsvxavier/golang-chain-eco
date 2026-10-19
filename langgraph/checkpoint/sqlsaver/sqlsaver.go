@@ -43,17 +43,27 @@ type Saver struct {
 
 var _ checkpoint.Saver = (*Saver)(nil)
 
-// New creates the saver and its table (checkpoints_go) if missing.
+// New creates the saver and its table (checkpoints_go) if missing. A table
+// written by an older version gets the checkpoint_ns column added with the
+// empty default (the root namespace), so its rows stay readable.
 func New(ctx context.Context, db *sql.DB, d Dialect) (*Saver, error) {
 	s := &Saver{db: db, d: d, table: "checkpoints_go"}
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS `+s.table+` (
 		thread_id TEXT NOT NULL,
 		checkpoint_id TEXT NOT NULL,
+		checkpoint_ns TEXT NOT NULL DEFAULT '',
 		seq BIGINT NOT NULL,
 		data TEXT NOT NULL,
 		PRIMARY KEY (thread_id, checkpoint_id))`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlsaver: create table: %w", err)
+	}
+	// Portable "column exists?" probe: CREATE TABLE IF NOT EXISTS does not add
+	// columns to a table created before namespaces existed.
+	if _, err := db.ExecContext(ctx, `SELECT checkpoint_ns FROM `+s.table+` WHERE 1 = 0`); err != nil {
+		if _, err := db.ExecContext(ctx, `ALTER TABLE `+s.table+` ADD COLUMN checkpoint_ns TEXT NOT NULL DEFAULT ''`); err != nil {
+			return nil, fmt.Errorf("sqlsaver: add checkpoint_ns: %w", err)
+		}
 	}
 	return s, nil
 }
@@ -99,17 +109,17 @@ func (s *Saver) Put(ctx context.Context, cp checkpoint.Checkpoint) (string, erro
 	if err != nil {
 		return "", err
 	}
-	_, err = s.db.ExecContext(ctx, s.q(`INSERT INTO `+s.table+` (thread_id, checkpoint_id, seq, data) VALUES (?, ?, ?, ?)`),
-		cp.ThreadID, cp.ID, s.nextSeq(), string(b))
+	_, err = s.db.ExecContext(ctx, s.q(`INSERT INTO `+s.table+` (thread_id, checkpoint_id, checkpoint_ns, seq, data) VALUES (?, ?, ?, ?, ?)`),
+		cp.ThreadID, cp.ID, cp.Namespace, s.nextSeq(), string(b))
 	return cp.ID, err
 }
 
 func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Checkpoint, bool, error) {
 	var row *sql.Row
 	if cfg.CheckpointID == "" {
-		row = s.db.QueryRowContext(ctx, s.q(`SELECT data FROM `+s.table+` WHERE thread_id = ? ORDER BY seq DESC LIMIT 1`), cfg.ThreadID)
+		row = s.db.QueryRowContext(ctx, s.q(`SELECT data FROM `+s.table+` WHERE thread_id = ? AND checkpoint_ns = ? ORDER BY seq DESC LIMIT 1`), cfg.ThreadID, cfg.Namespace)
 	} else {
-		row = s.db.QueryRowContext(ctx, s.q(`SELECT data FROM `+s.table+` WHERE thread_id = ? AND checkpoint_id = ?`), cfg.ThreadID, cfg.CheckpointID)
+		row = s.db.QueryRowContext(ctx, s.q(`SELECT data FROM `+s.table+` WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?`), cfg.ThreadID, cfg.Namespace, cfg.CheckpointID)
 	}
 	var data string
 	switch err := row.Scan(&data); {
@@ -123,7 +133,7 @@ func (s *Saver) Get(ctx context.Context, cfg checkpoint.Config) (checkpoint.Chec
 }
 
 func (s *Saver) List(ctx context.Context, threadID string, limit int) ([]checkpoint.Checkpoint, error) {
-	query := `SELECT data FROM ` + s.table + ` WHERE thread_id = ? ORDER BY seq DESC`
+	query := `SELECT data FROM ` + s.table + ` WHERE thread_id = ? AND checkpoint_ns = '' ORDER BY seq DESC`
 	args := []any{threadID}
 	if limit > 0 {
 		query += ` LIMIT ?`
@@ -150,6 +160,6 @@ func (s *Saver) List(ctx context.Context, threadID string, limit int) ([]checkpo
 }
 
 func (s *Saver) DeleteThread(ctx context.Context, threadID string) error {
-	_, err := s.db.ExecContext(ctx, s.q(`DELETE FROM `+s.table+` WHERE thread_id = ?`), threadID)
+	_, err := s.db.ExecContext(ctx, s.q(`DELETE FROM `+s.table+` WHERE thread_id = ?`), threadID) // all namespaces
 	return err
 }

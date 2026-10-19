@@ -7,15 +7,22 @@ import (
 	"math"
 	"reflect"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 )
 
 // Serde lets persistent savers store arbitrary channel values as JSON.
-// Plain JSON types round-trip as generic values (objects become
-// map[string]any, whole numbers become int). Concrete Go types survive only
-// if registered with Register; they are stored as {"$type": name, "$v": ...}.
+// Plain JSON types round-trip as generic values: objects become
+// map[string]any, whole numbers become int, other numbers float64, and
+// string/bool/nil keep their type. Go scalars that plain JSON would widen or
+// lose (int8..int64, uint..uint64, float32, []byte, time.Time,
+// time.Duration) are stored as {"$type": name, "$v": ...} and come back with
+// their exact type. Types added with Register use the same envelope.
 // Registered values nested in []any or map[string]any are handled too.
+// Unregistered structs still degrade to map[string]any unless Strict(true)
+// is set, in which case encoding fails.
 
 var (
 	regMu    sync.RWMutex
@@ -37,9 +44,35 @@ func Register(name string, sample any) {
 	byName[name], byType[t] = t, name
 }
 
+// strict is process-wide on purpose: Marshal takes no options and every saver
+// calls it directly, so a per-call option would have to be threaded through
+// all of them.
+var strict atomic.Bool
+
+// Strict controls what encoding does with an unregistered struct, a pointer to
+// one, or a named non-basic type (for example a named slice). With on=false
+// (the default) they silently become map[string]any on the way back. With
+// on=true Marshal returns an error naming the type and asking for
+// checkpoint.Register. Registered types nested inside an unregistered
+// container are not inspected further.
+func Strict(on bool) { strict.Store(on) }
+
 func init() {
 	Register("messages.Message", messages.Message{})
 	Register("[]messages.Message", []messages.Message{})
+	Register("int8", int8(0))
+	Register("int16", int16(0))
+	Register("int32", int32(0))
+	Register("int64", int64(0))
+	Register("uint", uint(0))
+	Register("uint8", uint8(0))
+	Register("uint16", uint16(0))
+	Register("uint32", uint32(0))
+	Register("uint64", uint64(0))
+	Register("float32", float32(0))
+	Register("[]byte", []byte{})
+	Register("time.Time", time.Time{})
+	Register("time.Duration", time.Duration(0))
 }
 
 func encodeValue(v any) (any, error) {
@@ -76,7 +109,34 @@ func encodeValue(v any) (any, error) {
 		}
 		return out, nil
 	}
+	if strict.Load() {
+		if err := checkStrict(reflect.TypeOf(v)); err != nil {
+			return nil, err
+		}
+	}
 	return v, nil
+}
+
+// checkStrict reports the first type under t that plain JSON would degrade:
+// an unregistered struct, or a named type with a non-basic kind. It walks
+// pointers, slices, arrays and maps, but not struct fields. Interfaces are
+// skipped because encodeValue checks the dynamic values.
+func checkStrict(t reflect.Type) error {
+	regMu.RLock()
+	_, registered := byType[t]
+	regMu.RUnlock()
+	if registered || t.Kind() == reflect.Interface {
+		return nil
+	}
+	basic := t.Kind() <= reflect.Complex128 || t.Kind() == reflect.String
+	if t.Kind() == reflect.Struct || (t.PkgPath() != "" && !basic) {
+		return fmt.Errorf("checkpoint: strict: unregistered type %v; call checkpoint.Register(name, %v{}) so it survives a checkpoint", t, t)
+	}
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+		return checkStrict(t.Elem())
+	}
+	return nil
 }
 
 func decodeValue(v any) (any, error) {
@@ -137,14 +197,16 @@ type wrote struct {
 }
 
 type wireCheckpoint struct {
-	ID       string         `json:"id"`
-	ParentID string         `json:"parent_id,omitempty"`
-	ThreadID string         `json:"thread_id"`
-	Step     int            `json:"step"`
-	Source   string         `json:"source"`
-	Channels map[string]any `json:"channels"`
-	Next     []wireTask     `json:"next"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	ID           string         `json:"id"`
+	ParentID     string         `json:"parent_id,omitempty"`
+	ThreadID     string         `json:"thread_id"`
+	Namespace    string         `json:"ns,omitempty"`
+	Step         int            `json:"step"`
+	Source       string         `json:"source"`
+	Channels     map[string]any `json:"channels"`
+	Next         []wireTask     `json:"next"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	ResumeCursor int            `json:"resume_cursor,omitempty"`
 }
 
 func encodeSlice(in []any) ([]any, error) {
@@ -163,7 +225,8 @@ func encodeSlice(in []any) ([]any, error) {
 
 // Marshal serialises a checkpoint to JSON.
 func Marshal(cp Checkpoint) ([]byte, error) {
-	w := wireCheckpoint{ID: cp.ID, ParentID: cp.ParentID, ThreadID: cp.ThreadID, Step: cp.Step, Source: cp.Source}
+	w := wireCheckpoint{ID: cp.ID, ParentID: cp.ParentID, ThreadID: cp.ThreadID, Namespace: cp.Namespace,
+		Step: cp.Step, Source: cp.Source, ResumeCursor: cp.ResumeCursor}
 	var err error
 	w.Channels = map[string]any{}
 	for k, v := range cp.Channels {
@@ -207,7 +270,8 @@ func Unmarshal(b []byte) (Checkpoint, error) {
 	if err := d.Decode(&w); err != nil {
 		return Checkpoint{}, err
 	}
-	cp := Checkpoint{ID: w.ID, ParentID: w.ParentID, ThreadID: w.ThreadID, Step: w.Step, Source: w.Source}
+	cp := Checkpoint{ID: w.ID, ParentID: w.ParentID, ThreadID: w.ThreadID, Namespace: w.Namespace,
+		Step: w.Step, Source: w.Source, ResumeCursor: w.ResumeCursor}
 	var err error
 	cp.Channels = map[string]any{}
 	for k, v := range w.Channels {

@@ -1,6 +1,16 @@
 // Package checkpoint persists LangGraph state between runs
 // (langgraph.checkpoint): a Saver stores one Checkpoint per super-step so a
 // thread can be resumed, inspected, forked, or replayed.
+//
+// Namespaces (Checkpoint.Namespace, Config.Namespace): um subgrafo que roda
+// dentro de um nó e tem checkpointer próprio grava seus checkpoints em um
+// namespace do tipo "nó:id|nó:id", derivado do namespace do pai mais a task
+// que o chamou. Assim pai e filho podem usar o mesmo saver e a mesma thread
+// sem sobrescrever um ao outro. O namespace "" é o grafo raiz, e o zero value
+// preserva o comportamento antigo: List e GetState/GetStateHistory do pai
+// só enxergam o raiz, e DeleteThread remove todos os namespaces da thread.
+// ResumeCursor guarda quantos valores de interrupt() o subgrafo já consumiu,
+// para que, ao ser reinvocado pelo pai, retome o interrupt pendente.
 package checkpoint
 
 import (
@@ -41,33 +51,46 @@ type Checkpoint struct {
 	ID       string
 	ParentID string
 	ThreadID string
-	Step     int
+	// Namespace identifies the graph that wrote the checkpoint inside the
+	// thread: "" for the root graph, "node:id|node:id" for subgraphs run by
+	// a node of their parent (upstream checkpoint_ns).
+	Namespace string
+	Step      int
 	// Source is "input", "loop", or "update".
 	Source   string
 	Channels map[string]any // channel snapshots (only non-empty channels)
 	Next     []Task
 	Metadata map[string]any
+	// ResumeCursor is how many interrupt() resume values the subgraph had
+	// consumed when it was saved, counted from the parent's cursor at the
+	// moment the subgraph was invoked (see graph.Interrupt).
+	ResumeCursor int
 }
 
-// Config selects a thread and optionally a checkpoint inside it.
+// Config selects a thread, a namespace and optionally a checkpoint inside it.
+// The zero Namespace is the root graph, so existing callers see no change.
 type Config struct {
 	ThreadID     string
+	Namespace    string
 	CheckpointID string
 }
 
 // ErrNotFound is returned when a checkpoint does not exist.
 var ErrNotFound = errors.New("checkpoint: not found")
 
-// Saver is the persistence backend.
+// Saver is the persistence backend. Checkpoints are keyed by (thread,
+// namespace, id); the namespace "" is the root graph.
 type Saver interface {
-	// Put stores cp (assigning cp.ID when empty) and returns its ID.
+	// Put stores cp (assigning cp.ID when empty) under cp.Namespace and
+	// returns its ID.
 	Put(ctx context.Context, cp Checkpoint) (string, error)
-	// Get returns the checkpoint named by cfg, or the latest of the thread
-	// when cfg.CheckpointID is empty. ok=false when nothing is stored.
+	// Get returns the checkpoint named by cfg within cfg.Namespace, or the
+	// latest of that namespace when cfg.CheckpointID is empty. ok=false when
+	// nothing is stored.
 	Get(ctx context.Context, cfg Config) (Checkpoint, bool, error)
-	// List returns the thread's checkpoints, newest first.
+	// List returns the root-namespace checkpoints of the thread, newest first.
 	List(ctx context.Context, threadID string, limit int) ([]Checkpoint, error)
-	// DeleteThread removes every checkpoint of the thread.
+	// DeleteThread removes every checkpoint of the thread, in all namespaces.
 	DeleteThread(ctx context.Context, threadID string) error
 }
 
@@ -104,16 +127,12 @@ func (m *Memory) Get(_ context.Context, cfg Config) (Checkpoint, bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	list := m.threads[cfg.ThreadID]
-	if cfg.CheckpointID == "" {
-		if len(list) == 0 {
-			return Checkpoint{}, false, nil
+	for i := len(list) - 1; i >= 0; i-- {
+		cp := list[i]
+		if cp.Namespace != cfg.Namespace || (cfg.CheckpointID != "" && cp.ID != cfg.CheckpointID) {
+			continue
 		}
-		return clone(list[len(list)-1]), true, nil
-	}
-	for _, cp := range list {
-		if cp.ID == cfg.CheckpointID {
-			return clone(cp), true, nil
-		}
+		return clone(cp), true, nil
 	}
 	return Checkpoint{}, false, nil
 }
@@ -124,6 +143,9 @@ func (m *Memory) List(_ context.Context, threadID string, limit int) ([]Checkpoi
 	list := m.threads[threadID]
 	out := make([]Checkpoint, 0, len(list))
 	for i := len(list) - 1; i >= 0; i-- {
+		if list[i].Namespace != "" {
+			continue
+		}
 		out = append(out, clone(list[i]))
 		if limit > 0 && len(out) >= limit {
 			break
