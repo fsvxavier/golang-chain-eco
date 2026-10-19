@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -204,10 +205,22 @@ type stdioTransport struct {
 	err  error
 }
 
+// stdioWarn logs once per process that stdio servers run on the host.
+var stdioWarn sync.Once
+
 // Stdio launches command and talks JSON-RPC over its stdin/stdout. The
 // command runs with the privileges of this process; only launch servers you
-// trust.
+// trust. The first call per process logs a warning.
 func Stdio(ctx context.Context, command string, args []string, env []string) (Transport, error) {
+	return stdio(ctx, command, args, env, false)
+}
+
+func stdio(ctx context.Context, command string, args []string, env []string, quiet bool) (Transport, error) {
+	if !quiet {
+		stdioWarn.Do(func() {
+			slog.Default().Warn("mcp: stdio servers are started on the host with this process's privileges; launch only trusted commands", "command", command)
+		})
+	}
 	cmd := exec.CommandContext(ctx, command, args...)
 	if env != nil {
 		cmd.Env = env
@@ -385,6 +398,8 @@ type ServerConfig struct {
 	Command string
 	Args    []string
 	Env     []string
+	// Quiet silences the one-time host warning for stdio servers.
+	Quiet bool
 	// streamable http
 	URL     string
 	Headers map[string]string
@@ -410,7 +425,7 @@ func LoadTools(ctx context.Context, servers map[string]ServerConfig) ([]tools.To
 		case cfg.URL != "":
 			t = HTTP(cfg.URL, cfg.Headers)
 		case cfg.Command != "":
-			t, err = Stdio(ctx, cfg.Command, cfg.Args, cfg.Env)
+			t, err = stdio(ctx, cfg.Command, cfg.Args, cfg.Env, cfg.Quiet)
 		default:
 			err = errors.New("need Command or URL")
 		}

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -163,16 +165,41 @@ func (f Filesystem) Grep(_ context.Context, pattern, dir, glob string) ([]GrepMa
 }
 
 // LocalShell adds command execution to Filesystem. It runs commands directly
-// on the host (no sandbox): only enable it for trusted agents/inputs.
+// on the host (no sandbox): only enable it for trusted agents/inputs. The
+// working directory is always Filesystem.Root.
 type LocalShell struct {
 	Filesystem
 	// Env, if non-nil, replaces the child environment.
 	Env []string
 	// MaxOutput bounds captured bytes (default 100 KiB).
 	MaxOutput int
+	// AllowedCommands, if non-empty, lists the programs a command may start
+	// (its first word after VAR=value assignments). Every segment of a command
+	// line (split on ; & | and newlines) must pass, and $(...), backticks and
+	// process substitutions are refused. Arguments and redirections are not
+	// filtered; do not list shells, interpreters, env, xargs or find.
+	AllowedCommands []string
+	// Quiet silences the one-time warning that commands run on the host.
+	Quiet bool
 }
 
+// ErrCommandNotAllowed is returned when AllowedCommands refuses a command.
+var ErrCommandNotAllowed = errors.New("command not allowed")
+
+// hostWarn logs once per process that LocalShell runs commands on the host.
+// ponytail: warns on first Execute, not at construction (LocalShell is a value
+// type with no constructor).
+var hostWarn sync.Once
+
 func (s LocalShell) Execute(ctx context.Context, command string, timeout time.Duration) (ExecResult, error) {
+	if !s.Quiet {
+		hostWarn.Do(func() {
+			slog.Default().Warn("backends.LocalShell runs commands directly on the host, without a sandbox; use a sandboxed runner (backends.Remote) for untrusted input. Set Quiet to silence this.", "root", s.Root)
+		})
+	}
+	if err := checkAllowed(s.AllowedCommands, command); err != nil {
+		return ExecResult{}, err
+	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -199,6 +226,48 @@ func (s LocalShell) Execute(ctx context.Context, command string, timeout time.Du
 		return res, nil
 	}
 	return res, err
+}
+
+// checkAllowed enforces AllowedCommands on a whole command line.
+func checkAllowed(allowed []string, command string) error {
+	if len(allowed) == 0 {
+		return nil
+	}
+	if strings.ContainsAny(command, "`") || strings.Contains(command, "$(") || strings.Contains(command, "<(") || strings.Contains(command, ">(") {
+		return fmt.Errorf("%w: command substitution and process substitution are not allowed when AllowedCommands is set", ErrCommandNotAllowed)
+	}
+	ok := make(map[string]bool, len(allowed))
+	for _, a := range allowed {
+		ok[a] = true
+	}
+	segments := strings.FieldsFunc(command, func(r rune) bool { return r == ';' || r == '&' || r == '|' || r == '\n' })
+	for _, seg := range segments {
+		words := strings.Fields(seg)
+		for len(words) > 0 && isAssignment(words[0]) {
+			words = words[1:]
+		}
+		if len(words) == 0 {
+			continue
+		}
+		if !ok[words[0]] {
+			return fmt.Errorf("%w: %q is not in AllowedCommands", ErrCommandNotAllowed, words[0])
+		}
+	}
+	return nil
+}
+
+// isAssignment reports whether w is a VAR=value shell assignment.
+func isAssignment(w string) bool {
+	name, _, found := strings.Cut(w, "=")
+	if !found || name == "" {
+		return false
+	}
+	for i, r := range name {
+		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func orDefault(v, d int) int {

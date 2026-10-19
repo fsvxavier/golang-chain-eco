@@ -39,7 +39,7 @@ ts, err := client.Tools(ctx, "meu")                     // como tools.Tool, com 
 
 `mcp.NewPipeTransport(w, r)` cria um transporte sobre pipes quaisquer (útil em testes). Erros JSON-RPC chegam como `*mcp.RPCError`.
 
-> **Atenção (segurança):** servidores stdio são **processos iniciados por você, com as suas permissões**. Execute só servidores confiáveis. Para servidores HTTP, trate o `Authorization` como segredo e prefira HTTPS.
+> **Atenção (segurança):** servidores stdio são **processos iniciados por você, com as suas permissões**. Execute só servidores confiáveis. A primeira conexão stdio por processo registra um aviso (`slog`); `ServerConfig{Quiet: true}` o silencia (em `LoadTools`). Para servidores HTTP, trate o `Authorization` como segredo e prefira HTTPS.
 
 Exemplo: `examples/deepagents/mcp_docs_agent`.
 

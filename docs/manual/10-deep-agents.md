@@ -76,11 +76,11 @@ Um `Backend` oferece `Ls`, `Read`, `Write`, `Edit`, `Glob` e `Grep`.
 | `backends.State{}` (padrão) | No estado do grafo, por thread |
 | `backends.Store{Store: s, Namespace: ...}` | Em um `store.Store`, compartilhado entre threads |
 | `backends.Filesystem{Root: "./work"}` | Em disco, confinado à raiz (bloqueia `..` e symlinks que escapam) |
-| `backends.LocalShell{Filesystem: ..., Env: ..., MaxOutput: ...}` | Disco + tool `execute` |
+| `backends.LocalShell{Filesystem: ..., Env: ..., MaxOutput: ..., AllowedCommands: ..., Quiet: ...}` | Disco + tool `execute` (cwd fixo = `Root`) |
 | `backends.Composite{Default, Routes}` | Roteia por prefixo |
 | `backends.Remote` | Qualquer "executar comando em algum lugar" vira backend completo |
 
-> **Atenção (segurança):** `LocalShell` **executa comandos no host, sem sandbox**. Use só com agents e prompts confiáveis. Para isolamento, use `kubernetes.Sandbox` ou outro runner com `backends.Remote`.
+> **Atenção (segurança):** `LocalShell` **executa comandos no host, sem sandbox**. Na primeira execução o processo registra um aviso (`slog`); `Quiet: true` o silencia. `AllowedCommands` limita os programas iniciados (primeira palavra de cada segmento, após `VAR=valor`; `$(...)`, crases e substituições de processo são recusados), mas não filtra argumentos nem redirecionamentos: não inclua shells, interpretadores, `env`, `xargs` ou `find`. Para isolamento, use `kubernetes.Sandbox` ou outro runner: qualquer runner que execute comandos vira backend completo com `backends.Remote`.
 
 ### Composição por prefixo
 
