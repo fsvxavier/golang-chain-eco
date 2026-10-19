@@ -76,11 +76,12 @@ Todos implementam `vectorstores.VectorStore` (busca por similaridade com score, 
 | Azure AI Search | `vectorstore.AzureAISearch` | REST, HNSW cosseno, índice criado no primeiro `Upsert`; só teste de contrato (`httptest`) |
 | FAISS (equivalente) | `vectorstore.Flat` | índice exato em Go puro, `Save`/`LoadFlat`; não é binding do FAISS |
 | Annoy (equivalente) | `vectorstore.Annoy` | floresta de árvores de projeção aleatória, Go puro; recall medido em teste |
+| HNSW (índice de grafo) | `vectorstore.NewHNSW()` | grafo hierárquico em Go puro, cosseno; `Save`/`LoadHNSW`; deletes são tombstones; recall medido em teste |
 
 Matriz completa dos 504 provedores da LangChain (o que existe e o que não): [PROVIDERS.md](PROVIDERS.md).
 
 Para um banco novo, implemente `Upsert`, `Query` e `Delete` (3 métodos) e use `vectorstore.New(embedder, backend)`.
-FAISS e Annoy reais são bibliotecas C++ (exigiriam cgo); `Flat` e `Annoy` cobrem o mesmo uso em Go puro, sem ler arquivos de índice
+FAISS e Annoy reais são bibliotecas C++ (exigiriam cgo); `Flat`, `Annoy` e `HNSW` cobrem o mesmo uso em Go puro, sem ler arquivos de índice
 nativos desses projetos.
 Alternativas sem servidor: `core/vectorstores.Memory` (com `Save`/`Load`) e `integrations/retrieval.BM25`.
 

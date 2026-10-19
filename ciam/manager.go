@@ -15,6 +15,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/embeddings"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/store"
+	"github.com/fsvxavier/golang-chain-eco/langmem"
 )
 
 // Manager is the entry point: it indexes projects into a store and answers
@@ -31,6 +32,10 @@ type Manager struct {
 	// CacheSize and CacheTTL bound the search cache (defaults 256, 10 min).
 	CacheSize int
 	CacheTTL  time.Duration
+	// IndexFactory, when set, ranks chunks by cosine through an approximate
+	// index built once per project, e.g. func() langmem.VectorIndex { return vectorstore.NewHNSW() }.
+	// Default: exact scan. BM25 is unchanged.
+	IndexFactory func() langmem.VectorIndex
 
 	mu      sync.Mutex
 	corpora map[string]*corpus

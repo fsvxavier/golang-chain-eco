@@ -6,9 +6,13 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/fsvxavier/golang-chain-eco/integrations/vectorstore"
+	"github.com/fsvxavier/golang-chain-eco/langmem"
 )
 
 // Result is a ranked chunk.
@@ -44,6 +48,41 @@ type corpus struct {
 	// fileTokens maps file -> estimated tokens of the whole file, to estimate
 	// how much context a search saved versus reading the files.
 	fileTokens map[string]int
+	// index, when the manager has an IndexFactory, holds the chunk embeddings
+	// keyed by position in chunks (ids are strconv.Itoa(position)).
+	index langmem.VectorIndex
+}
+
+// vectorScores returns the cosine score of the candidates. With an index it
+// asks for 4*limit nearest chunks and keeps the candidates among them; when
+// fewer than limit candidates come back and the index may hold more, every
+// candidate is scored by the exact scan instead.
+func (c *corpus) vectorScores(ctx context.Context, qvec []float32, cand []int, limit int) (map[int]float64, error) {
+	if c.index != nil {
+		k := limit * 4
+		hits, err := c.index.Query(ctx, qvec, k)
+		if err != nil {
+			return nil, fmt.Errorf("ciam: vector index: %w", err)
+		}
+		in := make(map[int]bool, len(cand))
+		for _, i := range cand {
+			in[i] = true
+		}
+		vs := map[int]float64{}
+		for _, h := range hits {
+			if i, err := strconv.Atoi(h.ID); err == nil && in[i] {
+				vs[i] = h.Score
+			}
+		}
+		if len(vs) >= limit || len(hits) < k {
+			return vs, nil
+		}
+	}
+	vs := make(map[int]float64, len(cand))
+	for _, i := range cand {
+		vs[i] = cosine(qvec, c.chunks[i].Embedding)
+	}
+	return vs, nil
 }
 
 func (m *Manager) invalidate(project string) {
@@ -108,6 +147,18 @@ func (m *Manager) corpusOf(ctx context.Context, project string) (*corpus, error)
 		chunks[i], toks[i] = c.chunks[j], c.tokens[j]
 	}
 	c.chunks, c.tokens = chunks, toks
+	if m.IndexFactory != nil {
+		c.index = m.IndexFactory()
+		recs := make([]vectorstore.Record, 0, len(c.chunks))
+		for i, ch := range c.chunks {
+			if len(ch.Embedding) > 0 {
+				recs = append(recs, vectorstore.Record{ID: strconv.Itoa(i), Vector: ch.Embedding})
+			}
+		}
+		if err := c.index.Upsert(ctx, recs); err != nil {
+			return nil, fmt.Errorf("ciam: building vector index: %w", err)
+		}
+	}
 	m.mu.Lock()
 	m.corpora[project] = c
 	m.mu.Unlock()
@@ -228,13 +279,22 @@ func (m *Manager) Search(ctx context.Context, req SearchRequest) ([]Result, erro
 		return nil, fmt.Errorf("ciam: embedding query: %w", err)
 	}
 	qtok := Tokenize(req.Query)
-	vs, bs := make(map[int]float64, len(cand)), make(map[int]float64, len(cand))
+	vs, err := c.vectorScores(ctx, qvec, cand, limit)
+	if err != nil {
+		return nil, err
+	}
+	vpool := make([]int, 0, len(vs)) // vector ranks cover the scored candidates only
 	for _, i := range cand {
-		vs[i] = cosine(qvec, c.chunks[i].Embedding)
+		if _, ok := vs[i]; ok {
+			vpool = append(vpool, i)
+		}
+	}
+	bs := make(map[int]float64, len(cand))
+	for _, i := range cand {
 		bs[i] = c.bm25(qtok, i)
 	}
-	rank := func(score map[int]float64, positive bool) map[int]int {
-		order := slices.Clone(cand)
+	rank := func(pool []int, score map[int]float64, positive bool) map[int]int {
+		order := slices.Clone(pool)
 		sort.SliceStable(order, func(a, b int) bool { return score[order[a]] > score[order[b]] })
 		r := map[int]int{}
 		for pos, i := range order {
@@ -245,7 +305,7 @@ func (m *Manager) Search(ctx context.Context, req SearchRequest) ([]Result, erro
 		}
 		return r
 	}
-	vr, br := rank(vs, false), rank(bs, true)
+	vr, br := rank(vpool, vs, false), rank(cand, bs, true)
 	out := make([]Result, 0, len(cand))
 	for _, i := range cand {
 		var rrf float64
