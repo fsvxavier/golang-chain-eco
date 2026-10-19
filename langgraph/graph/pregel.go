@@ -113,7 +113,8 @@ type taskCtx struct {
 	// Subgraphs; nil otherwise. Subgraphs run inside this task inherit them.
 	subs map[StreamMode]bool
 	// cur is the resume cursor of the enclosing node when this task runs
-	// inside a subgraph; nil when tc holds its own cursor.
+	// inside a subgraph without a checkpointer; nil when tc holds its own
+	// cursor (root tasks and tasks of a checkpointed subgraph).
 	cur *taskCtx
 }
 
@@ -313,6 +314,23 @@ func (r *run) setCursor(pos int) {
 	c.idx = pos
 	c.mu.Unlock()
 }
+
+// takeResume pops the next unconsumed resume value of the enclosing node.
+func (r *run) takeResume() (any, bool) {
+	c := r.nested.cursor()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.idx >= len(c.resumes) {
+		return nil, false
+	}
+	c.idx++
+	return c.resumes[c.idx-1], true
+}
+
+// sharesCursor reports whether this run's tasks take resume values straight
+// from the enclosing node's cursor (a subgraph without a checkpointer, which
+// re-runs from scratch on every resume).
+func (r *run) sharesCursor() bool { return r.nested != nil && r.c.saver == nil }
 
 // cursorOffset is the subgraph's consumption of resume values so far, relative
 // to base, so it can be saved and replayed by a later invocation.
@@ -597,11 +615,19 @@ func (r *run) execute(ctx context.Context, input any, cpID string) (State, error
 			prev = &cp
 			if r.nested != nil && pending(cp) {
 				// The parent node re-ran and invoked us again: continue the
-				// paused run. The input is already applied; interrupt() calls
-				// take their values from the parent's cursor.
+				// paused run. The input is already applied. The parent's new
+				// resume values go to the interrupted tasks in task order, one
+				// each, and become part of their own saved Resumes (a task
+				// re-runs from its start and replays them).
 				r.setCursor(r.base + cp.ResumeCursor)
 				for i := range r.tasks {
-					r.tasks[i].Interrupted = false
+					t := &r.tasks[i]
+					if t.Interrupted {
+						if v, ok := r.takeResume(); ok {
+							t.Resumes = append(t.Resumes, v)
+						}
+					}
+					t.Interrupted = false
 				}
 				input = nil
 			}
@@ -871,11 +897,26 @@ func (r *run) runTasks(ctx context.Context) ([]taskResult, error) {
 	if cfg.MaxConcurrency > 0 {
 		sem = make(chan struct{}, cfg.MaxConcurrency)
 	}
+	// Tasks sharing the parent's cursor while it still holds answers run one
+	// at a time in task order, so each answer reaches the same task on every
+	// run. ponytail: that super-step loses parallelism; per-task cursors need
+	// a checkpointer (see sharesCursor).
+	seq := false
+	if r.sharesCursor() {
+		c := r.nested.cursor()
+		c.mu.Lock()
+		seq = c.idx < len(c.resumes)
+		c.mu.Unlock()
+	}
 	var wg sync.WaitGroup
 	for i := range r.tasks {
 		t := r.tasks[i]
 		if t.Done {
 			res[i] = taskResult{writes: t.Writes}
+			continue
+		}
+		if seq {
+			res[i] = r.runTask(ctx, t, view, interruptID(t, i))
 			continue
 		}
 		wg.Add(1)
@@ -922,7 +963,7 @@ func (r *run) runTask(ctx context.Context, t checkpoint.Task, view State, id str
 	if r.want[modeSubgraphs] {
 		tc.subs = r.want
 	}
-	if r.nested != nil {
+	if r.sharesCursor() {
 		tc.cur = r.nested.cursor() // share resume cursor with the enclosing node
 	}
 	ctx = context.WithValue(ctx, tcKey{}, tc)
