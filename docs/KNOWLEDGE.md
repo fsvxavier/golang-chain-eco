@@ -272,3 +272,21 @@ O `Trace` tem um passo `step:<id>` por passo do plano, com as triplas encontrada
 - Um passo percorre até `MaxHops` saltos de uma vez; o planejador não é obrigado a dar um salto por passo.
 - `Path` do `GraphStore` não é usado pelo engine hoje; fica disponível para tools de explicação de caminho.
 - A qualidade do plano depende do modelo. Com modelos pequenos, prefira `Schema.RelationTypes` no extrator para o vocabulário ficar previsível.
+
+## Qual banco combinar com cada técnica
+
+| Técnica | Precisa de | Opções no repositório |
+|---|---|---|
+| RAG | um `vectorstores.VectorStore` | `vectorstores.Memory`; qualquer `Backend` de `integrations/vectorstore` embrulhado por `vectorstore.New(embedder, backend)` (`Flat`, `Annoy`, `HNSW`, pgvector, Qdrant, Milvus, Pinecone, Weaviate, Chroma, Elasticsearch, Neo4j, Memgraph e os demais da lista do capítulo 13) |
+| CAG | só o modelo; o cache é do provedor | Anthropic (`cache_control`), OpenAI e compatíveis (cache automático por prefixo) |
+| KAG | um `kag.GraphStore` e, opcionalmente, um `VectorStore` para o `Chunks` | `kag.Memory`; adapters de banco de grafo na fase de integrações |
+
+O RAG é agnóstico ao backend porque só usa a interface `VectorStore`. A suíte `conformance.RAG(t, newStore)` (`internal/conformance/rag.go`) prova isso: indexa
+quatro fontes, confere a recuperação, o filtro por metadado, a reindexação sem mudança (`Skipped`), a edição de uma fonte (`Removed` + `Added`, texto antigo
+some) e a resposta com fontes. Hoje roda sobre `vectorstores.Memory`, `Flat` e `HNSW`; ao adicionar um backend, chame a suíte com um construtor dele:
+
+```go
+func TestMeuBackend(t *testing.T) {
+    conformance.RAG(t, func() vectorstores.VectorStore { return vectorstore.New(emb, meuBackend()) })
+}
+```
