@@ -1,13 +1,13 @@
 # golang-chain-eco
 
-Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent com middleware (`create_agent`), **Deep Agents**, cliente **MCP**, **RemoteGraph** e tracing **LangSmith**.
+Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent com middleware (`create_agent`), **Deep Agents**, cliente **MCP**, **RemoteGraph**, tracing **LangSmith** e a memória de longo prazo do **LangMem**.
 
 - O código da biblioteca usa **só a stdlib**: nenhum pacote de produção importa dependência de terceiros. O `go.mod` lista drivers SQL (`pgx`, `mysql`, `go-ora`, `modernc.org/sqlite`), mas eles são usados apenas pelos testes em `internal/pgtest` e `internal/sqlitetest`; quem usa a biblioteca traz o driver que quiser.
 - Tipado com generics: `Runnable[I, O]`, `Structured[T]`, `tools.New[Args]`.
 - Concorrência nativa: nós de um grafo rodam em goroutines, streaming usa `iter.Seq2`.
 - Todo exemplo roda offline com um modelo fake; basta definir `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` para usar um provedor real.
 
-> **Manual completo de utilização:** [docs/manual/](docs/manual/README.md) — 15 capítulos, da instalação à produção.
+> **Manual completo de utilização:** [docs/manual/](docs/manual/README.md) — 16 capítulos, da instalação à produção.
 
 ## Sumário
 
@@ -30,6 +30,7 @@ Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent 
   - [Graphs remotos](#12-graphs-remotos)
   - [Tracing com LangSmith](#13-tracing-com-langsmith)
   - [API funcional](#14-api-funcional-entrypoint--task)
+  - [Memória de longo prazo (LangMem)](#15-memória-de-longo-prazo-langmem)
 - [Configuração](#configuração)
 - [Exemplos executáveis](#exemplos-executáveis)
 - [Testes](#testes)
@@ -106,6 +107,7 @@ go test -race ./...
 | `integrations/{graphretriever,spicedb,permit,vectara,aws}` | Graph RAG, retrievers filtrados por permissão (SpiceDB, Permit), Vectara, Bedrock Knowledge Bases, Kendra, tool Lambda | retrievers |
 | `integrations/{kubernetes,jenkins,salesforce,messaging,memgraph,agui}` | Sandbox em pod, Jenkins, SOQL somente leitura, SMS (Plivo/Telnyx), Memgraph (Bolt), protocolo AG-UI | tools / protocolos |
 | `providers/{google,cohere,bedrock,watsonx,replicate}` | Gemini/Vertex, Cohere (chat, embeddings, rerank), Bedrock Converse, IBM watsonx.ai, Replicate | parceiros |
+| `langmem` | Memória de longo prazo: managers semântico/episódico, tools de memória, otimização de prompts, resumo incremental, background e middleware | `langmem` |
 | `remote/server` | Servidor de grafos compatível com a API de threads/runs | Agent Server |
 | `langgraph/store/sqlstore` | Store de longo prazo em SQLite/Postgres | `PostgresStore` |
 
@@ -678,6 +680,37 @@ bancos e serviços de infraestrutura foi testada contra o serviço real em Docke
 Azure AI Search, Vectara, Permit, Salesforce, AWS Kendra/Knowledge Bases, SMS...) só têm teste de contrato com `httptest`.
 O que ficou de fora e por quê: [docs/PROVIDERS-ANALISE.md](docs/PROVIDERS-ANALISE.md).
 
+### 15. Memória de longo prazo (LangMem)
+
+O pacote `langmem` é o port do [LangMem](https://github.com/langchain-ai/langmem) sobre o `langgraph/store`: o agent lembra entre conversas, aprende com feedback e cabe em contextos longos. Detalhes: [docs/LANGMEM.md](docs/LANGMEM.md) e [capítulo 16 do manual](docs/manual/16-memoria-langmem.md).
+
+```go
+st := langmem.NewIndexedStore(store.NewMemory(), embeddings.Fake{}) // busca semântica sobre qualquer store
+ns := langmem.Namespace{"memories", "{langgraph_user_id}"}           // isolamento por usuário (de Configurable)
+
+// 1) hot path: o agent cuida da própria memória
+cfg := langmem.ToolConfig{Namespace: ns}
+agent, _ := agents.Create(agents.Options{
+	Model:   model,
+	Tools:   []tools.Tool{langmem.ManageMemory(cfg), langmem.SearchMemory(cfg)},
+	Compile: []graph.CompileOption{graph.WithStore(st)},
+})
+
+// 2) background: extrai depois da conversa, com debounce
+sm := langmem.NewStoreManager(model, ns, langmem.WithStore(st))
+ex := &langmem.ReflectionExecutor{Manager: sm}
+ex.Submit(ctx, langmem.Payload{Messages: msgs}, langmem.SubmitOptions{After: 30 * time.Minute})
+
+// 3) procedural: o system prompt aprende com feedback
+opt := langmem.NewPromptOptimizer(model, langmem.Metaprompt, langmem.OptimizerConfig{})
+novo, _ := opt.Optimize(ctx, []langmem.Trajectory{{Messages: conversa, Feedback: "queria código"}}, langmem.Prompt{Name: "main", Prompt: atual})
+
+// 4) curto prazo: resumo incremental dentro do agents.Create
+mw := langmem.SummarizationMiddleware{SummarizeOptions: langmem.SummarizeOptions{Model: m, MaxTokens: 4000}}
+```
+
+Perfil (um documento), episódios, vários prompts, `Middleware` pronto (injeta memórias + tools + formação em background): veja os 5 exemplos em `examples/langmem/`.
+
 ## Configuração
 
 | Variável | Uso |
@@ -697,7 +730,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-42 exemplos em [`examples/`] (36 portados dos projetos base e 6 de integrações)(examples/) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+47 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 6 de integrações e 5 do LangMem) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser
@@ -706,6 +739,7 @@ go run ./examples/langgraph/hitl_agent          # pausa para aprovação humana
 go run ./examples/deepagents/research     # deep agent com subagents
 go run ./examples/integrations/graph_rag  # retrieval que segue links
 go run ./examples/integrations/agui_server # grafo servido pelo protocolo AG-UI
+go run ./examples/langmem/hot_path        # agent com memória de longo prazo por usuário
 
 ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com modelo real
 ```
@@ -740,6 +774,10 @@ rodam contra o serviço real e **se pulam sozinhos** quando a variável de ambie
 | `create_agent(model, tools, middleware=[...])` | `agents.Create(agents.Options{...})` |
 | `create_deep_agent(...)` | `deepagents.Create(deepagents.Options{...})` |
 | `RemoteGraph(...)` | `remote.Graph{...}` |
+| `create_memory_store_manager(...)` | `langmem.NewStoreManager(...)` |
+| `create_manage_memory_tool(...)` | `langmem.ManageMemory(langmem.ToolConfig{...})` |
+| `create_prompt_optimizer(model, kind=...)` | `langmem.NewPromptOptimizer(model, kind, cfg)` |
+| `summarize_messages(...)` | `langmem.SummarizeMessages(ctx, msgs, running, opts)` |
 
 Detalhes de design em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -748,6 +786,7 @@ Detalhes de design em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - O estado é um `map[string]any`, não um TypedDict/Pydantic; use `tools.Decode` para ligar em structs.
 - No `sqlsaver`, números inteiros voltam como `int` e demais como `float64`; tipos próprios exigem `checkpoint.Register`. SQLite e PostgreSQL foram testados contra bancos reais.
 - Em `graph.Interrupt`, o nó reexecuta desde o início; subgrafos com checkpointer próprio não propagam interrupts para o grafo pai.
+- `langmem`: atualização de memória por substituição (sem JSON patch do trustcall), sem `ReflectionExecutor` remoto e busca semântica por varredura; lista completa em [docs/LANGMEM.md](docs/LANGMEM.md#diferenças-em-relação-ao-langmem-python).
 - Não portado: modos de durabilidade, Studio/CLI, backends gerenciados do LangSmith, evals.
 - `LocalShell` e servidores MCP via stdio executam código no host; use apenas com agents e servidores confiáveis. Para isolamento, use `kubernetes.Sandbox` ou outro runner com `backends.Remote`.
 - Integrações de SaaS/API paga só têm teste de contrato; 123 provedores da lista da LangChain dependem de documentação de API que não estava disponível ([docs/PROVIDERS-ANALISE.md](docs/PROVIDERS-ANALISE.md)).

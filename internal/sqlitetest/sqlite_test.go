@@ -12,6 +12,7 @@ import (
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
 	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
+	"github.com/fsvxavier/golang-chain-eco/core/embeddings"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
@@ -20,6 +21,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint/sqlsaver"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/store/sqlstore"
+	"github.com/fsvxavier/golang-chain-eco/langmem"
 )
 
 func open(t *testing.T) *sqlsaver.Saver {
@@ -139,5 +141,31 @@ func TestSQLStore(t *testing.T) {
 	_ = s.Delete(ctx, []string{"users", "1"}, "prefs")
 	if it, _ := s.Get(ctx, []string{"users", "1"}, "prefs"); it != nil {
 		t.Fatal("deleted")
+	}
+}
+
+// langmem's IndexedStore keeps vectors inside the item value; they must
+// survive the JSON round trip of a real SQL backend.
+func TestLangmemIndexedStoreOverSQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	base, err := sqlstore.New(ctx, db, sqlstore.SQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := langmem.NewIndexedStore(base, embeddings.Fake{})
+	ns := []string{"memories", "u1"}
+	_ = st.Put(ctx, ns, "a", map[string]any{"content": "the user loves sushi and japanese food"})
+	_ = st.Put(ctx, ns, "b", map[string]any{"content": "the user works on kubernetes clusters"})
+	hits, err := langmem.Query(ctx, st, ns, "japanese food", nil, 5)
+	if err != nil || len(hits) != 2 || hits[0].Key != "a" || hits[0].Score <= hits[1].Score {
+		t.Fatalf("%+v %v", hits, err)
+	}
+	if _, leaked := hits[0].Value["_embedding"]; leaked {
+		t.Fatal("embedding leaked")
 	}
 }

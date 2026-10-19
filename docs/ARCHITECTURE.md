@@ -106,3 +106,14 @@ todo list, PII scrubbing, human-in-the-loop.
   to bind into structs.
 * Not ported: durability modes, Studio/CLI, the managed LangSmith sandbox/context-hub
   backends, evals.
+
+## langmem
+
+`langmem/` sits beside `agents/`: it depends on `langgraph/store`, `langgraph/graph`, `core/{models,tools,embeddings}` and `agents` (for `Middleware`), and nothing depends on it.
+
+- **Memory kinds are tools.** Each `Schema` is offered to the model as a tool (the Go equivalent of LangMem's Pydantic schemas handed to trustcall); updates repeat `json_doc_id`, deletes use `RemoveDoc`. This keeps one extraction protocol for every kind of memory and every provider with tool calling.
+- **Pure core, stateful shell.** `Manager.Extract` takes and returns memories; `StoreManager` wraps it with retrieval, seeding, phases and minimal writes (only changed items are `Put`).
+- **Semantic search without changing `store.Store`.** `IndexedStore` keeps the vector inside the item value, so it works over every existing backend (memory, sql, redis, mongo, dynamodb); `Query` degrades to keyword ranking when the store is not a `SemanticSearcher`.
+- **Namespaces are templates** resolved from `runnables.Config.Configurable`; a missing variable is an error, never a shared namespace.
+- **Summaries are incremental and non-destructive**: the model sees `summarized_messages`, `messages` stays complete, and `RunningSummary` travels in the checkpointed state.
+- **Background formation** is a debounced timer per thread, not a queue worker; see docs/LANGMEM.md for the remote-executor gap.

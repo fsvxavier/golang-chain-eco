@@ -3,7 +3,7 @@
 Cada exemplo é um programa independente: `go run ./examples/<grupo>/<nome>`.
 Sem chave de API eles usam um modelo fake com respostas calculadas (saída determinística);
 com `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` usam o provedor real.
-Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositórios de mesmo nome; `integrations` são exemplos próprios deste projeto.
+Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositórios de mesmo nome; `langmem` foi portado do LangMem e `integrations` são exemplos próprios deste projeto.
 
 ## langchain
 
@@ -55,6 +55,18 @@ Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositóri
 | `deepagents/async_subagents` | tarefa em background (runner local) | `examples/async-subagent-server` |
 | `deepagents/async_subagent_server` | servidor de agents HTTP + `RemoteRunner` | `examples/async-subagent-server` |
 | `deepagents/mcp_docs_agent` | tools vindas de um servidor MCP | `examples/deploy-mcp-docs-agent` |
+
+## langmem
+
+Memória de longo prazo do [LangMem](https://github.com/langchain-ai/langmem) integrada ao store e ao `agents.Create` (pacote [`langmem`](../langmem), referência em [docs/LANGMEM.md](../docs/LANGMEM.md)). Todos rodam offline com um modelo fake que fala o protocolo de tool calls do extrator.
+
+| Exemplo | Mostra | Origem |
+|---|---|---|
+| `langmem/hot_path` | agent com `manage_memory` e `search_memory`, memória isolada por usuário, busca semântica | `hot_path_quickstart` |
+| `langmem/background` | `StoreManager` + `ReflectionExecutor`: 3 turnos rápidos geram 1 extração; busca nas memórias | `background_quickstart`, `delayed_processing` |
+| `langmem/profile_episodic` | coleção (inserir/atualizar/apagar), perfil de um documento com semente, episódios | `extract_semantic_memories`, `manage_user_profile`, `extract_episodic_memories` |
+| `langmem/prompt_optimizer` | prompt que aprende com feedback (metaprompt) e otimizador de vários prompts | `optimize_memory_prompt`, `optimize_compound_system` |
+| `langmem/summarization` | resumo incremental em um grafo com checkpointer; histórico completo, modelo vê o resumido | `summarization` |
 
 ## integrations
 

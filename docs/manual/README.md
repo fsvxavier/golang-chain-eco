@@ -12,6 +12,7 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 - Quer fluxos duráveis com aprovação humana: capítulos 7 e 8.
 - Vai para produção: capítulos 12 e 14.
 - Procurando um código pronto: capítulo 15.
+- Agent que lembra entre conversas e aprende com feedback: capítulo 16.
 
 ## Índice
 
@@ -31,12 +32,14 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 | 12 | [Observabilidade](12-observabilidade.md) | Callbacks, LangSmith, Langfuse, OpenTelemetry, logs |
 | 13 | [Integrações](13-integracoes.md) | Vector stores, bancos, busca na web, loaders, permissões, sandboxes |
 | 14 | [Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) | Checklist, riscos, testes, erros comuns, limitações |
-| 15 | [Exemplos e receitas](15-exemplos-e-receitas.md) | Catálogo dos 42 exemplos, receitas, equivalência com Python, glossário |
+| 15 | [Exemplos e receitas](15-exemplos-e-receitas.md) | Catálogo dos exemplos, receitas, equivalência com Python, glossário |
+| 16 | [Memória de longo prazo (LangMem)](16-memoria-langmem.md) | Memória semântica, episódica e procedural, tools, background, otimização de prompts, resumo |
 
 ## Documentos relacionados
 
 - [README do projeto](../../README.md) — visão geral e início rápido
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — decisões de design
+- [LANGMEM.md](../LANGMEM.md) — referência do pacote `langmem` e diferenças em relação ao LangMem Python
 - [INTEGRATIONS.md](../INTEGRATIONS.md) — integrações e nível de verificação de cada uma
 - [PROVIDERS.md](../PROVIDERS.md) e [PROVIDERS-ANALISE.md](../PROVIDERS-ANALISE.md) — cobertura dos 504 provedores da LangChain
 - [examples/README.md](../../examples/README.md) — índice dos exemplos executáveis

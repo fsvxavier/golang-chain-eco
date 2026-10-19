@@ -14,7 +14,7 @@ go run ./examples/integrations/graph_rag
 ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com modelo real
 ```
 
-## 15.2 Catálogo (42 exemplos)
+## 15.2 Catálogo (47 exemplos)
 
 ### `examples/langchain`
 
@@ -66,6 +66,16 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com mod
 | `async_subagents` | Tarefa em background (runner local) |
 | `async_subagent_server` | Servidor de agents HTTP + `RemoteRunner` |
 | `mcp_docs_agent` | Tools vindas de um servidor MCP |
+
+### `examples/langmem`
+
+| Exemplo | Mostra |
+|---|---|
+| `hot_path` | Agent com `manage_memory`/`search_memory`, memória por usuário |
+| `background` | `StoreManager` + `ReflectionExecutor` com debounce |
+| `profile_episodic` | Coleção, perfil de um documento e episódios |
+| `prompt_optimizer` | Prompt que aprende com feedback; vários prompts |
+| `summarization` | Resumo incremental num grafo com checkpointer |
 
 ### `examples/integrations`
 
@@ -214,6 +224,8 @@ agent, _ := agents.Create(agents.Options{Model: m, Tools: ts})
 | `MultiServerMCPClient(...).get_tools()` | `mcp.LoadTools(ctx, servers)` |
 | `@entrypoint` / `@task` | `functional.New(...)` / `functional.Task(...)` |
 | `InMemorySaver` / `InMemoryStore` | `checkpoint.NewMemory()` / `store.NewMemory()` |
+| `create_memory_store_manager` / `create_manage_memory_tool` | `langmem.NewStoreManager` / `langmem.ManageMemory` (cap. 16) |
+| `create_prompt_optimizer` / `summarize_messages` | `langmem.NewPromptOptimizer` / `langmem.SummarizeMessages` |
 
 ## 15.5 Glossário
 
