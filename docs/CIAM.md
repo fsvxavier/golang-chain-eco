@@ -67,9 +67,12 @@ ciam decision "adicionar refresh token"  # código + ADR + PRD + planos
 ciam remember "decidimos usar UUID como PK" --type decision ; ciam recall "chaves primárias"
 ciam mcp                                 # servidor MCP em stdio
 ciam init --editor claude                # grava .mcp.json (mescla com servidores existentes)
+CIAM_API_KEY=segredo ciam api --addr :8080   # API JSON: POST /tools/{name}, GET /tools, GET /status, GET /healthz
 ```
 
-Variáveis: `CIAM_DB_PATH` (padrão `~/.local/share/ciam/ciam.json`), `CIAM_PROJECT_PATH`, `CIAM_OLLAMA_URL`/`OLLAMA_HOST`, `CIAM_OLLAMA_MODEL`, `CIAM_CODE_MODEL`, `CIAM_EMBEDDER`.
+`ciam api` expõe as mesmas tools em JSON puro, sem MCP: `POST /tools/ciam_search` com o corpo `{"query": "..."}` devolve o resultado; nome desconhecido responde 404, argumentos inválidos 400. Com `CIAM_API_KEY` definida, todas as rotas (exceto `/healthz`) exigem o header `X-Api-Key`, senão 401. Em código: `ciam.Toolkit{M: m, Project: root}.Handler(apiKey)`.
+
+Variáveis: `CIAM_DB_PATH` (padrão `~/.local/share/ciam/ciam.json`), `CIAM_PROJECT_PATH`, `CIAM_OLLAMA_URL`/`OLLAMA_HOST`, `CIAM_OLLAMA_MODEL`, `CIAM_CODE_MODEL`, `CIAM_EMBEDDER`, `CIAM_API_KEY`.
 
 ## Integração com os agents
 
@@ -79,8 +82,7 @@ Variáveis: `CIAM_DB_PATH` (padrão `~/.local/share/ciam/ciam.json`), `CIAM_PROJ
 
 ## Diferenças em relação ao original (sem maquiagem)
 
-- **Sem servidor HTTP de API/painel de status** (o original separa CLI, MCP e API por causa do Docker). Aqui a biblioteca é usada direto; para acesso remoto use `ciam serve` (MCP sobre HTTP).
-- **Sem cache L2 persistente** de buscas (só em memória) e sem sqlite-vec: o índice vive no `store.Store` e o cosseno é por varredura.
+- **Sem cache L2 persistente** de buscas (só em memória) e sem sqlite-vec: o índice vive no `store.Store`. O cosseno é por varredura por padrão; com `Manager.IndexFactory` (ex.: `func() langmem.VectorIndex { return vectorstore.NewHNSW() }`) ele usa um HNSW por projeto, reconstruído quando o índice do projeto muda. O BM25 continua exato.
 - **Métricas** são contadores do processo (`Status`), não tabela persistente por ferramenta.
 - **Edição genérica**: o original é focado em Django; aqui os tipos Django continuam, e há regras para Go/JS/Python/config, mas sem análise sintática (classificação por nome de arquivo e dicas de conteúdo).
 - Templates de ADR/PRD/Plan são **originais e em inglês** (o original usa português); edite `ciam/templates.go` para o idioma do seu time.

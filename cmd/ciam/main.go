@@ -34,6 +34,7 @@ const usage = `ciam - context for AI assistants
   ciam watch [path] [--interval 30s]
   ciam mcp                         MCP server on stdio
   ciam serve [--addr :8080]        MCP server over HTTP (POST /)
+  ciam api [--addr :8080]          JSON API: POST /tools/{name}, GET /tools, /status (CIAM_API_KEY)
   ciam init [--editor vscode|cursor|claude] [--print]
 
 Environment: CIAM_DB_PATH (default ~/.local/share/ciam/ciam.json), CIAM_PROJECT_PATH,
@@ -231,11 +232,21 @@ func run(ctx context.Context, cmd string, args []string) error {
 	case "mcp":
 		srv := ciam.Toolkit{M: m, Project: projectPath()}.MCPServer(nil)
 		return srv.ServeStdio(ctx, os.Stdin, os.Stdout)
-	case "serve":
-		srv := ciam.Toolkit{M: m, Project: projectPath()}.MCPServer(nil)
-		hs := &http.Server{Addr: *addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	case "serve", "api":
+		tk := ciam.Toolkit{M: m, Project: projectPath()}
+		var h http.Handler
+		if cmd == "serve" {
+			h = tk.MCPServer(nil).Handler()
+		} else {
+			key := os.Getenv("CIAM_API_KEY")
+			if key == "" {
+				fmt.Fprintln(os.Stderr, "ciam: warning: CIAM_API_KEY is not set; the API accepts unauthenticated requests")
+			}
+			h = tk.Handler(key)
+		}
+		hs := &http.Server{Addr: *addr, Handler: h, ReadHeaderTimeout: 10 * time.Second}
 		go func() { <-ctx.Done(); _ = hs.Shutdown(context.Background()) }()
-		fmt.Fprintln(os.Stderr, "MCP over HTTP on", *addr)
+		fmt.Fprintln(os.Stderr, cmd, "listening on", *addr)
 		if err := hs.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
