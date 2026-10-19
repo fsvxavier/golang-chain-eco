@@ -205,3 +205,40 @@ só não economizam: a economia aparece em `Usage.CacheReadTokens`.
 
 - A contagem de tokens é a heurística de `knowledge.Heuristic` (~4 caracteres por token). Corpus perto da janela merece um contador próprio.
 - O CAG não tem estado de cache local: depende do cache do provedor, que expira (minutos no Anthropic) e cobra a primeira escrita.
+
+## `knowledge.Router`: escolha da técnica
+
+```go
+r := &knowledge.Router{
+    RAG: ragPipeline, CAG: cagEngine, KAG: kagEngine,
+    Profile:  knowledge.Profile{CorpusTokens: 40000, ContextWindow: 200000, Volatile: false, HasGraph: true},
+    Fallback: true,
+}
+ans, err := r.Answer(ctx, knowledge.Question{Text: "Quem prescreveu o medicamento X?"})
+```
+
+O roteador também é um `Answerer`; qualquer das três técnicas pode ficar `nil`. As regras, em ordem:
+
+1. `Question.Force` (`"rag"`, `"cag"`, `"kag"`) vence. Se a técnica forçada não está configurada, o resultado é `knowledge.ErrNoStrategy`, sem cair nas regras. Valor inválido é erro.
+2. Há grafo (`Profile.HasGraph`), `KAG` configurado e o `Classifier` diz que a pergunta é multi-hop: **KAG**. O classificador só roda nesse caso.
+3. Corpus estável (`!Volatile`), `CorpusTokens > 0` e `CorpusTokens <= ContextWindow * 0.8`, com `CAG` configurado: **CAG**.
+4. Senão: **RAG**.
+
+Se a técnica escolhida não existe, o roteador usa a primeira disponível na ordem RAG, CAG, KAG e diz isso no motivo. Sem nenhuma: `ErrNoStrategy`.
+
+`Route(ctx, q)` devolve só `(estratégia, motivo, erro)`, sem responder. Em `Answer`, o primeiro passo do `Trace` é `route` (`"<estratégia> — <motivo>"`),
+e `Answer.Strategy` é a técnica que de fato respondeu. Com `Fallback: true`, erro da técnica escolhida (que não seja RAG) repete a pergunta no RAG,
+e o `Trace` ganha o passo `fallback` com o erro original.
+
+### Classificadores de multi-hop
+
+| Tipo | Como decide |
+|---|---|
+| `KeywordClassifier` (padrão) | procura pistas de relação, sem diferenciar maiúsculas nem acentos: `quem`, `entre`, `relaciona*`, `dependência`, `caminho`, `who`, `between`, `related`, `path`, `depends` |
+| `LLMClassifier{Model}` | pergunta sim/não ao modelo; resposta fora de `sim/não/yes/no` vira erro |
+
+Implemente `knowledge.Classifier` (`MultiHop(ctx, Question) (bool, error)`) para uma regra própria. Falha do classificador interrompe o roteamento com erro.
+
+### Limite
+
+As pistas do `KeywordClassifier` são heurísticas: "quem" também aparece em perguntas simples. Para precisão, use `LLMClassifier` ou um classificador próprio.
