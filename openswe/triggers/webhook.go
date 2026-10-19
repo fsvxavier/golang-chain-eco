@@ -47,7 +47,9 @@ type Webhook struct {
 	// OnError receives processing failures (default: dropped).
 	OnError func(ev github.Event, err error)
 
-	wg sync.WaitGroup
+	wg   sync.WaitGroup
+	mu   sync.Mutex
+	tail map[string]chan struct{} // per issue/PR: done signal of the last accepted event
 }
 
 // Wait blocks until every accepted event has been processed.
@@ -89,9 +91,33 @@ func (w *Webhook) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Events of one issue/PR are handled in arrival order (a "closed" must
+	// not race the "synchronize" after it); different ones run in parallel.
+	// ponytail: in-process ordering only; GitHub itself does not order
+	// deliveries, and several replicas would need a shared queue.
+	key := fmt.Sprintf("%s/%s#%d", ev.Owner, ev.Repo, ev.Number)
+	done := make(chan struct{})
+	w.mu.Lock()
+	if w.tail == nil {
+		w.tail = map[string]chan struct{}{}
+	}
+	prev := w.tail[key]
+	w.tail[key] = done
+	w.mu.Unlock()
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
+		defer func() {
+			w.mu.Lock()
+			if w.tail[key] == done {
+				delete(w.tail, key)
+			}
+			w.mu.Unlock()
+			close(done)
+		}()
+		if prev != nil {
+			<-prev
+		}
 		if err := w.Handle(context.WithoutCancel(r.Context()), ev); err != nil && w.OnError != nil {
 			w.OnError(ev, err)
 		}
