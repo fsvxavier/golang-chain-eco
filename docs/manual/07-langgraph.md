@@ -192,7 +192,7 @@ outer := graph.NewStateGraph(schema).
 	})
 ```
 
-Um `Interrupt` interno propaga para o grafo pai e retoma corretamente, com ou sem checkpointer próprio no subgrafo (o checkpoint dele fica no namespace `nó:índice`). Para receber os eventos do subgrafo no stream do pai, use `graph.Subgraphs()`; cada evento vem com `Event.Namespace`. Exemplos: `subgraph`, `hierarchical_teams`.
+Um `Interrupt` interno propaga para o grafo pai e retoma corretamente, com ou sem checkpointer próprio no subgrafo (o checkpoint dele fica no namespace `nó:índice`). Se vários nós do subgrafo param no mesmo superpasso, a primeira pausa (na ordem das tarefas) sobe ao pai, e cada `Command{Resume}` responde a próxima, sempre na mesma ordem. Para receber os eventos do subgrafo no stream do pai, use `graph.Subgraphs()`; cada evento vem com `Event.Namespace`. Exemplos: `subgraph`, `hierarchical_teams`.
 
 ## 7.9 Limite de passos
 

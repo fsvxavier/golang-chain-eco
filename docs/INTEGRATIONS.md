@@ -86,11 +86,9 @@ Para um banco novo, implemente `Upsert`, `Query` e `Delete` (3 métodos) e use `
 FAISS e Annoy reais são bibliotecas C++ (exigiriam cgo); `Flat`, `Annoy` e `HNSW` cobrem o mesmo uso em Go puro. Para índices já prontos,
 `LoadAnnoyFile` e `LoadFAISSFlat` leem o formato nativo dos arquivos (só os tipos listados acima).
 
-**Compatibilidade não verificada com arquivos reais.** Os testes (`integrations/vectorstore/fileformats_test.go`) gravam arquivos com o layout
-documentado em `annoyfile.go` e `faissfile.go` e leem de volta; eles não provam que arquivos gerados pelas bibliotecas oficiais são lidos
-corretamente. Para verificar: gere um índice com Python (`faiss.write_index(index, "flat.faiss")` com `IndexFlatL2`/`IndexFlatIP`;
-`annoy.save("idx.ann")` com `AnnoyIndex(dim, "angular")` ou `"euclidean"`), copie o arquivo para `integrations/vectorstore/testdata/`,
-e escreva um teste que carregue o arquivo e compare o top-k com os vetores de origem (ou com a saída do Python gravada ao lado).
+**Compatibilidade verificada com arquivos reais.** `integrations/vectorstore/realfiles_test.go` lê arquivos gerados pelas bibliotecas
+oficiais (annoy 1.17.3 e faiss-cpu 1.15.1, em `testdata/real_*`, recriados por `testdata/gen_real.py`) e compara o top-k e os scores com a
+busca feita pelas próprias bibliotecas. Esse teste encontrou e corrigiu um erro: o FAISS grava o tamanho dos códigos em número de floats, não em bytes.
 Alternativas sem servidor: `core/vectorstores.Memory` (com `Save`/`Load`) e `integrations/retrieval.BM25`.
 
 ## Objetos, permissões, CI, sandboxes e protocolos
@@ -148,6 +146,7 @@ não está definida:
 docker run -d -p 6379:6379 redis/redis-stack-server        # REDIS_ADDR=localhost:6379
 docker run -d -p 27017:27017 mongo:7                       # MONGO_ADDR=localhost:27017 (MONGO_USER/MONGO_PASS para SCRAM)
 docker run -d -p 8000:8000 amazon/dynamodb-local           # DYNAMODB_ENDPOINT=http://localhost:8000
+docker run -d -p 8001:8000 zenko/cloudserver               # S3_ENDPOINT=http://localhost:8001 S3_KEY=accessKey1 S3_SECRET=verySecretKey1
 docker run -d -e POSTGRES_PASSWORD=pw -p 5432:5432 pgvector/pgvector:pg16
 PG_DSN=postgres://postgres:pw@localhost:5432/postgres go test ./internal/pgtest/...   # driver pgx (só de teste)
 ```
