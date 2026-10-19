@@ -256,16 +256,23 @@ func orStr(s, d string) string {
 }
 
 type usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
 }
 
 func (u *usage) toUsage() *messages.Usage {
 	if u == nil {
 		return nil
 	}
-	return &messages.Usage{InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens, TotalTokens: u.TotalTokens}
+	out := &messages.Usage{InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens, TotalTokens: u.TotalTokens}
+	if u.PromptTokensDetails != nil {
+		out.CacheReadTokens = u.PromptTokensDetails.CachedTokens
+	}
+	return out
 }
 
 type choice struct {

@@ -106,3 +106,19 @@ func sysText(req map[string]any) string {
 	s, _ := b["text"].(string)
 	return s
 }
+
+func TestCacheUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":4,"cache_read_input_tokens":30,"cache_creation_input_tokens":20}}`)
+	}))
+	defer srv.Close()
+	m := &anthropic.Chat{Model: "claude-x", APIKey: "ak", BaseURL: srv.URL}
+	out, err := m.Generate(context.Background(), []messages.Message{messages.Human("hi")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := out.Usage
+	if u == nil || u.CacheReadTokens != 30 || u.CacheCreationTokens != 20 || u.InputTokens != 55 {
+		t.Fatalf("%+v", u)
+	}
+}

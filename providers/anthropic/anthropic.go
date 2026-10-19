@@ -188,7 +188,13 @@ type apiUsage struct {
 
 func (u apiUsage) toUsage() *messages.Usage {
 	in := u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
-	return &messages.Usage{InputTokens: in, OutputTokens: u.OutputTokens, TotalTokens: in + u.OutputTokens}
+	return &messages.Usage{
+		InputTokens:         in,
+		OutputTokens:        u.OutputTokens,
+		TotalTokens:         in + u.OutputTokens,
+		CacheReadTokens:     u.CacheReadInputTokens,
+		CacheCreationTokens: u.CacheCreationInputTokens,
+	}
 }
 
 type contentBlock struct {

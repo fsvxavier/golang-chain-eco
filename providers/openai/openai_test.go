@@ -117,3 +117,19 @@ func TestAzure(t *testing.T) {
 		t.Fatal(path, query, key)
 	}
 }
+
+func TestCachedTokensUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":7,"total_tokens":47,"prompt_tokens_details":{"cached_tokens":12}}}`)
+	}))
+	defer srv.Close()
+	m := &openai.Chat{Model: "gpt-x", APIKey: "sk-test", BaseURL: srv.URL}
+	out, err := m.Generate(context.Background(), []messages.Message{messages.Human("hi")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := out.Usage
+	if u == nil || u.CacheReadTokens != 12 || u.InputTokens != 40 || u.TotalTokens != 47 {
+		t.Fatalf("%+v", u)
+	}
+}

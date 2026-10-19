@@ -66,10 +66,14 @@ type InvalidToolCall struct {
 }
 
 // Usage holds token accounting returned by providers.
+// InputTokens includes cached tokens (CacheReadTokens and CacheCreationTokens are
+// subsets reported separately for cost and cache-hit accounting).
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens         int `json:"input_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	CacheReadTokens     int `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
 }
 
 // Add returns the element-wise sum of two usages (either may be nil).
@@ -80,7 +84,13 @@ func (u *Usage) Add(o *Usage) *Usage {
 	if o == nil {
 		return u
 	}
-	return &Usage{u.InputTokens + o.InputTokens, u.OutputTokens + o.OutputTokens, u.TotalTokens + o.TotalTokens}
+	return &Usage{
+		InputTokens:         u.InputTokens + o.InputTokens,
+		OutputTokens:        u.OutputTokens + o.OutputTokens,
+		TotalTokens:         u.TotalTokens + o.TotalTokens,
+		CacheReadTokens:     u.CacheReadTokens + o.CacheReadTokens,
+		CacheCreationTokens: u.CacheCreationTokens + o.CacheCreationTokens,
+	}
 }
 
 // Message is a chat message of any role.
