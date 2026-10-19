@@ -75,14 +75,22 @@ Todos implementam `vectorstores.VectorStore` (busca por similaridade com score, 
 | Memgraph | `memgraph.Vector` | cliente Bolt próprio + `vector_search`; testado contra Memgraph 3 |
 | Azure AI Search | `vectorstore.AzureAISearch` | REST, HNSW cosseno, índice criado no primeiro `Upsert`; só teste de contrato (`httptest`) |
 | FAISS (equivalente) | `vectorstore.Flat` | índice exato em Go puro, `Save`/`LoadFlat`; não é binding do FAISS |
+| FAISS (leitura) | `vectorstore.LoadFAISSFlat` | lê `IndexFlatL2` (`IxF2`), `IndexFlatIP` (`IxFI`) e `IndexIDMap` sobre um deles (`IxMp`); só leitura |
 | Annoy (equivalente) | `vectorstore.Annoy` | floresta de árvores de projeção aleatória, Go puro; recall medido em teste |
+| Annoy (leitura) | `vectorstore.LoadAnnoyFile` | lê o `.ann` nativo (`angular` e `euclidean`); busca exata por força bruta; só leitura |
 | HNSW (índice de grafo) | `vectorstore.NewHNSW()` | grafo hierárquico em Go puro, cosseno; `Save`/`LoadHNSW`; deletes são tombstones; recall medido em teste |
 
 Matriz completa dos 504 provedores da LangChain (o que existe e o que não): [PROVIDERS.md](PROVIDERS.md).
 
 Para um banco novo, implemente `Upsert`, `Query` e `Delete` (3 métodos) e use `vectorstore.New(embedder, backend)`.
-FAISS e Annoy reais são bibliotecas C++ (exigiriam cgo); `Flat`, `Annoy` e `HNSW` cobrem o mesmo uso em Go puro, sem ler arquivos de índice
-nativos desses projetos.
+FAISS e Annoy reais são bibliotecas C++ (exigiriam cgo); `Flat`, `Annoy` e `HNSW` cobrem o mesmo uso em Go puro. Para índices já prontos,
+`LoadAnnoyFile` e `LoadFAISSFlat` leem o formato nativo dos arquivos (só os tipos listados acima).
+
+**Compatibilidade não verificada com arquivos reais.** Os testes (`integrations/vectorstore/fileformats_test.go`) gravam arquivos com o layout
+documentado em `annoyfile.go` e `faissfile.go` e leem de volta; eles não provam que arquivos gerados pelas bibliotecas oficiais são lidos
+corretamente. Para verificar: gere um índice com Python (`faiss.write_index(index, "flat.faiss")` com `IndexFlatL2`/`IndexFlatIP`;
+`annoy.save("idx.ann")` com `AnnoyIndex(dim, "angular")` ou `"euclidean"`), copie o arquivo para `integrations/vectorstore/testdata/`,
+e escreva um teste que carregue o arquivo e compare o top-k com os vetores de origem (ou com a saída do Python gravada ao lado).
 Alternativas sem servidor: `core/vectorstores.Memory` (com `Save`/`Load`) e `integrations/retrieval.BM25`.
 
 ## Objetos, permissões, CI, sandboxes e protocolos

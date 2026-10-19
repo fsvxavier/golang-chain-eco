@@ -130,7 +130,7 @@ Backends disponíveis (detalhes e nível de verificação em [INTEGRATIONS.md](.
 | SQL | PostgreSQL + pgvector, MariaDB 11.7+, CockroachDB, Oracle 23ai, ClickHouse, CrateDB |
 | Grafos e documentos | Neo4j, SurrealDB, ArcadeDB, Infinispan, Couchbase, Memgraph (`memgraph.Vector`), FalkorDB (`redis.FalkorDB`) |
 | Redis e Mongo | `redis.Vector` (Redis Stack), `mongo.Vector` (Atlas `$vectorSearch` ou varredura) |
-| Índices locais | `vectorstore.Flat` (exato, equivalente ao FAISS) e `vectorstore.Annoy` (aproximado) |
+| Índices locais | `vectorstore.Flat` (exato, equivalente ao FAISS) e `vectorstore.Annoy` (aproximado); leitura de arquivos nativos com `LoadAnnoyFile` e `LoadFAISSFlat` (só leitura) |
 
 Exemplo com PostgreSQL (você fornece o driver):
 
@@ -150,6 +150,16 @@ flat := vectorstore.NewFlat()                          // exato; flat.Save(path)
 ann := &vectorstore.Annoy{Trees: 20, SearchK: 200, Seed: 7} // aproximado
 store := vectorstore.New(emb, flat)
 ```
+
+Para ler um índice gerado pelo FAISS ou pelo Annoy (sem binding, só leitura):
+
+```go
+faissIdx, _ := vectorstore.LoadFAISSFlat("flat.faiss")   // IndexFlatL2, IndexFlatIP ou IndexIDMap sobre flat
+annIdx, _ := vectorstore.LoadAnnoyFile("idx.ann", 384, "angular") // dimensão e métrica não ficam no arquivo
+store := vectorstore.New(emb, annIdx)
+```
+
+A compatibilidade com arquivos das bibliotecas oficiais não é coberta pelos testes: veja [INTEGRATIONS.md](../INTEGRATIONS.md) para verificar com um arquivo gerado em Python.
 
 Veja `examples/integrations/vector_indexes` para recall versus `SearchK` e persistência.
 
