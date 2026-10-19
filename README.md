@@ -107,6 +107,7 @@ go test -race ./...
 | `integrations/vectorstore` | 25 backends (os índices locais `Flat`, `Annoy` e `HNSW` incluídos, com leitura de arquivos `.ann` e FAISS flat; mais Redis, FalkorDB, MongoDB/Atlas e Memgraph nos pacotes próprios = 29): Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector, Typesense, Upstash, Neo4j, SurrealDB, MariaDB, ClickHouse, CrateDB, CockroachDB, Oracle 23ai, Solr, ArcadeDB, Infinispan, Couchbase, Azure AI Search, Astra | `langchain-community` e parceiros |
 | `integrations/{redis,mongo,dynamodb,s3}` | `checkpoint.Saver` e `store.Store` em Redis, MongoDB, DynamoDB e S3 (AWS, MinIO, Tigris, R2...); Redis, MongoDB/Atlas e FalkorDB também como vector store | checkpointers/stores |
 | `integrations/{search,loaders,retrieval}` | ~30 buscas e scrapers (Tavily, Exa, Brave, You.com, Zotero, YouTube...), loaders, BM25 e rerank | `langchain-community` |
+| `integrations/graphstore` | `kag.GraphStore` em Neo4j (HTTP) e Memgraph (Bolt), com tipos de relação validados | grafos de conhecimento |
 | `integrations/{graphretriever,spicedb,permit,vectara,aws}` | Graph RAG, retrievers filtrados por permissão (SpiceDB, Permit), Vectara, Bedrock Knowledge Bases, Kendra, tool Lambda | retrievers |
 | `integrations/{kubernetes,jenkins,salesforce,messaging,memgraph,agui}` | Sandbox em pod, Jenkins, SOQL somente leitura, SMS (Plivo/Telnyx), Memgraph (Bolt), protocolo AG-UI | tools / protocolos |
 | `providers/{google,cohere,bedrock,watsonx,replicate}` | Gemini/Vertex, Cohere (chat, embeddings, rerank), Bedrock Converse, IBM watsonx.ai, Replicate | parceiros |
@@ -743,7 +744,7 @@ d := &triggers.Dispatcher{Runners: map[string]triggers.Runner{triggers.KindAgent
 http.Handle("/webhooks/github", &triggers.Webhook{Secret: secret, Dispatcher: d, Bot: "openswe", BotLogins: []string{"openswe[bot]"}})
 ```
 
-Exemplos offline em `examples/agentprotocol/`, `examples/ciam/` e `examples/openswe/`. A CLI `cmd/ciam` indexa projetos e serve MCP (`go install ./cmd/ciam`); `cmd/langgraph dev` sobe um servidor de desenvolvimento ([docs/DEV.md](docs/DEV.md)).
+Exemplos offline em `examples/agentprotocol/`, `examples/ciam/` e `examples/openswe/`. A CLI `cmd/ciam` indexa projetos e serve MCP (`go install ./cmd/ciam`); a CLI `cmd/knowledge` indexa documentos e responde com RAG, CAG ou KAG (`go install ./cmd/knowledge`, veja [docs/KNOWLEDGE.md](docs/KNOWLEDGE.md)); `cmd/langgraph dev` sobe um servidor de desenvolvimento ([docs/DEV.md](docs/DEV.md)).
 
 ## Configuração
 
@@ -764,7 +765,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-61 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 1 de evals, 6 de integrações, 4 de RAG/CAG/KAG, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 4 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+63 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 1 de evals, 6 de integrações, 6 de RAG/CAG/KAG, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 4 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser

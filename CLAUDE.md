@@ -17,6 +17,8 @@ go test ./internal/sqlitetest/...                    # sqlsaver against real SQL
 PG_DSN=... go test ./internal/pgtest/...             # PostgreSQL/MariaDB/CockroachDB/Oracle
 go run ./examples/langgraph/<name>                   # every example is a main package; runs offline with a fake model
 go run ./cmd/ciam <index|search|decision|mcp|...>    # ciam CLI
+go run ./cmd/knowledge <index|ask|mcp|serve>         # RAG/CAG/KAG CLI
+NEO4J_URL=... MEMGRAPH_ADDR=... go test ./integrations/graphstore   # graph stores against real Neo4j/Memgraph (Docker)
 ```
 
 Integration tests for external services skip unless their env var is set (`REDIS_ADDR`, `MONGO_ADDR`, `K8S_SERVER`, ...); they share the suite in `internal/conformance`.
@@ -39,6 +41,7 @@ Layers build on each other; higher layers reuse lower ones rather than reimpleme
 - `agentprotocol/`: full Agent Protocol v0.1.6 server and client. A per-thread hub (ring buffer, replay by `seq`) fed by `translator` (translate.go) which maps graph events and callbacks to streaming-protocol channels. `streamMemory` is shared per thread so resumed runs do not replay messages and tool-call ids stay correlated.
 - `ciam/`: project-context manager (incremental hash index, hybrid cosine + BM25 search with RRF, ADR/PRD/Plan docs, memory via langmem). `ciam.Toolkit` exposes everything as `ciam_*` tools and as an MCP server; `cmd/ciam` is the CLI.
 - `openswe/`: Open SWE port, composed from the pieces above. Subpackages: `github` (REST client, App JWT), `sandbox` (per-thread, never silently replaced), `guards` (middleware guard rails), `review`, `babysit` (CI watcher), `triggers`, `prompts` (embedded templates). `openswe.Config.Context` takes a `*ciam.Toolkit`; `agentprotocol` can serve the openswe graphs.
+- `knowledge/`, `rag/`, `cag/`, `kag/`: RAG, CAG and KAG behind one `knowledge.Answerer` (question in, sourced answer + `Trace` out). `knowledge.Router` picks the technique and `knowledge.Toolkit` serves them as tools/MCP (`cmd/knowledge` is the CLI). `rag` composes `core/retrievers` + `integrations/retrieval`; `cag` keeps the corpus in a byte-stable system prefix (`cache_control` for Anthropic; `messages.Usage` has `CacheReadTokens`/`CacheCreationTokens`); `kag` keeps a graph behind `kag.GraphStore` (in-memory, plus `integrations/graphstore` for Neo4j/Memgraph; `internal/conformance.Graph` is the shared suite).
 - `providers/`, `chatmodels/`, `integrations/`, `tracing/`: model providers, vector stores/savers/object stores, LangSmith.
 
 ## Gotchas
@@ -48,6 +51,7 @@ Layers build on each other; higher layers reuse lower ones rather than reimpleme
 - Agents with middleware hooks hit the default recursion limit (25) fast; openswe runs use `RecursionLimit` 2000.
 - GitHub branch names keep `/` unescaped in API paths (`escRef` in `openswe/github`); escaping to `%2F` 404s.
 - Graph `updates` events carry `{node: update}`; use `unwrapUpdate` (agentprotocol) instead of reading the payload directly.
+- Relation types and labels cannot be Cypher parameters: graph adapters validate them (`^[A-Z][A-Z0-9_]*$`) before interpolating, and `kag.Extractor` normalises LLM output to that form. Never concatenate model text into a query.
 - Examples that need GitHub use the in-process fake at `examples/internal/fakegithub`.
 
 <!-- rtk-instructions v2 -->

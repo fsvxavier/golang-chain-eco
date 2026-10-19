@@ -119,6 +119,16 @@ Hubris, FuturMix...) entram na tabela do `chatmodels` e exigem `$<PROVEDOR>_BASE
 Cada um implementa `Searcher` e vira tool (`search.Tool`) ou retriever (`search.Retriever`). Também: `Firecrawl`, `JinaReader` e
 `Fetcher` (GET de páginas com **bloqueio de SSRF**: recusa loopback/rede privada, mesmo após DNS).
 
+## Grafos de conhecimento (`integrations/graphstore`)
+
+| Banco | Tipo | Transporte | Verificação |
+|---|---|---|---|
+| Neo4j 5.19+ / Aura | `graphstore.Neo4j` | Query API HTTP | testado contra Neo4j 5.26 em Docker (`NEO4J_URL`) |
+| Memgraph | `graphstore.Memgraph` | Bolt 4.x (`integrations/memgraph`) | testado contra Memgraph em Docker (`MEMGRAPH_ADDR`) |
+
+Implementam `kag.GraphStore` e passam a suíte `conformance.Graph`, a mesma do grafo em memória. Detalhes, segurança dos identificadores Cypher e diferenças entre os dois em
+[KNOWLEDGE.md](KNOWLEDGE.md#integrationsgraphstore-grafo-em-neo4j-e-memgraph).
+
 ## Loaders e retrievers
 
 - `core/documents`: texto, CSV, JSONL, HTML, diretório. `integrations/loaders`: `Web`, `Sitemap`, `JSON`, `Unstructured` (PDF, Office, e-mail, imagens, via API ou instância própria).
@@ -148,6 +158,8 @@ docker run -d -p 27017:27017 mongo:7                       # MONGO_ADDR=localhos
 docker run -d -p 8000:8000 amazon/dynamodb-local           # DYNAMODB_ENDPOINT=http://localhost:8000
 docker run -d -p 8001:8000 zenko/cloudserver               # S3_ENDPOINT=http://localhost:8001 S3_KEY=accessKey1 S3_SECRET=verySecretKey1
 docker run -d -e POSTGRES_PASSWORD=pw -p 5432:5432 pgvector/pgvector:pg16
+docker run -d -p 7474:7474 -p 7688:7687 -e NEO4J_AUTH=neo4j/lcgtestpass neo4j:5.26   # NEO4J_URL=http://localhost:7474 NEO4J_USER=neo4j NEO4J_PASS=lcgtestpass
+docker run -d -p 7687:7687 memgraph/memgraph               # MEMGRAPH_ADDR=localhost:7687
 PG_DSN=postgres://postgres:pw@localhost:5432/postgres go test ./internal/pgtest/...   # driver pgx (só de teste)
 ```
 

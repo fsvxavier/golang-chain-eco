@@ -126,6 +126,8 @@ RAG, CAG e KAG sobre o contrato comum `knowledge.Answerer` (todos rodam offline 
 | `knowledge/rag` | indexação incremental (`Added`/`Skipped`/`Removed`), busca vetorial vs híbrida (termo exato), resposta com citações |
 | `knowledge/cag` | corpus em prefixo estável, hash e tokens, `cache_hit` na segunda pergunta, fallback quando o corpus não cabe |
 | `knowledge/kag` | grafo extraído de trechos, pergunta de 3 saltos que a busca vetorial não responde, verificação, grafo com ciclo |
+| `knowledge/agent_tools` | agent (`agents.Create`) usando as tools do `knowledge.Toolkit`; o modelo chama `rag_answer` e cita as fontes |
+| `knowledge/mcp_server` | as mesmas tools como servidor MCP; com `-demo` mostra `tools/list` e `tools/call` em processo, sem `-demo` serve stdio |
 | `knowledge/router` | roteador escolhendo KAG, CAG ou RAG pela pergunta e pelo perfil, `Force` e fallback para RAG |
 
 ## Não portados

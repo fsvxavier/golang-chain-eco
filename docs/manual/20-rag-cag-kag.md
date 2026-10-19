@@ -105,22 +105,50 @@ O primeiro passo do `Trace` é sempre a decisão (`route`). Dá para forçar a t
 depois corpus estável que cabe em 80% da janela (CAG), senão RAG. Com `Fallback: true`, erro em CAG ou KAG repete a pergunta no RAG, e o `Trace` registra isso.
 O classificador de multi-hop padrão é uma heurística de palavras (pt-BR e en); use `knowledge.LLMClassifier{Model: m}` quando precisar de mais precisão.
 
-## 20.6 Receitas
+## 20.6 Integrações
+
+**Tools para agents e MCP.** Um `knowledge.Toolkit` vira tools (`rag_answer`, `cag_answer`, `kag_query`, `knowledge_answer`, `knowledge_ingest`) para `agents.Create`
+e um servidor MCP para editores, com as mesmas tools:
+
+```go
+tk := knowledge.Toolkit{RAG: p, CAG: e1, KAG: e2, Router: r}
+agent, _ := agents.Create(agents.Options{Model: model, Tools: tk.All()})
+srv := tk.MCPServer(nil) // srv.ServeStdio(ctx, os.Stdin, os.Stdout)
+```
+
+`go run ./examples/knowledge/agent_tools` mostra o agent chamando `rag_answer`; `go run ./examples/knowledge/mcp_server -demo` mostra `tools/list` e `tools/call` em processo.
+Dentro de um grafo do LangGraph use `knowledge.Node(r, "question", "answer")`.
+
+**Bancos de grafo.** `graphstore.Neo4j` e `graphstore.Memgraph` implementam `kag.GraphStore`; trocar o `kag.NewMemory()` por eles não muda mais nada. Tipos de relação são validados
+(`^[A-Z][A-Z0-9_]*$`) antes de entrar na consulta Cypher. Detalhes, diferenças e como testar contra Docker em [KNOWLEDGE.md](../KNOWLEDGE.md).
+
+**Bancos vetoriais.** O RAG aceita qualquer `vectorstores.VectorStore`; `vectorstore.New(embedder, backend)` embrulha os backends do capítulo 13. A suíte `conformance.RAG` garante o mesmo comportamento
+em `Memory`, `Flat` e `HNSW`.
+
+**Linha de comando.**
+
+```bash
+go run ./cmd/knowledge index docs --kind both
+go run ./cmd/knowledge ask "Quem se relaciona com o contrato Y?"
+```
+
+## 20.7 Receitas
 
 - **Cada técnica atrás de uma interface só.** Código de aplicação recebe um `knowledge.Answerer`; trocar RAG por CAG não muda mais nada.
 - **Como chain/Runnable:** `knowledge.AsRunnable(a)` devolve `runnables.Runnable[Question, Answer]`.
 - **Medir economia de cache:** some `Usage.CacheReadTokens` das respostas; `InputTokens` continua somando tudo.
 - **Persistir:** `vectorstores.Memory.Save/Load` e `kag.Memory.Save/LoadMemory` gravam em JSON; em produção use um backend vetorial real (capítulo 13).
 
-## 20.7 Limites conhecidos
+## 20.8 Limites conhecidos
 
 - A indexação incremental do RAG guarda os hashes só na memória do processo; reiniciar reindexa tudo. Fontes que somem do loader não são removidas do store.
 - O BM25 do pipeline é recriado a cada pergunta (bom até alguns milhares de trechos).
 - O CAG depende do cache do provedor, que expira e cobra a primeira escrita; a contagem de tokens é estimada.
 - No KAG, a qualidade do plano e da extração vem do modelo. Um passo cujas triplas já foram coletadas por outro pode acionar o complemento por chunks sem necessidade.
 - O `Usage` do KAG cobre só a chamada de síntese (plano, extração e verificação não entram).
+- `FindEntities` dos adapters Neo4j e Memgraph pontua em Go depois de ler as entidades do rótulo; para grafos muito grandes, falta usar o índice vetorial do banco.
 
-## 20.8 Problemas comuns
+## 20.9 Problemas comuns
 
 | Sintoma | Causa provável |
 |---|---|
@@ -128,6 +156,8 @@ O classificador de multi-hop padrão é uma heurística de palavras (pt-BR e en)
 | `Cache read` sempre zero no Anthropic | prefixo mudou entre chamadas (corpus alterado, instrução diferente) ou o cache expirou |
 | KAG responde "não sei" | grafo vazio ou extração sem triplas (veja `ExtractStats.Dropped`); defina `Chunks` como complemento |
 | `rag: cannot answer with strategy "kag"` | `Question.Force` aponta para outra técnica; deixe o roteador decidir ou limpe o campo |
+| `kag needs graph.json` / `cag needs --src` (CLI) | o modo pedido precisa de `index --kind kag` ou de `--src` |
+| `graphstore: relation type ... must match` | tipo de relação fora de `^[A-Z][A-Z0-9_]*$`; use o `kag.Extractor`, que normaliza |
 | `knowledge: no strategy available` | `Router` sem nenhuma técnica configurada, ou `Force` para uma técnica `nil` |
 
 Próximo: volta ao [índice](README.md).

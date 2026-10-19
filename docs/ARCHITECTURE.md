@@ -134,7 +134,8 @@ todo list, PII scrubbing, human-in-the-loop.
 - **knowledge** defines `Answerer` (question in, sourced answer out) and the `Router` that picks a technique per question. It imports none of the techniques, so any `Answerer` can be routed.
 - **rag** composes `core/retrievers` and `integrations/retrieval`: an incremental `Indexer` (content hash per source) and a `Pipeline` that fuses vector and BM25 results with RRF.
 - **cag** puts the whole corpus in a byte-stable system prefix and lets the provider cache it (`cache_control` for Anthropic, automatic prefix caching elsewhere); `messages.Usage` reports `CacheReadTokens` and `CacheCreationTokens`.
-- **kag** keeps a knowledge graph behind the `GraphStore` interface (in-memory reference implementation, shared conformance suite). An LLM extractor builds it; the `Engine` plans hops, walks the graph and synthesises from the triples. Relation types coming from the model are normalised before they can reach a query language.
+- **kag** keeps a knowledge graph behind the `GraphStore` interface (in-memory reference implementation, shared conformance suite). An LLM extractor builds it; the `Engine` plans hops, walks the graph and synthesises from the triples. Relation types coming from the model are normalised before they can reach a query language. `integrations/graphstore` implements `GraphStore` for Neo4j (Query API over HTTP) and Memgraph (Bolt); both validate labels and relation types before interpolating them into Cypher and are checked against the same conformance suite as the in-memory store.
+- **knowledge.Toolkit** turns the answerers into `tools.Tool` values and serves them over `mcp/server`, following the `ciam.Toolkit` pattern; `cmd/knowledge` is the CLI on top.
 
 ## agentprotocol, ciam, openswe
 

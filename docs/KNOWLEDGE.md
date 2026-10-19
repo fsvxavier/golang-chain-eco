@@ -387,3 +387,34 @@ MEMGRAPH_ADDR=127.0.0.1:7687 go test -race -count=1 -v ./integrations/graphstore
 ```
 
 Cada execução usa um rótulo único e apaga o que criou.
+
+## `cmd/knowledge`: linha de comando
+
+```bash
+go install ./cmd/knowledge
+
+knowledge index docs --glob "*.md" --kind both --out .knowledge   # vectors.json (RAG) e graph.json (KAG)
+knowledge ask "Qual a garantia do Zefiro X200?" --dir .knowledge   # o roteador escolhe a técnica
+knowledge ask "..." --mode cag --src docs                          # CAG: a pasta vira o corpus no contexto
+knowledge mcp --dir .knowledge                                     # servidor MCP em stdio (editores)
+knowledge serve --addr :8080 --dir .knowledge                      # MCP sobre HTTP
+```
+
+| Comando | Faz |
+|---|---|
+| `index <path> [--glob] [--kind rag\|kag\|both] [--out]` | carrega os arquivos, indexa (RAG) e/ou extrai o grafo (KAG) e grava em `--out` (padrão `./.knowledge`) |
+| `ask "pergunta" [--mode auto\|rag\|cag\|kag] [--dir] [--src] [--glob]` | responde; imprime o texto, as fontes (`[n] id  origem`) e o `trace:` |
+| `mcp [--dir]` / `serve [--addr] [--dir]` | `knowledge.Toolkit.MCPServer` por stdio ou HTTP |
+
+- `--mode auto` usa o `knowledge.Router`: há grafo quando existe `graph.json`; o CAG só entra se `--src` for dado. Só no modo `auto` há fallback para RAG.
+- `kag` sem `graph.json` e `cag` sem `--src` falham com mensagem que diz o que fazer.
+- Modelo: `KNOWLEDGE_MODEL` (por exemplo `anthropic:claude-sonnet-5-5`); sem ele, `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` escolhem um padrão; sem chave, um modelo
+  offline que ecoa o primeiro trecho de contexto, com aviso. Embeddings: `KNOWLEDGE_EMBEDDINGS` (por exemplo `ollama:nomic-embed-text`); o padrão é o `embeddings.Fake`.
+- O offline serve para testar o fluxo. O planejamento do KAG exige um modelo real (`KNOWLEDGE_MODEL`).
+
+### Limites do CLI
+
+- `index` sempre reconstrói do zero; não há indexação incremental entre execuções.
+- A busca do CLI é só vetorial (K=4): o `vectors.json` não guarda a lista de documentos que o BM25 precisa.
+- O servidor MCP do CLI não expõe `knowledge_ingest`.
+- O grafo do CLI é o `kag.Memory` em `graph.json`; para Neo4j ou Memgraph, monte o `kag.Engine` em código.
