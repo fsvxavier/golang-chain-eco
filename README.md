@@ -90,9 +90,9 @@ go test -race ./...
 | `core/chathistory` | Histórico de chat (memória, arquivo, store) | `ChatMessageHistory` |
 | `chatmodels` | `Init("anthropic:claude-...")` | `init_chat_model` |
 | `providers/{openai,anthropic,ollama}` | Clientes HTTP, streaming SSE, tools, embeddings | `langchain-openai` etc. |
-| `langgraph/graph` | `StateGraph`, runtime Pregel, `Command`, `Send`, `Interrupt` | `langgraph` |
+| `langgraph/graph` | `StateGraph`, runtime Pregel, `Command`, `Send`, `Interrupt`, durabilidade, estado tipado opcional (`NewTyped[T]`) | `langgraph` |
 | `langgraph/channels` | Canais de estado e reducers | `langgraph.channels` |
-| `langgraph/checkpoint` | `Saver` e `Memory`, serde JSON | `langgraph.checkpoint` |
+| `langgraph/checkpoint` | `Saver` e `Memory` (com namespaces de subgrafo), serde JSON | `langgraph.checkpoint` |
 | `langgraph/checkpoint/sqlsaver` | Saver SQLite/Postgres via `database/sql` | `checkpoint-sqlite/postgres` |
 | `langgraph/store` | Memória de longo prazo entre threads | `BaseStore` |
 | `langgraph/prebuilt` | `ToolNode`, `CreateReactAgent` | `langgraph.prebuilt` |
@@ -102,7 +102,7 @@ go test -race ./...
 | `mcp` | Cliente MCP (stdio e HTTP) | `langchain-mcp-adapters` |
 | `remote` | Cliente do Agent Server e `RemoteGraph` | `langgraph_sdk` |
 | `tracing/{langsmith,langfuse,otlp}` | Envio de runs ao LangSmith, Langfuse e OpenTelemetry | tracers |
-| `integrations/vectorstore` | 24 backends (os índices locais `Flat` e `Annoy` incluídos; mais Redis, FalkorDB, MongoDB/Atlas e Memgraph nos pacotes próprios = 28): Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector, Typesense, Upstash, Neo4j, SurrealDB, MariaDB, ClickHouse, CrateDB, CockroachDB, Oracle 23ai, Solr, ArcadeDB, Infinispan, Couchbase, Azure AI Search, Astra | `langchain-community` e parceiros |
+| `integrations/vectorstore` | 25 backends (os índices locais `Flat`, `Annoy` e `HNSW` incluídos, com leitura de arquivos `.ann` e FAISS flat; mais Redis, FalkorDB, MongoDB/Atlas e Memgraph nos pacotes próprios = 29): Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector, Typesense, Upstash, Neo4j, SurrealDB, MariaDB, ClickHouse, CrateDB, CockroachDB, Oracle 23ai, Solr, ArcadeDB, Infinispan, Couchbase, Azure AI Search, Astra | `langchain-community` e parceiros |
 | `integrations/{redis,mongo,dynamodb,s3}` | `checkpoint.Saver` e `store.Store` em Redis, MongoDB, DynamoDB e S3 (AWS, MinIO, Tigris, R2...); Redis, MongoDB/Atlas e FalkorDB também como vector store | checkpointers/stores |
 | `integrations/{search,loaders,retrieval}` | ~30 buscas e scrapers (Tavily, Exa, Brave, You.com, Zotero, YouTube...), loaders, BM25 e rerank | `langchain-community` |
 | `integrations/{graphretriever,spicedb,permit,vectara,aws}` | Graph RAG, retrievers filtrados por permissão (SpiceDB, Permit), Vectara, Bedrock Knowledge Bases, Kendra, tool Lambda | retrievers |
@@ -522,7 +522,7 @@ Sempre existe um subagent `general-purpose`. Cada chamada à tool `task` roda um
 | `backends.State{}` (padrão) | No estado do grafo, por thread |
 | `backends.Store{Store: s, Namespace: ...}` | Em um `store.Store`, compartilhado entre threads |
 | `backends.Filesystem{Root: "./work"}` | Em disco, confinado à raiz (bloqueia `..` e symlinks que escapam) |
-| `backends.LocalShell{...}` | Disco + tool `execute` (**roda comandos no host, sem sandbox: só para uso confiável**) |
+| `backends.LocalShell{...}` | Disco + tool `execute` (**roda comandos no host, sem sandbox: só para uso confiável**; `AllowedCommands` restringe os programas) |
 | `backends.Composite{Default: ..., Routes: ...}` | Roteia por prefixo, ex.: `/memories/` para o Store |
 
 ```go
@@ -819,13 +819,13 @@ Detalhes de design em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Limitações
 
-- O estado é um `map[string]any`, não um TypedDict/Pydantic; use `tools.Decode` para ligar em structs.
-- No `sqlsaver`, números inteiros voltam como `int` e demais como `float64`; tipos próprios exigem `checkpoint.Register`. SQLite e PostgreSQL foram testados contra bancos reais.
-- Em `graph.Interrupt`, o nó reexecuta desde o início; subgrafos com checkpointer próprio não propagam interrupts para o grafo pai.
-- `langmem`: atualização de memória por substituição (sem JSON patch do trustcall), sem `ReflectionExecutor` remoto e busca semântica por varredura; lista completa em [docs/LANGMEM.md](docs/LANGMEM.md#diferenças-em-relação-ao-langmem-python).
-- `agentprotocol`: só o namespace raiz no streaming (subgrafos não viram namespaces filhos) e registros de runs em memória; `ciam`: sem API HTTP própria (use o MCP) e índice por varredura; `openswe`: sem Slack/Linear/dashboard/contas e os guards leem comandos (não são fronteira de segurança). Detalhes em [docs/AGENT-PROTOCOL.md](docs/AGENT-PROTOCOL.md), [docs/CIAM.md](docs/CIAM.md) e [docs/OPENSWE.md](docs/OPENSWE.md).
+- O estado é um `map[string]any`, não um TypedDict/Pydantic; `graph.NewTyped[T]` oferece uma camada tipada opcional (schema por tags de struct) e `tools.Decode` liga valores em structs.
+- No `sqlsaver`, escalares Go (`int64`, `float32`, `time.Time`, `[]byte`…) voltam com o tipo original; números sem tipo explícito voltam como `int` ou `float64`; tipos próprios exigem `checkpoint.Register` (`checkpoint.Strict(true)` faz o struct não registrado falhar ao gravar). SQLite e PostgreSQL foram testados contra bancos reais.
+- Em `graph.Interrupt`, o nó reexecuta desde o início, como no LangGraph Python; subgrafos (com ou sem checkpointer próprio) propagam interrupts para o grafo pai. Dois subgrafos interrompidos no mesmo superpasso ainda não têm ordem de retomada determinística.
+- `langmem`: atualização por substituição por padrão (JSON patch RFC 6902 com `WithPatchUpdates()`); `ReflectionExecutor` remoto via `remote/server`; busca semântica por varredura ou por índice vetorial opcional (`vectorstore.NewHNSW`); lista completa em [docs/LANGMEM.md](docs/LANGMEM.md#diferenças-em-relação-ao-langmem-python).
+- `agentprotocol`: subgrafos viram namespaces filhos com `graph.Subgraphs()`; registros de runs persistem com `NewStoreRunStore`, mas o buffer de eventos vive no processo (sem multi-réplica); `ciam`: API HTTP (`ciam api`) e MCP, índice vetorial opcional; `openswe`: sem Slack/Linear/dashboard/contas e os guards leem comandos (não são fronteira de segurança). Detalhes em [docs/AGENT-PROTOCOL.md](docs/AGENT-PROTOCOL.md), [docs/CIAM.md](docs/CIAM.md) e [docs/OPENSWE.md](docs/OPENSWE.md).
 - Não portado: modos de durabilidade, Studio/CLI, backends gerenciados do LangSmith, evals.
-- `LocalShell` e servidores MCP via stdio executam código no host; use apenas com agents e servidores confiáveis. Para isolamento, use `kubernetes.Sandbox` ou outro runner com `backends.Remote`.
+- `LocalShell` e servidores MCP via stdio executam código no host (registram um aviso na primeira execução; `LocalShell.AllowedCommands` restringe os programas); use apenas com agents e servidores confiáveis. Para isolamento, use `kubernetes.Sandbox` ou outro runner com `backends.Remote`.
 - Integrações de SaaS/API paga só têm teste de contrato; 123 provedores da lista da LangChain dependem de documentação de API que não estava disponível ([docs/PROVIDERS-ANALISE.md](docs/PROVIDERS-ANALISE.md)).
-- Os vector stores `Flat`/`Annoy` são equivalentes em Go puro a FAISS/Annoy; não leem arquivos de índice desses projetos.
+- Os vector stores `Flat`/`Annoy`/`HNSW` são equivalentes em Go puro a FAISS/Annoy/hnswlib. `LoadAnnoyFile` e `LoadFAISSFlat` leem os arquivos nativos (só leitura; Annoy angular/euclidiano, FAISS flat e IDMap), ainda sem verificação contra arquivos gerados pelas bibliotecas oficiais.
 - As ferramentas de envio (SMS) e de leitura de dados (SOQL) agem sobre sistemas reais: restrinja destinos/escopo e exija aprovação humana.

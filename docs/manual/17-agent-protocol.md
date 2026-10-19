@@ -122,7 +122,7 @@ items, _ := c.SearchItems(ctx, agentprotocol.StoreSearchRequest{NamespacePrefix:
 - **Réplicas**: buffer de eventos e registro de runs são por processo; use afinidade por `thread_id`.
 - **Limites**: o corpo de requisição é limitado a 16 MB; consumidores de SSE lentos são desconectados em vez de travar a run.
 - **Observabilidade**: runs passam pelos callbacks de `core/callbacks` (cap. 12); cada run carrega `run_id`, `thread_id` e `agent_id` na metadata.
-- **O que falta**: subgrafos como namespaces filhos, evento `tasks`, e persistência de runs finalizadas após reinício (ver o documento de referência).
+- **O que falta**: evento `tasks` e buffer de eventos compartilhado entre réplicas. Subgrafos já aparecem como namespaces filhos e runs finalizadas persistem com `Options.RunStore = agentprotocol.NewStoreRunStore(st)` (ver o documento de referência).
 
 Exemplos: `go run ./examples/agentprotocol/serve_and_call` e `.../human_in_the_loop`.
 

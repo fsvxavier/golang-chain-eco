@@ -14,7 +14,9 @@ core (messages, models, tools, runnables, …)  ◄─────────�
 
 * **State** is `map[string]any`; each key is a channel declared in a `Schema`
   (`LastValue` by default, or `graph.Messages()`, `graph.Append()`, `graph.Sum()`,
-  any `channels.BinOp` reducer).
+  any `channels.BinOp` reducer). `graph.NewTyped[T]` is an optional typed layer:
+  the schema comes from struct tags (`graph:"key,reducer=messages|append|sum"`),
+  nodes take `T` and return partial updates checked against the tags.
 * **Execution** is bulk-synchronous: every super-step runs all scheduled tasks
   concurrently against the same state snapshot, applies their writes through the
   reducers in task order, then routes (static edges, `AddJoin` barriers,
@@ -23,16 +25,22 @@ core (messages, models, tools, runnables, …)  ◄─────────�
 * **Persistence**: with `WithCheckpointer`, a checkpoint is stored after the input
   and each step. Threads are selected with `runnables.WithConfig(ctx, graph.Thread(id))`;
   `GetState`, `GetStateHistory`, `UpdateState` (and `checkpoint_id` for forking /
-  time travel) are available.
+  time travel) are available. Checkpoints are keyed by (thread, namespace): the root
+  graph uses `""`, a subgraph run by task `node:idx` uses `parent|node:idx`.
+  Durability (`WithDurability` / `WithRunDurability`): `sync` (default, save every step),
+  `async` (ordered background saves, flushed before `Invoke` returns), `exit` (save only
+  on pause, end or failure).
 * **Human-in-the-loop**: `graph.Interrupt(ctx, v)` pauses; the run returns the state
   with `graph.Interrupts(state)`. Resume with `Invoke(ctx, graph.Command{Resume: x})`.
   The node re-executes from its start, so side effects before `Interrupt` must be
   idempotent. `InterruptBefore/After` pause statically. Finished sibling tasks of an
   interrupted step are not re-run.
 * **Streaming**: `StreamEvents(ctx, in, ModeValues|ModeUpdates|ModeCustom|ModeMessages)`.
-  Nodes emit custom events with `graph.StreamWriter(ctx)`.
-* **Subgraphs**: invoke a compiled graph inside a node. Without its own checkpointer,
-  an inner `Interrupt` propagates to the outer run and resumes correctly.
+  Nodes emit custom events with `graph.StreamWriter(ctx)`. With `graph.Subgraphs()`,
+  events of nested graphs are forwarded with `Event.Namespace` set.
+* **Subgraphs**: invoke a compiled graph inside a node. An inner `Interrupt` propagates
+  to the outer run and resumes correctly, with or without the subgraph's own
+  checkpointer (its checkpoint lives in its namespace).
 
 ## Agents
 
@@ -57,8 +65,10 @@ todo list, PII scrubbing, human-in-the-loop.
 * `checkpoint.Memory` for tests; `checkpoint/sqlsaver` for SQLite/PostgreSQL via
   `database/sql` (bring your own driver). Values are JSON: register custom state
   types with `checkpoint.Register` (messages, `graph.Send`, files, todos, async
-  tasks and rubric evaluations are pre-registered). Whole numbers come back as
-  `int`, other numbers as `float64`.
+  tasks and rubric evaluations are pre-registered). Go scalars (`int64`, `uint*`,
+  `float32`, `time.Time`, `time.Duration`, `[]byte`) keep their type; untyped JSON
+  numbers come back as `int` or `float64`. `checkpoint.Strict(true)` makes saving an
+  unregistered struct an error instead of a silent `map[string]any`.
   `internal/sqlitetest` runs the saver on real SQLite
   (`go test ./internal/sqlitetest/...`; the driver is a test-only dependency).
 * **Node cache**: `graph.WithCachePolicy` on a node + `graph.WithCache(graph.NewMemoryCache())`.
@@ -102,8 +112,8 @@ todo list, PII scrubbing, human-in-the-loop.
 
 ## Differences from the Python libraries
 
-* State is a `map[string]any`, not a TypedDict/Pydantic model; use `tools.Decode`
-  to bind into structs.
+* State is a `map[string]any`, not a TypedDict/Pydantic model; use `graph.NewTyped[T]`
+  or `tools.Decode` to work with structs.
 * Not ported: durability modes, Studio/CLI, the managed LangSmith sandbox/context-hub
   backends, evals.
 
@@ -120,6 +130,6 @@ todo list, PII scrubbing, human-in-the-loop.
 
 ## agentprotocol, ciam, openswe
 
-- **agentprotocol** serves compiled graphs. The thread is the unit: one `hub` per thread holds a ring buffer of typed streaming events (monotonic `seq`, replay by `since`), fed by a translator that maps graph events and callbacks onto the protocol's channels; REST handlers, SSE, commands and a small RFC 6455 WebSocket all read the same hub. Thread records live in memory and are rebuilt from the checkpointer, so state survives a restart even though run records do not. `graph.Compiled.Saver()` was added so the server can list, copy and delete checkpoints.
-- **ciam** keeps chunks, file hashes and memories in any `store.Store`; searching loads the project's corpus once (BM25 statistics + vectors) and fuses cosine and BM25 with RRF. Memories are `langmem` memories. Capabilities are `tools.Tool` values first and are served over `mcp/server` second, so in-process agents and editors share one implementation.
+- **agentprotocol** serves compiled graphs. The thread is the unit: one `hub` per thread holds a ring buffer of typed streaming events (monotonic `seq`, replay by `since`), fed by a translator that maps graph events and callbacks onto the protocol's channels; REST handlers, SSE, commands and a small RFC 6455 WebSocket all read the same hub. Thread records live in memory and are rebuilt from the checkpointer; run records go through a `RunStore` (memory by default, `NewStoreRunStore` over any `store.Store` to survive restarts). Subgraph events keep their namespace, so `namespaces`/`depth` filters and `agent.getTree` see child graphs. `graph.Compiled.Saver()` was added so the server can list, copy and delete checkpoints.
+- **ciam** keeps chunks, file hashes and memories in any `store.Store`; searching loads the project's corpus once (BM25 statistics + vectors) and fuses cosine and BM25 with RRF (cosine by scan, or through an optional vector index such as `vectorstore.NewHNSW`). `ciam api` serves the same tools over plain HTTP. Memories are `langmem` memories. Capabilities are `tools.Tool` values first and are served over `mcp/server` second, so in-process agents and editors share one implementation.
 - **openswe** is composition: `deepagents` + a per-thread sandbox backend + guard middleware + GitHub tools. Rules are enforced twice (prompt and code). Durable state (findings, watches, automations, PR<->thread links, sandbox ids) goes through `store.Store`, never a bespoke database; a thread's work is serialised by the `triggers.Dispatcher` (one active run per thread, queue for the rest).

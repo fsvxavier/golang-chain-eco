@@ -138,7 +138,7 @@ Para os **seus** testes:
 
 - O estado é `map[string]any`, não TypedDict/Pydantic. Use `tools.Decode` para ligar em structs.
 - No `sqlsaver`, escalares Go (`int64`, `float32`, `time.Time`, `[]byte`…) voltam com o tipo original; números sem tipo explícito voltam como `int` ou `float64`; tipos próprios exigem `checkpoint.Register`.
-- Em `graph.Interrupt`, o nó reexecuta desde o início. Subgrafos com checkpointer próprio não propagam interrupts ao pai.
+- Em `graph.Interrupt`, o nó reexecuta desde o início (como no LangGraph Python). Subgrafos propagam interrupts ao pai; dois subgrafos interrompidos no mesmo superpasso ainda não têm ordem de retomada determinística.
 - Não portado da versão Python: modos de durabilidade, Studio/CLI, backends gerenciados do LangSmith e avaliações (evals).
 - Sem parser de PDF nativo (use `Unstructured` ou converta antes).
 - `Flat` e `Annoy` são equivalentes em Go puro a FAISS/Annoy. `LoadAnnoyFile` e `LoadFAISSFlat` leem os formatos nativos (Annoy angular/euclidiano; FAISS flat e IDMap sobre flat), mas a compatibilidade com arquivos gerados pelas bibliotecas oficiais ainda não foi verificada por teste (ver [INTEGRATIONS.md](../INTEGRATIONS.md)).

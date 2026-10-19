@@ -192,7 +192,7 @@ outer := graph.NewStateGraph(schema).
 	})
 ```
 
-Sem checkpointer próprio, um `Interrupt` interno propaga para o grafo pai e retoma corretamente. Subgrafos **com** checkpointer próprio não propagam interrupts para o pai. Exemplos: `subgraph`, `hierarchical_teams`.
+Um `Interrupt` interno propaga para o grafo pai e retoma corretamente, com ou sem checkpointer próprio no subgrafo (o checkpoint dele fica no namespace `nó:índice`). Para receber os eventos do subgrafo no stream do pai, use `graph.Subgraphs()`; cada evento vem com `Event.Namespace`. Exemplos: `subgraph`, `hierarchical_teams`.
 
 ## 7.9 Limite de passos
 

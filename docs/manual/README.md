@@ -27,13 +27,13 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 | 4 | [Prompts, chains e parsers](04-chains-prompts-parsers.md) | Templates, `Pipe`, combinadores, retry, fallbacks, saída estruturada, histórico de chat |
 | 5 | [Tools](05-tools.md) | Criar tools tipadas, schema, erros, tools terminais, artefatos, `Command` |
 | 6 | [RAG](06-rag.md) | Loaders, splitters, embeddings, vector stores, retrievers, RAG agêntico |
-| 7 | [LangGraph: StateGraph](07-langgraph.md) | Schema, nós, arestas, paralelismo, `Send`, `Command`, subgrafos, API funcional |
-| 8 | [Persistência, human-in-the-loop e streaming](08-persistencia-hitl-streaming.md) | Checkpointers, threads, `Interrupt`, time travel, store, streaming |
+| 7 | [LangGraph: StateGraph](07-langgraph.md) | Schema, estado tipado (`NewTyped`), nós, arestas, paralelismo, `Send`, `Command`, subgrafos, API funcional |
+| 8 | [Persistência, human-in-the-loop e streaming](08-persistencia-hitl-streaming.md) | Checkpointers, durabilidade, threads, `Interrupt`, subgrafos com namespace, time travel, store, streaming |
 | 9 | [Agents e middleware](09-agents-e-middleware.md) | `agents.Create`, middlewares prontos, middleware próprio, saída estruturada |
 | 10 | [Deep Agents](10-deep-agents.md) | Planejamento, filesystem virtual, subagents, backends, permissões, rubrica, async |
 | 11 | [MCP, servidor e graphs remotos](11-mcp-remote-servidor.md) | Cliente MCP, `remote.Client`, `remote.Graph`, `remote/server`, AG-UI |
 | 12 | [Observabilidade](12-observabilidade.md) | Callbacks, LangSmith, Langfuse, OpenTelemetry, logs |
-| 13 | [Integrações](13-integracoes.md) | Vector stores, bancos, busca na web, loaders, permissões, sandboxes |
+| 13 | [Integrações](13-integracoes.md) | Vector stores (incl. HNSW e leitura de índices Annoy/FAISS), bancos, busca na web, loaders, permissões, sandboxes |
 | 14 | [Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) | Checklist, riscos, testes, erros comuns, limitações |
 | 15 | [Exemplos e receitas](15-exemplos-e-receitas.md) | Catálogo dos exemplos, receitas, equivalência com Python, glossário |
 | 16 | [Memória de longo prazo (LangMem)](16-memoria-langmem.md) | Memória semântica, episódica e procedural, tools, background, otimização de prompts, resumo |
