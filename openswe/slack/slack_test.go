@@ -340,3 +340,28 @@ func TestNeutralizeBroadcast(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// The envelope carries every field Slack's app_mention reference shows
+// (token, team_id, api_app_id, authorizations, event_time, event_ts); the
+// handler must accept it, and a thread_broadcast reply counts as a reply.
+func TestDocumentedEnvelopeAndBroadcastReply(t *testing.T) {
+	f := newFixture(t)
+	_, body := f.post(`{"token":"ZZZZZZWSxiZZZ2yIvs3peJ","team_id":"T123ABC456","api_app_id":"A123ABC456",
+		"event":{"type":"app_mention","user":"U123ABC456","text":"What is the hour of the pearl, <@UBOT>?",
+		"ts":"1515449522.000016","channel":"C1","event_ts":"1515449522000016"},
+		"type":"event_callback","event_id":"Ev123ABC456","event_time":1515449522000016,
+		"authorizations":[{"enterprise_id":"E123ABC456","team_id":"T123ABC456","user_id":"U123ABC456","is_bot":false,"is_enterprise_install":false}]}`)
+	if !strings.Contains(body, `"dispatched"`) {
+		t.Fatalf("documented envelope: %s", body)
+	}
+	_, body = f.post(`{"type":"event_callback","event_id":"Ev2","event":{"type":"message","subtype":"thread_broadcast","channel":"C1",
+		"user":"U123ABC456","text":"and the tests","ts":"1515449600.000001","thread_ts":"1515449522.000016"}}`)
+	if !strings.Contains(body, `"dispatched"`) && !strings.Contains(body, `"queued"`) {
+		t.Fatalf("thread_broadcast reply: %s", body)
+	}
+	_, body = f.post(`{"type":"event_callback","event_id":"Ev3","event":{"type":"message","subtype":"message_changed","channel":"C1",
+		"ts":"1515449700.000001","thread_ts":"1515449522.000016"}}`)
+	if !strings.Contains(body, `"ignored"`) {
+		t.Fatalf("message_changed should be ignored: %s", body)
+	}
+}

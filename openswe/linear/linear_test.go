@@ -251,3 +251,41 @@ func TestGraphQLErrorsMapped(t *testing.T) {
 		t.Fatalf("graphql error lost: %v", err)
 	}
 }
+
+// docComment is the Comment create example from linear.app/developers/webhooks,
+// verbatim except body and userId, which the test fills in. It has userId
+// and no user object.
+const docComment = `{
+  "action": "create",
+  "actor": {"id": "b5ea5f1f-8adc-4f52-b4bd-ab4e84cf51ba", "type": "user", "name": "Linear Orbit",
+    "email": "orbit@linear.app", "url": "https://linear.app/company/profiles/orbit"},
+  "data": {"id": "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9", "createdAt": "2020-01-23T12:53:18.084Z",
+    "updatedAt": "2020-01-23T12:53:18.084Z", "archivedAt": null, "body": %q, "edited": false,
+    "issueId": "539068e2-ae88-4d09-bd75-22eb4a59612f", "userId": %q},
+  "type": "Comment",
+  "url": "https://linear.app/issue/LIN-1778/foo-bar#comment-77217de3-fb52-4dad-bb9a-b356beb93de8",
+  "createdAt": "2020-01-23T12:53:18.084Z",
+  "organizationId": "dc844923-f9a4-40a3-825c-dea7747e57d6",
+  "webhookTimestamp": %d,
+  "webhookId": "000042e3-d123-4980-b49f-8e140eef9329"
+}`
+
+func TestDocumentedCommentPayload(t *testing.T) {
+	f := newFixture(t)
+	send := func(user, delivery string) string {
+		b := []byte(fmt.Sprintf(docComment, "@openswe please fix", user, f.nowMS()))
+		_, resp := f.send(b, Sign(whSecret, b), delivery)
+		return resp
+	}
+	if resp := send("bot-user", "d-doc-1"); !strings.Contains(resp, "ignored") {
+		t.Fatalf("bot's own comment (userId only) ran: %s", resp)
+	}
+	if resp := send("u-ana", "d-doc-2"); !strings.Contains(resp, "dispatched") {
+		t.Fatalf("documented payload ignored: %s", resp)
+	}
+	runs := f.runs()
+	if len(runs) != 1 || runs[0].Metadata["requester"] != "u-ana" ||
+		runs[0].Metadata["linear_issue_id"] != "539068e2-ae88-4d09-bd75-22eb4a59612f" {
+		t.Fatalf("runs: %+v", runs)
+	}
+}

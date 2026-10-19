@@ -194,7 +194,11 @@ func (h *Handler) remember(key string) {
 
 // handle routes one event. It returns the response status word.
 func (h *Handler) handle(ctx context.Context, eventID string, ev Event) (string, error) {
-	if ev.BotID != "" || ev.Subtype != "" || ev.Channel == "" || !h.channelAllowed(ev.Channel) {
+	// Plain user messages have no subtype. thread_broadcast ("also send to
+	// channel") and file_share are still a user writing; every other subtype
+	// (bot_message, message_changed, joins...) is not a trigger.
+	userSubtype := ev.Subtype == "" || ev.Subtype == "thread_broadcast" || ev.Subtype == "file_share"
+	if ev.BotID != "" || !userSubtype || ev.Channel == "" || !h.channelAllowed(ev.Channel) {
 		return "ignored", nil
 	}
 	if h.BotUserID != "" && ev.User == h.BotUserID {
