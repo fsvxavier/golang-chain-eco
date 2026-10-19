@@ -290,3 +290,38 @@ func TestMeuBackend(t *testing.T) {
     conformance.RAG(t, func() vectorstores.VectorStore { return vectorstore.New(emb, meuBackend()) })
 }
 ```
+
+## `knowledge.Toolkit`: tools para agents e servidor MCP
+
+```go
+tk := knowledge.Toolkit{
+    RAG: ragPipeline, CAG: cagEngine, KAG: kagEngine, Router: router,
+    Ingest: func(ctx context.Context, docs []documents.Document) error { return meuIngest(ctx, docs) }, // indexa os documentos no seu RAG/KAG
+}
+agent, _ := agents.Create(agents.Options{Model: model, Tools: tk.All()}) // tools em processo
+srv := tk.MCPServer(nil)                                                 // as mesmas tools para editores
+```
+
+`All()` só inclui a tool cujo `Answerer` está definido:
+
+| Tool | Existe quando | Argumentos | Faz |
+|---|---|---|---|
+| `rag_answer` | `RAG != nil` | `question`, `force` (opcional) | responde por busca nos trechos |
+| `cag_answer` | `CAG != nil` | idem | responde com o corpus em contexto |
+| `kag_query` | `KAG != nil` | idem | responde percorrendo o grafo |
+| `knowledge_answer` | `Router != nil` | idem | o roteador escolhe a técnica (descrição marcada `[PRIORITY]`) |
+| `knowledge_ingest` | `Ingest != nil` | `documents` (lista de `{id?, content, metadata?}`) | chama o seu `Ingest` |
+
+- O retorno é `tools.ContentAndArtifact`: o modelo vê o texto com as fontes numeradas (`[n] id`), e o `Artifact` guarda o `knowledge.Answer` completo (`Trace`, `Usage`).
+- A lista `documents` chega como `[]any` (regra de schema das tools); nos testes passe `[]any`, não `[]string`.
+- Erro da técnica vira erro de tool que o modelo enxerga (`tools.Errorf`), sem derrubar o agent.
+- `MCPServer(onCall)` devolve um `server.Server` chamado `knowledge`, com instruções de uso, no mesmo formato de `ciam.Toolkit.MCPServer`. Sirva por stdio (`ServeStdio`) ou HTTP (`Handler`).
+  `go run ./examples/knowledge/mcp_server -demo` mostra um `tools/list` e um `tools/call` em processo.
+
+### Como nó do LangGraph
+
+```go
+g.AddNode("responder", knowledge.Node(router, "question", "answer"))
+```
+
+`knowledge.Node(a, questionKey, answerKey)` lê `state[questionKey]` (string) e grava `state[answerKey]` com o texto e `state[answerKey+"_sources"]` com as fontes.
