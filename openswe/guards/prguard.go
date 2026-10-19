@@ -58,21 +58,28 @@ const prBlocked = "New pull requests must be opened with the open_pull_request t
 var pullsEndpoint = regexp.MustCompile(`(?:^|/)repos/[^/\s]+/[^/\s]+/pulls/?$`)
 var pullsURL = regexp.MustCompile(`api\.github\.com/repos/[^/\s]+/[^/\s]+/pulls/?(?:$|[?#])`)
 
-// CreatesPullRequest reports whether a shell line would open a PR.
+// CreatesPullRequest reports whether PRCreationGuard must block a shell line:
+// it opens a PR, or it pipes a download into a shell. Files the run wrote
+// earlier are only inspected by WrapToolCall.
 func CreatesPullRequest(line string) bool {
-	cmds, unsafe := Commands(line)
+	return lineViolation("", line, 0, prRule) != ""
+}
+
+func prRule(cmds []Command, unsafe bool, line string) string {
 	for _, c := range cmds {
 		if opensPR(c) {
-			return true
+			return "opens a pull request"
 		}
 	}
 	// $(...) / backticks hide the real command: only flag when the visible
 	// text mentions a PR creation path at all
 	if unsafe {
 		l := strings.ToLower(line)
-		return strings.Contains(l, "pr create") || strings.Contains(l, "/pulls")
+		if strings.Contains(l, "pr create") || strings.Contains(l, "/pulls") {
+			return "opens a pull request through a substitution"
+		}
 	}
-	return false
+	return ""
 }
 
 // ghValueFlags are gh flags that consume the next word.
@@ -159,10 +166,12 @@ func (g PRCreationGuard) WrapToolCall(ctx context.Context, call messages.ToolCal
 	if st == nil {
 		st = ShellTools
 	}
+	thread := threadOf(ctx)
 	for _, line := range shellLines(call, st) {
-		if CreatesPullRequest(line) {
+		if lineViolation(thread, line, 0, prRule) != "" {
 			return errorMessage(call, prBlocked), nil
 		}
 	}
+	rememberWrites(thread, call, st)
 	return next(ctx, call)
 }

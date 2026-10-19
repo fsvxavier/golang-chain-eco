@@ -36,9 +36,12 @@ var ghMutating = map[string]map[string]bool{
 	"label":    {"create": true, "edit": true, "delete": true, "clone": true},
 }
 
-// Mutation describes why a shell line is not read-only ("" when it is).
-func Mutation(line string) string {
-	cmds, unsafe := Commands(line)
+// Mutation describes why a shell line is not read-only ("" when it is). It
+// does not know the run's files; WrapToolCall does, and also inspects scripts
+// the run wrote earlier.
+func Mutation(line string) string { return lineViolation("", line, 0, mutationRule) }
+
+func mutationRule(cmds []Command, unsafe bool, line string) string {
 	for _, c := range cmds {
 		args := c.Args()
 		switch c.Executable() {
@@ -89,10 +92,12 @@ func (g ReadOnlyGuard) WrapToolCall(ctx context.Context, call messages.ToolCall,
 	if st == nil {
 		st = ShellTools
 	}
+	thread := threadOf(ctx)
 	for _, line := range shellLines(call, st) {
-		if why := Mutation(line); why != "" {
+		if why := lineViolation(thread, line, 0, mutationRule); why != "" {
 			return errorMessage(call, "This agent is read-only: "+why+" is not allowed. Do not commit, push, or write to GitHub through the shell; use the provided tools (add_finding, publish_review). Nothing ran."), nil
 		}
 	}
+	rememberWrites(thread, call, st)
 	return next(ctx, call)
 }
