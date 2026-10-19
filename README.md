@@ -40,7 +40,7 @@ Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent 
 
 ## Manual de utilização
 
-Guia detalhado em português, com exemplos e troubleshooting: [docs/manual/README.md](docs/manual/README.md).
+Guia detalhado em português, com exemplos e troubleshooting: [docs/manual/README.md](docs/manual/README.md). Todos os documentos de referência estão listados em [docs/README.md](docs/README.md).
 
 | # | Capítulo |
 |---|---|

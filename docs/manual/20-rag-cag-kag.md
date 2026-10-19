@@ -160,4 +160,6 @@ go run ./cmd/knowledge ask "Quem se relaciona com o contrato Y?"
 | `graphstore: relation type ... must match` | tipo de relação fora de `^[A-Z][A-Z0-9_]*$`; use o `kag.Extractor`, que normaliza |
 | `knowledge: no strategy available` | `Router` sem nenhuma técnica configurada, ou `Force` para uma técnica `nil` |
 
-Próximo: volta ao [índice](README.md).
+---
+
+Anterior: [19. Open SWE](19-open-swe.md) · [Índice do manual](README.md)

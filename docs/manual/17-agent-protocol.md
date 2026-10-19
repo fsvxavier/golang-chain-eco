@@ -126,4 +126,6 @@ items, _ := c.SearchItems(ctx, agentprotocol.StoreSearchRequest{NamespacePrefix:
 
 Exemplos: `go run ./examples/agentprotocol/serve_and_call` e `.../human_in_the_loop`.
 
-Próximo: [18. ciam](18-ciam-contexto.md).
+---
+
+Anterior: [16. Memória de longo prazo](16-memoria-langmem.md) · Próximo: [18. ciam](18-ciam-contexto.md) · [Índice do manual](README.md)

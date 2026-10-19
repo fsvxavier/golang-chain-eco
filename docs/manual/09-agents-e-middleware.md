@@ -229,4 +229,6 @@ out, _ := agent.Invoke(ctx, graph.State{"messages": "tempo em Lisboa?"})
 | Fluxo com etapas fixas, ramificações e paralelismo | `graph.StateGraph` |
 | Tarefas longas com planejamento, arquivos e subagents | `deepagents.Create` |
 
-Próximo: [10. Deep Agents](10-deep-agents.md).
+---
+
+Anterior: [8. Persistência, HITL e streaming](08-persistencia-hitl-streaming.md) · Próximo: [10. Deep Agents](10-deep-agents.md) · [Índice do manual](README.md)

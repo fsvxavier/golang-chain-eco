@@ -166,4 +166,6 @@ puts, _ := sm.Process(ctx, msgs)
 - **Consistência**: dois extratores simultâneos no mesmo namespace podem sobrescrever o mesmo item (último vence); serialize por usuário/thread (o debounce do executor já ajuda).
 - **Observabilidade**: as chamadas passam pelos callbacks de `core/callbacks` como qualquer modelo/tool (cap. 12).
 
-Próximo: [14. Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) · Catálogo de exemplos: [15](15-exemplos-e-receitas.md).
+---
+
+Anterior: [15. Exemplos e receitas](15-exemplos-e-receitas.md) · Próximo: [17. Agent Protocol](17-agent-protocol.md) · [Índice do manual](README.md)

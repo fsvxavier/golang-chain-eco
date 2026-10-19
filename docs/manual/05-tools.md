@@ -129,4 +129,6 @@ Na prática você deixa `agents.Create` ou `prebuilt.ToolNode` fazer esse loop (
 4. Torne tools com efeito colateral idempotentes quando possível, pois um retry pode repetir a chamada.
 5. Valide regras de negócio dentro da tool e responda com `tools.Errorf` para o modelo se corrigir.
 
-Próximo: [6. RAG](06-rag.md).
+---
+
+Anterior: [4. Prompts, chains e parsers](04-chains-prompts-parsers.md) · Próximo: [6. RAG](06-rag.md) · [Índice do manual](README.md)

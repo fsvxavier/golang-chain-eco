@@ -129,4 +129,6 @@ Qualquer execução emite eventos (início/fim/erro de chain, modelo, tool, nó)
 | `*middleware.PIIError` | PII detectado com estratégia `block` |
 | `*mcp.RPCError` | Erro JSON-RPC devolvido por servidor MCP |
 
-Próximo: [3. Modelos e provedores](03-modelos-e-provedores.md).
+---
+
+Anterior: [1. Introdução e instalação](01-introducao-e-instalacao.md) · Próximo: [3. Modelos e provedores](03-modelos-e-provedores.md) · [Índice do manual](README.md)

@@ -142,8 +142,10 @@ Para depurar a estrutura de um grafo, use `app.Mermaid()` e `app.GetStateHistory
 ## 12.10 O que registrar em produção
 
 - `RunID` e `thread_id` em todos os logs de uma requisição, para correlacionar.
-- Uso de tokens (`Message.Usage`) por modelo e por tenant, para custo.
+- Uso de tokens (`Message.Usage`) por modelo e por tenant, para custo. Com cache de prompt (CAG), some também `CacheReadTokens` e `CacheCreationTokens`: leitura de cache costuma custar menos que entrada normal, e escrita pode custar mais.
 - Latência e erros por tool.
 - Evite registrar o conteúdo de prompts e respostas se houver dados pessoais; combine com o middleware `PII` (capítulo 9) ou filtre no handler.
 
-Próximo: [13. Integrações](13-integracoes.md).
+---
+
+Anterior: [11. MCP, servidor e graphs remotos](11-mcp-remote-servidor.md) · Próximo: [13. Integrações](13-integracoes.md) · [Índice do manual](README.md)

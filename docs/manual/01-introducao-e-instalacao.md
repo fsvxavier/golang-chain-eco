@@ -156,4 +156,6 @@ remote/            cliente do Agent Server, RemoteGraph e servidor (remote/serve
 tracing/           langsmith, langfuse, otlp
 ```
 
-Próximo: [2. Conceitos fundamentais](02-conceitos.md).
+---
+
+Próximo: [2. Conceitos fundamentais](02-conceitos.md) · [Índice do manual](README.md)

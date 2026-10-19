@@ -183,4 +183,6 @@ merged := messages.MergeRuns(msgs)
 
 A contagem padrão é aproximada (`ApproxTokens`); passe `Counter` com um contador exato se precisar.
 
-Próximo: [5. Tools](05-tools.md).
+---
+
+Anterior: [3. Modelos e provedores](03-modelos-e-provedores.md) · Próximo: [5. Tools](05-tools.md) · [Índice do manual](README.md)

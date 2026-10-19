@@ -74,6 +74,7 @@ Conteúdo vindo de páginas web, documentos, resultados de tools ou e-mails pode
 3. Restrinja destinos e escopos (`messaging.Allow`, SOQL somente leitura, namespaces do Kubernetes).
 4. Aplique permissões **na camada de dados** (`spicedb.FilterRetriever`, `permit.FilterRetriever`), não confiando no prompt para "não revelar".
 5. Trate a saída do modelo como entrada não confiável antes de usá-la em SQL, shell ou HTML.
+6. Documentos recuperados por RAG, CAG ou KAG também são entrada não confiável: um trecho pode conter instruções. Filtre por permissão na recuperação (`Question.Filter`, item 4) e nunca cole texto do modelo em consultas: tipos de relação e rótulos do grafo são validados (`^[A-Z][A-Z0-9_]*$`) antes de ir ao Cypher.
 
 ### SSRF
 
@@ -141,6 +142,7 @@ Para os **seus** testes:
 - Em `graph.Interrupt`, o nó reexecuta desde o início (como no LangGraph Python). Subgrafos propagam interrupts ao pai; quando vários nós de um subgrafo param no mesmo superpasso, as pausas aparecem e as respostas são entregues na ordem das tarefas (sem checkpointer no subgrafo, esse superpasso roda em sequência durante a retomada).
 - Não portado da versão Python: Studio, build/deploy da CLI, backends gerenciados do LangSmith e experimentos hospedados. Avaliações offline: pacote `evals` ([EVALS.md](../EVALS.md)); servidor de desenvolvimento: `langgraph/dev` ([DEV.md](../DEV.md)).
 - Sem parser de PDF nativo (use `Unstructured` ou converta antes).
+- RAG/CAG/KAG ([capítulo 20](20-rag-cag-kag.md)): a indexação incremental guarda hashes só em memória; o CAG depende do cache do provedor (expira e cobra a primeira escrita) e estima tokens (~4 caracteres por token); os adapters de grafo pontuam `FindEntities` em Go. Lista completa em [KNOWLEDGE.md](../KNOWLEDGE.md).
 - `Flat` e `Annoy` são equivalentes em Go puro a FAISS/Annoy. `LoadAnnoyFile` e `LoadFAISSFlat` leem os formatos nativos (Annoy angular/euclidiano; FAISS flat e IDMap sobre flat), verificados por teste contra arquivos gerados pelas bibliotecas oficiais (ver [INTEGRATIONS.md](../INTEGRATIONS.md)).
 - Integrações de SaaS/API paga só têm teste de contrato; valide no seu ambiente.
 - 123 provedores da lista da LangChain dependem de documentação de API indisponível ([PROVIDERS-ANALISE.md](../PROVIDERS-ANALISE.md)).
@@ -149,4 +151,6 @@ Para os **seus** testes:
 
 O módulo exige Go 1.27+ e o código de produção não importa dependências de terceiros (os drivers do `go.mod` são só de teste), então atualizar é trocar a versão em `go.mod` (`go get github.com/fsvxavier/golang-chain-eco@latest`) e rodar `go build ./... && go test -race ./...`. Leia o histórico do repositório antes de atualizações maiores, pois a API acompanha o ecossistema Python, que evolui rapidamente.
 
-Próximo: [15. Exemplos e receitas](15-exemplos-e-receitas.md).
+---
+
+Anterior: [13. Integrações](13-integracoes.md) · Próximo: [15. Exemplos e receitas](15-exemplos-e-receitas.md) · [Índice do manual](README.md)

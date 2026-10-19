@@ -59,7 +59,7 @@ s.ServeStdio(ctx, os.Stdin, os.Stdout) // editores
 http.Handle("/mcp", s.Handler())        // HTTP (POST JSON-RPC)
 ```
 
-Falha de tool vira resultado com `isError` (o modelo lê), nunca erro de protocolo. O `mcp.Client` deste projeto conversa com este servidor (há teste por pipes). Veja o `ciam` (cap. 18), que se serve assim.
+Falha de tool vira resultado com `isError` (o modelo lê), nunca erro de protocolo. O `mcp.Client` deste projeto conversa com este servidor (há teste por pipes). Veja o `knowledge.Toolkit` (cap. 20: `rag_answer`, `cag_answer`, `kag_query`, `knowledge_answer`) e o `ciam` (cap. 18), que se serve assim.
 
 ## 11.2 Cliente do Agent Server (`remote.Client`)
 
@@ -154,4 +154,6 @@ Exemplo: `examples/integrations/agui_server` (roda offline e imprime os eventos)
 
 Para a **API aberta do Agent Protocol** (agents, threads, runs, store e streaming tipado), veja o [capítulo 17](17-agent-protocol.md).
 
-Próximo: [12. Observabilidade](12-observabilidade.md).
+---
+
+Anterior: [10. Deep Agents](10-deep-agents.md) · Próximo: [12. Observabilidade](12-observabilidade.md) · [Índice do manual](README.md)

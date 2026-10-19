@@ -3,6 +3,20 @@
 Referência dos pacotes `knowledge`, `rag`, `cag` e `kag`. Desenho completo em [DESIGN-RAG-CAG-KAG.md](../DESIGN-RAG-CAG-KAG.md).
 O código de biblioteca usa só a stdlib; modelo, embedder, vector store e grafo entram por interface.
 
+## Sumário
+
+- [`knowledge`: contrato comum](#knowledge-contrato-comum) e [métricas de cache](#métricas-de-cache-em-messagesusage)
+- [`rag`: indexador e pipeline](#rag-indexador-e-pipeline)
+- [`cag`: corpus em prefixo cacheável](#cag-corpus-em-prefixo-cacheável)
+- [`kag`: grafo de conhecimento](#kag-grafo-de-conhecimento): modelo, `GraphStore`, extração de triplas, `Engine`
+- [`knowledge.Router`](#knowledgerouter-escolha-da-técnica)
+- [`knowledge.Toolkit`: tools e MCP](#knowledgetoolkit-tools-para-agents-e-servidor-mcp)
+- [`integrations/graphstore`: Neo4j e Memgraph](#integrationsgraphstore-grafo-em-neo4j-e-memgraph)
+- [Qual banco combinar com cada técnica](#qual-banco-combinar-com-cada-técnica)
+- [`cmd/knowledge`: linha de comando](#cmdknowledge-linha-de-comando)
+
+Para o passo a passo com receitas, veja o [capítulo 20 do manual](manual/20-rag-cag-kag.md).
+
 ## `knowledge`: contrato comum
 
 Toda técnica implementa `knowledge.Answerer`:
@@ -47,64 +61,6 @@ Preenchimento por provedor:
 - Anthropic: `cache_read_input_tokens` e `cache_creation_input_tokens`.
 - OpenAI e compatíveis: `prompt_tokens_details.cached_tokens` vai para `CacheReadTokens`.
 - Os demais provedores deixam os campos em zero.
-
-## `kag`: grafo de conhecimento
-
-### Modelo
-
-| Tipo | Campos |
-|---|---|
-| `Entity` | `ID`, `Type`, `Name`, `Props map[string]any`, `Vector []float32` (opcional, habilita busca por cosseno) |
-| `Relation` | `From`, `Type`, `To`, `Props`, `Source` (chunk ou documento de origem) |
-| `Direction` | `Out`, `In`, `Both` |
-
-`kag.NormalizeID(s)` põe em minúsculas, apara e troca espaços por `_`.
-
-### `GraphStore`
-
-```go
-type GraphStore interface {
-    UpsertEntities(ctx, []Entity) error
-    UpsertRelations(ctx, []Relation) error
-    Neighbors(ctx, id string, relTypes []string, dir Direction) ([]Relation, error)
-    FindEntities(ctx, text string, vec []float32, k int) ([]Entity, error)
-    Entity(ctx, id string) (Entity, bool, error)
-    Path(ctx, from, to string, maxHops int) ([][]Relation, error)
-    Delete(ctx, ids []string) error
-}
-```
-
-`kag.NewMemory()` é a implementação de referência, segura para uso concorrente. `Save(path)` e `kag.LoadMemory(path)` persistem em JSON.
-Comportamento que qualquer adapter deve repetir:
-
-- `UpsertRelations` com o mesmo `(From, Type, To)` substitui `Props` e `Source`.
-- `Path` segue só arestas de saída e devolve os caminhos **mais curtos**; devolve `nil` se `from == to` ou `maxHops <= 0`. Termina em grafos com ciclo.
-- `Delete` remove as entidades e todas as relações que as tocam.
-- `FindEntities` usa cosseno quando `vec` e `Entity.Vector` existem; senão, a fração dos termos da consulta presentes em `Name` ou `ID`. Score 0 fica de fora e o empate sai por `ID`.
-- `Neighbors` devolve em ordem estável (`From|Type|To`).
-
-A suíte `conformance.Graph(t, store)` (pacote `internal/conformance`) verifica esse contrato e deve rodar sobre todo adapter novo.
-
-### Extração de triplas (`Extractor`)
-
-```go
-x := &kag.Extractor{Model: model, Embedder: emb, Graph: g,
-    Schema: kag.Schema{RelationTypes: []string{"PRESCREVEU", "INTERAGE_COM"}}}
-stats, err := x.Extract(ctx, chunks) // ExtractStats{Entities, Relations, Dropped}
-```
-
-Para cada documento o modelo devolve, por saída estruturada, `{entities:[{name,type}], relations:[{from,type,to}]}`.
-
-- IDs vêm de `NormalizeID(name)`. Relação com ponta que o modelo não listou cria a entidade.
-- `Relation.Source` é o `ID` do documento ou o `metadata["source"]`, para rastrear de onde veio cada tripla.
-- Vazios e duplicatas são descartados e contados em `Dropped`. Documento em branco é pulado sem chamar o modelo.
-- `Embedder` é opcional: sem ele, as entidades não têm vetor e a busca cai para nome. Se o embedder falhar, nada é gravado e o erro volta.
-- Um chunk com saída inválida não derruba o lote: os erros são juntados (`errors.Join`, a mensagem cita `chunk N`) e os chunks bons são gravados.
-- `Schema.RelationTypes` filtra os tipos aceitos. `Schema.EntityTypes` só entra no prompt, não é imposto.
-
-**Segurança.** O tipo de relação vem de um LLM e depois vira tipo de relacionamento em Cypher (Neo4j e Memgraph), onde não pode ser parâmetro.
-O extrator normaliza todo tipo para `^[A-Z][A-Z0-9_]*$`: maiúsculas, qualquer outro caractere vira `_`, repetições colapsam, `_` das pontas sai,
-e tipo vazio ou começado por dígito é descartado. `trata com; DROP` vira `TRATA_COM_DROP`. A normalização é só ASCII, então acentos viram `_`.
 
 ## `rag`: indexador e pipeline
 
@@ -206,6 +162,94 @@ só não economizam: a economia aparece em `Usage.CacheReadTokens`.
 - A contagem de tokens é a heurística de `knowledge.Heuristic` (~4 caracteres por token). Corpus perto da janela merece um contador próprio.
 - O CAG não tem estado de cache local: depende do cache do provedor, que expira (minutos no Anthropic) e cobra a primeira escrita.
 
+## `kag`: grafo de conhecimento
+
+### Modelo
+
+| Tipo | Campos |
+|---|---|
+| `Entity` | `ID`, `Type`, `Name`, `Props map[string]any`, `Vector []float32` (opcional, habilita busca por cosseno) |
+| `Relation` | `From`, `Type`, `To`, `Props`, `Source` (chunk ou documento de origem) |
+| `Direction` | `Out`, `In`, `Both` |
+
+`kag.NormalizeID(s)` põe em minúsculas, apara e troca espaços por `_`.
+
+### `GraphStore`
+
+```go
+type GraphStore interface {
+    UpsertEntities(ctx, []Entity) error
+    UpsertRelations(ctx, []Relation) error
+    Neighbors(ctx, id string, relTypes []string, dir Direction) ([]Relation, error)
+    FindEntities(ctx, text string, vec []float32, k int) ([]Entity, error)
+    Entity(ctx, id string) (Entity, bool, error)
+    Path(ctx, from, to string, maxHops int) ([][]Relation, error)
+    Delete(ctx, ids []string) error
+}
+```
+
+`kag.NewMemory()` é a implementação de referência, segura para uso concorrente. `Save(path)` e `kag.LoadMemory(path)` persistem em JSON.
+Comportamento que qualquer adapter deve repetir:
+
+- `UpsertRelations` com o mesmo `(From, Type, To)` substitui `Props` e `Source`.
+- `Path` segue só arestas de saída e devolve os caminhos **mais curtos**; devolve `nil` se `from == to` ou `maxHops <= 0`. Termina em grafos com ciclo.
+- `Delete` remove as entidades e todas as relações que as tocam.
+- `FindEntities` usa cosseno quando `vec` e `Entity.Vector` existem; senão, a fração dos termos da consulta presentes em `Name` ou `ID`. Score 0 fica de fora e o empate sai por `ID`.
+- `Neighbors` devolve em ordem estável (`From|Type|To`).
+
+A suíte `conformance.Graph(t, store)` (pacote `internal/conformance`) verifica esse contrato e deve rodar sobre todo adapter novo.
+
+### Extração de triplas (`Extractor`)
+
+```go
+x := &kag.Extractor{Model: model, Embedder: emb, Graph: g,
+    Schema: kag.Schema{RelationTypes: []string{"PRESCREVEU", "INTERAGE_COM"}}}
+stats, err := x.Extract(ctx, chunks) // ExtractStats{Entities, Relations, Dropped}
+```
+
+Para cada documento o modelo devolve, por saída estruturada, `{entities:[{name,type}], relations:[{from,type,to}]}`.
+
+- IDs vêm de `NormalizeID(name)`. Relação com ponta que o modelo não listou cria a entidade.
+- `Relation.Source` é o `ID` do documento ou o `metadata["source"]`, para rastrear de onde veio cada tripla.
+- Vazios e duplicatas são descartados e contados em `Dropped`. Documento em branco é pulado sem chamar o modelo.
+- `Embedder` é opcional: sem ele, as entidades não têm vetor e a busca cai para nome. Se o embedder falhar, nada é gravado e o erro volta.
+- Um chunk com saída inválida não derruba o lote: os erros são juntados (`errors.Join`, a mensagem cita `chunk N`) e os chunks bons são gravados.
+- `Schema.RelationTypes` filtra os tipos aceitos. `Schema.EntityTypes` só entra no prompt, não é imposto.
+
+**Segurança.** O tipo de relação vem de um LLM e depois vira tipo de relacionamento em Cypher (Neo4j e Memgraph), onde não pode ser parâmetro.
+O extrator normaliza todo tipo para `^[A-Z][A-Z0-9_]*$`: maiúsculas, qualquer outro caractere vira `_`, repetições colapsam, `_` das pontas sai,
+e tipo vazio ou começado por dígito é descartado. `trata com; DROP` vira `TRATA_COM_DROP`. A normalização é só ASCII, então acentos viram `_`.
+
+### `Engine`: planejamento multi-hop
+
+```go
+e := &kag.Engine{Model: model, Graph: g, Embedder: emb, Chunks: ragPipeline, Verify: true}
+ans, err := e.Answer(ctx, knowledge.Question{Text: "Quais pacientes tratados pelo Dr. Silva tiveram interação medicamentosa?"})
+```
+
+Fluxo de uma pergunta:
+
+1. **Plano.** O modelo devolve, por saída estruturada, um `kag.Plan` com até `MaxSteps` passos (padrão 4). Cada `PlanStep` tem `ID`, `Goal`, `Entity`
+   (nome da entidade de partida, ou `"$<id>"` para partir das entidades alcançadas por um passo anterior), `Relations` (tipos a seguir; vazio = todos),
+   `Dir` (`out`, `in` ou `both`, padrão `both`) e `DependsOn`. Referência a passo desconhecido ou posterior é erro.
+2. **Passos.** Cada passo liga a entidade ao grafo (`FindEntities`, com vetor se houver `Embedder`) e percorre `Neighbors` por até `MaxHops` saltos (padrão 3).
+   A travessia guarda as entidades visitadas, então termina em grafos com ciclo, e um conjunto global de triplas evita evidência repetida entre passos.
+3. **Complemento por chunks.** Se um passo não traz tripla nova e `Chunks` está definido, as fontes de `Chunks.Answer` entram como evidência (só as fontes, não o texto da resposta).
+4. **Síntese.** O modelo responde com a evidência numerada (`knowledge.Prompt`). Cada tripla é uma `Source` com `ID` `De|TIPO|Para`, conteúdo `de —TIPO→ para`
+   e `Metadata["source"]` com o chunk de origem.
+5. **Verificação** (`Verify: true`). Uma segunda chamada confere se a resposta é sustentada pela evidência. Se não for, a resposta ganha o prefixo
+   `(não verificado)` e o `Trace` ganha o passo `unverified` com o que faltou. Falha na própria chamada de verificação é erro, não aviso.
+
+O `Trace` tem um passo `step:<id>` por passo do plano, com as triplas encontradas. `Strategy` é `"kag"`. `Usage` é só o da chamada de síntese
+(plano e verificação não entram na soma). Cada etapa emite eventos `callbacks`, então `tracing` e o stream do LangGraph enxergam o plano e os passos.
+
+#### Limites
+
+- Um passo cujas triplas já foram coletadas por passo anterior aparece como `sem triplas no grafo` e pode acionar o complemento por chunks sem necessidade.
+- Um passo percorre até `MaxHops` saltos de uma vez; o planejador não é obrigado a dar um salto por passo.
+- `Path` do `GraphStore` não é usado pelo engine hoje; fica disponível para tools de explicação de caminho.
+- A qualidade do plano depende do modelo. Com modelos pequenos, prefira `Schema.RelationTypes` no extrator para o vocabulário ficar previsível.
+
 ## `knowledge.Router`: escolha da técnica
 
 ```go
@@ -242,54 +286,6 @@ Implemente `knowledge.Classifier` (`MultiHop(ctx, Question) (bool, error)`) para
 ### Limite
 
 As pistas do `KeywordClassifier` são heurísticas: "quem" também aparece em perguntas simples. Para precisão, use `LLMClassifier` ou um classificador próprio.
-
-## `kag.Engine`: planejamento multi-hop
-
-```go
-e := &kag.Engine{Model: model, Graph: g, Embedder: emb, Chunks: ragPipeline, Verify: true}
-ans, err := e.Answer(ctx, knowledge.Question{Text: "Quais pacientes tratados pelo Dr. Silva tiveram interação medicamentosa?"})
-```
-
-Fluxo de uma pergunta:
-
-1. **Plano.** O modelo devolve, por saída estruturada, um `kag.Plan` com até `MaxSteps` passos (padrão 4). Cada `PlanStep` tem `ID`, `Goal`, `Entity`
-   (nome da entidade de partida, ou `"$<id>"` para partir das entidades alcançadas por um passo anterior), `Relations` (tipos a seguir; vazio = todos),
-   `Dir` (`out`, `in` ou `both`, padrão `both`) e `DependsOn`. Referência a passo desconhecido ou posterior é erro.
-2. **Passos.** Cada passo liga a entidade ao grafo (`FindEntities`, com vetor se houver `Embedder`) e percorre `Neighbors` por até `MaxHops` saltos (padrão 3).
-   A travessia guarda as entidades visitadas, então termina em grafos com ciclo, e um conjunto global de triplas evita evidência repetida entre passos.
-3. **Complemento por chunks.** Se um passo não traz tripla nova e `Chunks` está definido, as fontes de `Chunks.Answer` entram como evidência (só as fontes, não o texto da resposta).
-4. **Síntese.** O modelo responde com a evidência numerada (`knowledge.Prompt`). Cada tripla é uma `Source` com `ID` `De|TIPO|Para`, conteúdo `de —TIPO→ para`
-   e `Metadata["source"]` com o chunk de origem.
-5. **Verificação** (`Verify: true`). Uma segunda chamada confere se a resposta é sustentada pela evidência. Se não for, a resposta ganha o prefixo
-   `(não verificado)` e o `Trace` ganha o passo `unverified` com o que faltou. Falha na própria chamada de verificação é erro, não aviso.
-
-O `Trace` tem um passo `step:<id>` por passo do plano, com as triplas encontradas. `Strategy` é `"kag"`. `Usage` é só o da chamada de síntese
-(plano e verificação não entram na soma). Cada etapa emite eventos `callbacks`, então `tracing` e o stream do LangGraph enxergam o plano e os passos.
-
-### Limites
-
-- Um passo cujas triplas já foram coletadas por passo anterior aparece como `sem triplas no grafo` e pode acionar o complemento por chunks sem necessidade.
-- Um passo percorre até `MaxHops` saltos de uma vez; o planejador não é obrigado a dar um salto por passo.
-- `Path` do `GraphStore` não é usado pelo engine hoje; fica disponível para tools de explicação de caminho.
-- A qualidade do plano depende do modelo. Com modelos pequenos, prefira `Schema.RelationTypes` no extrator para o vocabulário ficar previsível.
-
-## Qual banco combinar com cada técnica
-
-| Técnica | Precisa de | Opções no repositório |
-|---|---|---|
-| RAG | um `vectorstores.VectorStore` | `vectorstores.Memory`; qualquer `Backend` de `integrations/vectorstore` embrulhado por `vectorstore.New(embedder, backend)` (`Flat`, `Annoy`, `HNSW`, pgvector, Qdrant, Milvus, Pinecone, Weaviate, Chroma, Elasticsearch, Neo4j, Memgraph e os demais da lista do capítulo 13) |
-| CAG | só o modelo; o cache é do provedor | Anthropic (`cache_control`), OpenAI e compatíveis (cache automático por prefixo) |
-| KAG | um `kag.GraphStore` e, opcionalmente, um `VectorStore` para o `Chunks` | `kag.Memory`; adapters de banco de grafo na fase de integrações |
-
-O RAG é agnóstico ao backend porque só usa a interface `VectorStore`. A suíte `conformance.RAG(t, newStore)` (`internal/conformance/rag.go`) prova isso: indexa
-quatro fontes, confere a recuperação, o filtro por metadado, a reindexação sem mudança (`Skipped`), a edição de uma fonte (`Removed` + `Added`, texto antigo
-some) e a resposta com fontes. Hoje roda sobre `vectorstores.Memory`, `Flat` e `HNSW`; ao adicionar um backend, chame a suíte com um construtor dele:
-
-```go
-func TestMeuBackend(t *testing.T) {
-    conformance.RAG(t, func() vectorstores.VectorStore { return vectorstore.New(emb, meuBackend()) })
-}
-```
 
 ## `knowledge.Toolkit`: tools para agents e servidor MCP
 
@@ -387,6 +383,24 @@ MEMGRAPH_ADDR=127.0.0.1:7687 go test -race -count=1 -v ./integrations/graphstore
 ```
 
 Cada execução usa um rótulo único e apaga o que criou.
+
+## Qual banco combinar com cada técnica
+
+| Técnica | Precisa de | Opções no repositório |
+|---|---|---|
+| RAG | um `vectorstores.VectorStore` | `vectorstores.Memory`; qualquer `Backend` de `integrations/vectorstore` embrulhado por `vectorstore.New(embedder, backend)` (`Flat`, `Annoy`, `HNSW`, pgvector, Qdrant, Milvus, Pinecone, Weaviate, Chroma, Elasticsearch, Neo4j, Memgraph e os demais da lista do capítulo 13) |
+| CAG | só o modelo; o cache é do provedor | Anthropic (`cache_control`), OpenAI e compatíveis (cache automático por prefixo) |
+| KAG | um `kag.GraphStore` e, opcionalmente, um `VectorStore` para o `Chunks` | `kag.Memory`; adapters de banco de grafo na fase de integrações |
+
+O RAG é agnóstico ao backend porque só usa a interface `VectorStore`. A suíte `conformance.RAG(t, newStore)` (`internal/conformance/rag.go`) prova isso: indexa
+quatro fontes, confere a recuperação, o filtro por metadado, a reindexação sem mudança (`Skipped`), a edição de uma fonte (`Removed` + `Added`, texto antigo
+some) e a resposta com fontes. Hoje roda sobre `vectorstores.Memory`, `Flat` e `HNSW`; ao adicionar um backend, chame a suíte com um construtor dele:
+
+```go
+func TestMeuBackend(t *testing.T) {
+    conformance.RAG(t, func() vectorstores.VectorStore { return vectorstore.New(emb, meuBackend()) })
+}
+```
 
 ## `cmd/knowledge`: linha de comando
 

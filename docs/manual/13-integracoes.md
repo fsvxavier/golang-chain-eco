@@ -115,6 +115,12 @@ Detalhes por backend:
 - **S3**: SigV4; serve AWS, MinIO, Tigris, R2 e outros compatíveis.
 - **SQL (SQLite/PostgreSQL)**: `sqlsaver` e `sqlstore`; você traz o driver.
 
+### Bancos de grafo (KAG)
+
+Para o KAG ([capítulo 20](20-rag-cag-kag.md)), `integrations/graphstore` guarda o grafo de conhecimento em **Neo4j** (Query API HTTP) ou **Memgraph** (Bolt). Os dois implementam
+`kag.GraphStore` e passam a mesma suíte de conformidade do grafo em memória; ambos validam rótulo e tipo de relação antes de montar a consulta Cypher.
+Foram testados contra Neo4j 5.26 e Memgraph reais em Docker (`NEO4J_URL`, `MEMGRAPH_ADDR`). Detalhes em [KNOWLEDGE.md](../KNOWLEDGE.md).
+
 ## 13.8 Ações em sistemas externos (tools)
 
 > **Atenção:** estas tools agem em sistemas reais. Dê o menor escopo possível, restrinja destinos e exija aprovação humana (`HumanInTheLoop`).
@@ -163,4 +169,6 @@ Veja o [capítulo 11, seção 11.5](11-mcp-remote-servidor.md#115-protocolo-ag-u
 
 Guardrails e governança de terceiros, carteiras e pagamentos, memórias de startups, APIs de nicho e sandboxes gerenciados (E2B, Daytona, Modal, Runloop). O motivo de cada um está em [PROVIDERS-ANALISE.md](../PROVIDERS-ANALISE.md). Para qualquer um deles, use os pontos de extensão da seção 13.2.
 
-Próximo: [14. Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md).
+---
+
+Anterior: [12. Observabilidade](12-observabilidade.md) · Próximo: [14. Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) · [Índice do manual](README.md)

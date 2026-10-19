@@ -14,7 +14,7 @@ go run ./examples/integrations/graph_rag
 ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com modelo real
 ```
 
-## 15.2 Catálogo (54 exemplos)
+## 15.2 Catálogo (63 exemplos)
 
 ### `examples/langchain`
 
@@ -52,6 +52,7 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com mod
 | `adaptive_rag` | Roteador escolhe vector store ou web |
 | `sql_agent` | Agent de SQL com guarda somente-leitura |
 | `map_reduce` | Fan-out com `Send` e redução |
+| `typed_state` | Estado tipado com struct (`NewTyped`, tags de reducer, `Validate`) |
 
 ### `examples/deepagents`
 
@@ -98,6 +99,24 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com mod
 | `engineer` | Issue → sandbox por thread → atalho `gh pr create` bloqueado → PR em rascunho → comentário |
 | `reviewer` | Review única com finding ancorado, push recusado, re-revisão com reconciliação |
 | `factory` | Webhooks (menção, fila, duplicata, estranhos), PR novo, cron, vigia de CI |
+| `slack_trigger` | Slack: `url_verification`, menção numa thread, retry ignorado, resposta final postada na thread |
+
+### `examples/knowledge`
+
+| Exemplo | Mostra |
+|---|---|
+| `rag` | Indexação incremental (`Added`/`Skipped`/`Removed`), busca vetorial vs híbrida, resposta com citações |
+| `cag` | Corpus em prefixo estável, hash e tokens, `cache_hit`, fallback quando o corpus não cabe |
+| `kag` | Grafo extraído de trechos, pergunta de 3 saltos, verificação, grafo com ciclo |
+| `router` | Roteador escolhendo KAG, CAG ou RAG, `Force` e fallback para RAG |
+| `agent_tools` | Agent usando as tools do `knowledge.Toolkit` |
+| `mcp_server` | As mesmas tools como servidor MCP (`-demo` mostra `tools/list` e `tools/call`) |
+
+### `examples/evals`
+
+| Exemplo | Mostra |
+|---|---|
+| `basic` | `evals.Evaluate` com exato, contains, embedding e LLM-as-judge; relatório texto/JSON |
 
 ### `examples/integrations`
 
@@ -225,6 +244,25 @@ defer closeAll()
 agent, _ := agents.Create(agents.Options{Model: m, Tools: ts})
 ```
 
+### H. Perguntas sobre documentos com a técnica certa (RAG, CAG ou KAG)
+
+Um roteador decide por pergunta; o resto da aplicação só vê um `knowledge.Answerer`. Detalhes no [capítulo 20](20-rag-cag-kag.md).
+
+```go
+idx := rag.NewIndexer(store, nil)
+idx.Index(ctx, documents.Directory("docs", "*.md", nil))
+
+r := &knowledge.Router{
+    RAG:      &rag.Pipeline{Store: store, Docs: idx.Documents(), Model: model, Hybrid: true},
+    Profile:  knowledge.Profile{CorpusTokens: 30000, ContextWindow: 200000},
+    Fallback: true,
+}
+ans, _ := r.Answer(ctx, knowledge.Question{Text: "Como redefinir a senha do Router-X500?"})
+fmt.Println(ans.Text, ans.Strategy) // resposta com [n] e a técnica usada
+```
+
+Para expor a mesma coisa a um agent ou a um editor, use `knowledge.Toolkit{Router: r}.All()` ou `.MCPServer(nil)`.
+
 ## 15.4 Equivalência com as bibliotecas Python
 
 | Python | Go |
@@ -282,5 +320,9 @@ agent, _ := agents.Create(agents.Options{Model: m, Tools: ts})
 - Código-fonte e testes de cada pacote mostram o uso exato (`*_test.go`).
 - [ARCHITECTURE.md](../ARCHITECTURE.md) explica as decisões de design do runtime.
 - [INTEGRATIONS.md](../INTEGRATIONS.md) e [PROVIDERS.md](../PROVIDERS.md) detalham cobertura e verificação.
+- [KNOWLEDGE.md](../KNOWLEDGE.md) é a referência de `knowledge`, `rag`, `cag` e `kag`; os demais pacotes têm [LANGMEM.md](../LANGMEM.md), [CIAM.md](../CIAM.md), [AGENT-PROTOCOL.md](../AGENT-PROTOCOL.md), [OPENSWE.md](../OPENSWE.md) e [EVALS.md](../EVALS.md).
+- O [índice de `docs/`](../README.md) lista tudo com uma linha por documento.
 
-Voltar ao [índice do manual](README.md).
+---
+
+Anterior: [14. Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) · Próximo: [16. Memória de longo prazo](16-memoria-langmem.md) · [Índice do manual](README.md)

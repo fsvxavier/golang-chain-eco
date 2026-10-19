@@ -92,4 +92,6 @@ Isso grava `{"command": ".../ciam", "args": ["mcp"], "env": {"CIAM_PROJECT_PATH"
 
 Exemplos: `go run ./examples/ciam/project_context` e `.../agent_with_context`.
 
-Próximo: [19. Open SWE](19-open-swe.md).
+---
+
+Anterior: [17. Agent Protocol](17-agent-protocol.md) · Próximo: [19. Open SWE](19-open-swe.md) · [Índice do manual](README.md)

@@ -46,6 +46,7 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 ## Documentos relacionados
 
 - [README do projeto](../../README.md) — visão geral e início rápido
+- [Índice de `docs/`](../README.md) — todos os documentos de referência, com uma linha cada
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — decisões de design
 - [AGENT-PROTOCOL.md](../AGENT-PROTOCOL.md), [CIAM.md](../CIAM.md) e [OPENSWE.md](../OPENSWE.md) — referência dos pacotes `agentprotocol`, `ciam` e `openswe`
 - [KNOWLEDGE.md](../KNOWLEDGE.md) — referência dos pacotes `knowledge`, `rag`, `cag` e `kag`

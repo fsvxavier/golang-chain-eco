@@ -176,4 +176,12 @@ Use com `retrieval.WithRerank(retriever, rr)` (capítulo 6).
 | Compliance corporativo na AWS/Azure | `bedrock`, `azure_openai` |
 | Contexto muito longo | Consulte os limites do modelo no provedor |
 
-Próximo: [4. Prompts, chains e parsers](04-chains-prompts-parsers.md).
+## 3.12 Uso de tokens e cache de prompt
+
+`Message.Usage` traz `InputTokens`, `OutputTokens` e `TotalTokens`. `InputTokens` soma tudo, inclusive o que veio do cache. Dois campos extras mostram o cache de prompt:
+`CacheReadTokens` (lidos do cache) e `CacheCreationTokens` (gravados no cache). O Anthropic informa os dois; OpenAI e compatíveis informam `CacheReadTokens`; os demais deixam zero.
+Para aproveitar o cache com um corpus grande, veja o CAG no [capítulo 20](20-rag-cag-kag.md).
+
+---
+
+Anterior: [2. Conceitos fundamentais](02-conceitos.md) · Próximo: [4. Prompts, chains e parsers](04-chains-prompts-parsers.md) · [Índice do manual](README.md)

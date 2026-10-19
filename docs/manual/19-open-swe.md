@@ -133,4 +133,6 @@ Publique o engenheiro e o revisor com o capítulo 17 (`agentprotocol`): `Options
 - `Local` não isola. Para produção use `Kubernetes` (ou implemente `sandbox.Provider` para o seu ambiente).
 - Teste o seu fluxo com modelo roteirizado antes de ligar um modelo real: os testes de `openswe/openswe_test.go` são bons moldes.
 
-Próximo: [14. Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md).
+---
+
+Anterior: [18. ciam](18-ciam-contexto.md) · Próximo: [20. RAG, CAG e KAG](20-rag-cag-kag.md) · [Índice do manual](README.md)

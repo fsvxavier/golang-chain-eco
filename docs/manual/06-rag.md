@@ -196,4 +196,6 @@ answer, _ := chain.Invoke(ctx, "Qual é a política de reembolso?")
 
 Quer indexação incremental, busca híbrida pronta, cache de prompt (CAG) ou grafo de conhecimento (KAG)? Veja o [capítulo 20](20-rag-cag-kag.md).
 
-Próximo: [7. LangGraph: StateGraph](07-langgraph.md).
+---
+
+Anterior: [5. Tools](05-tools.md) · Próximo: [7. LangGraph: StateGraph](07-langgraph.md) · [Índice do manual](README.md)

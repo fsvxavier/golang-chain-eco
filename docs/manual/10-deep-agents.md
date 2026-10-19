@@ -193,4 +193,6 @@ O agent ganha as tools `start`, `check`, `update`, `cancel` e `list` para dispar
 - Prompts longos + muitos arquivos aumentam custo: ajuste `SummarizeAt` e use subagents para isolar contexto.
 - Limite recursão e custo com `ctx = runnables.WithConfig(ctx, runnables.Config{RecursionLimit: ...})` e middlewares `ModelCallLimit`.
 
-Próximo: [11. MCP, servidor e graphs remotos](11-mcp-remote-servidor.md).
+---
+
+Anterior: [9. Agents e middleware](09-agents-e-middleware.md) · Próximo: [11. MCP, servidor e graphs remotos](11-mcp-remote-servidor.md) · [Índice do manual](README.md)

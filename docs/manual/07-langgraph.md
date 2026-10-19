@@ -264,4 +264,6 @@ Quando usar: fluxos lineares com poucas ramificações e muita lógica de negóc
 | RAG corretivo/adaptativo | `corrective_rag`, `self_rag`, `adaptive_rag` |
 | Map-reduce | `map_reduce` |
 
-Próximo: [8. Persistência, human-in-the-loop e streaming](08-persistencia-hitl-streaming.md).
+---
+
+Anterior: [6. RAG](06-rag.md) · Próximo: [8. Persistência, HITL e streaming](08-persistencia-hitl-streaming.md) · [Índice do manual](README.md)
