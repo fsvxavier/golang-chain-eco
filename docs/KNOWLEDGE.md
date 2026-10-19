@@ -85,6 +85,53 @@ Comportamento que qualquer adapter deve repetir:
 
 A suíte `conformance.Graph(t, store)` (pacote `internal/conformance`) verifica esse contrato e deve rodar sobre todo adapter novo.
 
+## `rag`: indexador e pipeline
+
+### `Indexer`
+
+```go
+idx := rag.NewIndexer(store, nil) // nil = textsplitters.NewRecursive(800, 100)
+stats, err := idx.Index(ctx, documents.Directory("docs", "*.md", nil))
+// stats.Added, stats.Skipped, stats.Removed (contados em chunks)
+```
+
+- Agrupa os documentos por `metadata["source"]` (documento sem `source` ganha um grupo próprio, por posição) e calcula o sha256 do conteúdo de cada grupo.
+- Fonte inalterada é ignorada (`Skipped`). Fonte alterada tem os chunks antigos apagados do store (`Removed`) e é reindexada (`Added`).
+- Cada chunk recebe `source`, `chunk` e `content_hash`; o splitter já informa `start_index`.
+- `Documents()` devolve todos os chunks indexados, ordenados por fonte: é a entrada do lado BM25 do pipeline.
+- Seguro para uso concorrente.
+
+### `Pipeline`
+
+```go
+p := &rag.Pipeline{
+    Store: store, Docs: idx.Documents(), Model: model,
+    K: 4, Hybrid: true, MultiQueries: 2, Reranker: rr, MaxContextTokens: 3000,
+}
+ans, err := p.Answer(ctx, knowledge.Question{Text: "..."})
+```
+
+| Campo | Efeito |
+|---|---|
+| `K` (4) | fontes devolvidas |
+| `FetchK` | candidatos buscados antes do rerank e do corte em `K` |
+| `Hybrid` | funde a busca vetorial com BM25 sobre `Docs` por RRF (`retrievers.Ensemble`) |
+| `MultiQueries` | reformulações extras da pergunta pelo modelo (`retrievers.MultiQuery`) |
+| `Reranker` | reordena os candidatos (`retrieval.WithRerank`, por exemplo o rerank da Cohere) |
+| `MaxContextTokens` | corta fontes do fim até caber, medindo com `Counter` (`nil` = `knowledge.Heuristic`) |
+| `System` | substitui `knowledge.DefaultSystem` |
+
+- `Question.Filter` vale para a busca vetorial e para o BM25 (aplicado depois da pontuação).
+- Sem fontes, o pipeline devolve resposta vazia **sem chamar o modelo**, e o `Trace` diz `generate: skipped: no sources`.
+- `Retrieve(ctx, q)` devolve só as fontes, sem gerar. Recusa `Question.Force` diferente de `""` e `"rag"`.
+- `Docs` é uma cópia do momento da criação: depois de reindexar, monte o `Pipeline` de novo ou atribua `Docs = idx.Documents()`.
+
+### Limites
+
+- O estado de hashes do `Indexer` fica só na memória do processo; reiniciar reindexa tudo. Fontes que somem do loader não são removidas do store.
+- O índice BM25 é recriado a cada pergunta. Para corpus grandes e estáveis, isso deve virar cache.
+- Embeddings não passam por `embeddings.Cached` automaticamente; embrulhe o embedder do store se o custo importar.
+
 ## `cag`: corpus em prefixo cacheável
 
 O CAG coloca o corpus inteiro na mensagem `system` e deixa o cache de prompt do provedor fazer o resto. Não há busca em tempo de execução.
@@ -137,3 +184,24 @@ só não economizam: a economia aparece em `Usage.CacheReadTokens`.
 
 - A contagem de tokens é a heurística de `knowledge.Heuristic` (~4 caracteres por token). Corpus perto da janela merece um contador próprio.
 - O CAG não tem estado de cache local: depende do cache do provedor, que expira (minutos no Anthropic) e cobra a primeira escrita.
+
+### Extração de triplas (`Extractor`)
+
+```go
+x := &kag.Extractor{Model: model, Embedder: emb, Graph: g,
+    Schema: kag.Schema{RelationTypes: []string{"PRESCREVEU", "INTERAGE_COM"}}}
+stats, err := x.Extract(ctx, chunks) // ExtractStats{Entities, Relations, Dropped}
+```
+
+Para cada documento o modelo devolve, por saída estruturada, `{entities:[{name,type}], relations:[{from,type,to}]}`.
+
+- IDs vêm de `NormalizeID(name)`. Relação com ponta que o modelo não listou cria a entidade.
+- `Relation.Source` é o `ID` do documento ou o `metadata["source"]`, para rastrear de onde veio cada tripla.
+- Vazios e duplicatas são descartados e contados em `Dropped`. Documento em branco é pulado sem chamar o modelo.
+- `Embedder` é opcional: sem ele, as entidades não têm vetor e a busca cai para nome. Se o embedder falhar, nada é gravado e o erro volta.
+- Um chunk com saída inválida não derruba o lote: os erros são juntados (`errors.Join`, a mensagem cita `chunk N`) e os chunks bons são gravados.
+- `Schema.RelationTypes` filtra os tipos aceitos. `Schema.EntityTypes` só entra no prompt, não é imposto.
+
+**Segurança.** O tipo de relação vem de um LLM e depois vira tipo de relacionamento em Cypher (Neo4j e Memgraph), onde não pode ser parâmetro.
+O extrator normaliza todo tipo para `^[A-Z][A-Z0-9_]*$`: maiúsculas, qualquer outro caractere vira `_`, repetições colapsam, `_` das pontas sai,
+e tipo vazio ou começado por dígito é descartado. `trata com; DROP` vira `TRATA_COM_DROP`. A normalização é só ASCII, então acentos viram `_`.
