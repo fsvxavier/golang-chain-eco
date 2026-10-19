@@ -84,6 +84,7 @@ func Ensemble(rs []Retriever, weights []float64) Retriever {
 	return Func(func(ctx context.Context, q string) ([]documents.Document, error) {
 		scores := map[string]float64{}
 		docs := map[string]documents.Document{}
+		var keys []string // first-seen order, so ties rank deterministically
 		for i, r := range rs {
 			w := 1.0
 			if i < len(weights) {
@@ -98,13 +99,12 @@ func Ensemble(rs []Retriever, weights []float64) Retriever {
 				if key == "" {
 					key = d.PageContent
 				}
+				if _, seen := scores[key]; !seen {
+					keys = append(keys, key)
+				}
 				scores[key] += w / (float64(rank+1) + c)
 				docs[key] = d
 			}
-		}
-		keys := make([]string, 0, len(scores))
-		for k := range scores {
-			keys = append(keys, k)
 		}
 		sort.SliceStable(keys, func(a, b int) bool { return scores[keys[a]] > scores[keys[b]] })
 		out := make([]documents.Document, len(keys))
