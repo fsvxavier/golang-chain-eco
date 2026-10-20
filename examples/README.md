@@ -3,6 +3,7 @@
 Cada exemplo é um programa independente: `go run ./examples/<grupo>/<nome>`.
 Sem chave de API eles usam um modelo fake com respostas calculadas (saída determinística);
 com `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` usam o provedor real.
+Cada pasta tem um `README.md` (em inglês) com o que o exemplo faz, como aplicar o padrão, como rodar e como testar em modo produtivo.
 Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositórios de mesmo nome; `langmem`, `agentprotocol`, `ciam` e `openswe` foram portados dos projetos de mesmo nome (LangMem, Agent Protocol, context-ia-manager e Open SWE) e `integrations` são exemplos próprios deste projeto.
 
 ## langchain
