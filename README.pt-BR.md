@@ -1,0 +1,840 @@
+# golang-chain-eco
+
+[English](README.md) | **Português** | [Español](README.es.md)
+
+Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent com middleware (`create_agent`), **Deep Agents**, cliente e servidor **MCP**, **RemoteGraph**, tracing **LangSmith**, a memória de longo prazo do **LangMem**, o **Agent Protocol**, o **ciam** (contexto para assistentes) e o **Open SWE** (fábrica de software com agents).
+
+- O código da biblioteca usa **só a stdlib**: nenhum pacote de produção importa dependência de terceiros. O `go.mod` lista drivers SQL (`pgx`, `mysql`, `go-ora`, `modernc.org/sqlite`), mas eles são usados apenas pelos testes em `internal/pgtest` e `internal/sqlitetest`; quem usa a biblioteca traz o driver que quiser.
+- Tipado com generics: `Runnable[I, O]`, `Structured[T]`, `tools.New[Args]`.
+- Concorrência nativa: nós de um grafo rodam em goroutines, streaming usa `iter.Seq2`.
+- Todo exemplo roda offline com um modelo fake; basta definir `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` para usar um provedor real.
+
+> **Manual completo de utilização:** [docs/pt-BR/manual/](docs/pt-BR/manual/README.md) — 19 capítulos, da instalação à produção.
+
+## Sumário
+
+- [Manual de utilização](#manual-de-utilização)
+- [Instalação](#instalação)
+- [Mapa de pacotes](#mapa-de-pacotes)
+- [Início rápido](#início-rápido)
+- [Guia de uso](#guia-de-uso)
+  - [Modelos e provedores](#1-modelos-e-provedores)
+  - [Chains (prompt, modelo, parser)](#2-chains-prompt--modelo--parser)
+  - [Saída estruturada](#3-saída-estruturada)
+  - [Tools](#4-tools)
+  - [RAG: splitters, embeddings, vector store](#5-rag-splitters-embeddings-vector-store)
+  - [LangGraph: StateGraph](#6-langgraph-stategraph)
+  - [Persistência e human-in-the-loop](#7-persistência-e-human-in-the-loop)
+  - [Streaming](#8-streaming)
+  - [Agents com middleware](#9-agents-com-middleware)
+  - [Deep Agents](#10-deep-agents)
+  - [MCP](#11-mcp-model-context-protocol)
+  - [Graphs remotos](#12-graphs-remotos)
+  - [Tracing com LangSmith](#13-tracing-com-langsmith)
+  - [API funcional](#14-api-funcional-entrypoint--task)
+  - [Memória de longo prazo (LangMem)](#15-memória-de-longo-prazo-langmem)
+  - [Agent Protocol, ciam e Open SWE](#16-agent-protocol-ciam-e-open-swe)
+- [Configuração](#configuração)
+- [Exemplos executáveis](#exemplos-executáveis)
+- [Testes](#testes)
+- [Equivalência com as libs Python](#equivalência-com-as-libs-python)
+- [Limitações](#limitações)
+
+## Manual de utilização
+
+Guia detalhado em português, com exemplos e troubleshooting: [docs/pt-BR/manual/README.md](docs/pt-BR/manual/README.md). Todos os documentos de referência estão listados em [docs/pt-BR/README.md](docs/pt-BR/README.md).
+
+| # | Capítulo |
+|---|---|
+| 1 | [Introdução e instalação](docs/pt-BR/manual/01-introducao-e-instalacao.md) |
+| 2 | [Conceitos fundamentais](docs/pt-BR/manual/02-conceitos.md) |
+| 3 | [Modelos e provedores](docs/pt-BR/manual/03-modelos-e-provedores.md) |
+| 4 | [Prompts, chains e parsers](docs/pt-BR/manual/04-chains-prompts-parsers.md) |
+| 5 | [Tools](docs/pt-BR/manual/05-tools.md) |
+| 6 | [RAG](docs/pt-BR/manual/06-rag.md) |
+| 7 | [LangGraph: StateGraph](docs/pt-BR/manual/07-langgraph.md) |
+| 8 | [Persistência, human-in-the-loop e streaming](docs/pt-BR/manual/08-persistencia-hitl-streaming.md) |
+| 9 | [Agents e middleware](docs/pt-BR/manual/09-agents-e-middleware.md) |
+| 10 | [Deep Agents](docs/pt-BR/manual/10-deep-agents.md) |
+| 11 | [MCP, servidor e graphs remotos](docs/pt-BR/manual/11-mcp-remote-servidor.md) |
+| 12 | [Observabilidade](docs/pt-BR/manual/12-observabilidade.md) |
+| 13 | [Integrações](docs/pt-BR/manual/13-integracoes.md) |
+| 14 | [Produção, segurança e troubleshooting](docs/pt-BR/manual/14-producao-seguranca-troubleshooting.md) |
+| 15 | [Exemplos e receitas](docs/pt-BR/manual/15-exemplos-e-receitas.md) |
+| 20 | [RAG, CAG e KAG](docs/pt-BR/manual/20-rag-cag-kag.md) |
+
+## Instalação
+
+```bash
+go get github.com/fsvxavier/golang-chain-eco@latest
+```
+
+Requer Go 1.27 ou superior (versão declarada no `go.mod`). Para desenvolver neste repositório:
+
+```bash
+git clone https://github.com/fsvxavier/golang-chain-eco
+cd golang-chain-eco
+go build ./...
+go test -race ./...
+```
+
+## Mapa de pacotes
+
+| Pacote | O que faz | Equivalente Python |
+|---|---|---|
+| `core/messages` | Mensagens, tool calls, reducer `AddMessages`, trim/filter/merge | `langchain_core.messages` |
+| `core/prompts` | Templates de prompt e chat | `langchain_core.prompts` |
+| `core/runnables` | `Runnable[I,O]`, `Pipe`, `Parallel`, `Branch`, retry, fallbacks | LCEL / `Runnable` |
+| `core/models` | Interface `ChatModel`, `Structured[T]`, cache, rate limiter, `Fake` | `BaseChatModel` |
+| `core/outputparsers` | `Str`, `JSON`, `Struct[T]`, `CommaList`, `ToolCalls` | output parsers |
+| `core/tools` | `tools.New[Args]`, `NewRaw`, validação por JSON Schema | `@tool` |
+| `core/documents`, `textsplitters`, `embeddings`, `vectorstores`, `retrievers` | Pipeline de RAG | idem |
+| `knowledge`, `rag`, `cag`, `kag` | `Answerer` comum, roteador, RAG híbrido com indexação incremental, CAG com prefixo cacheável, KAG com grafo de conhecimento e raciocínio multi-hop (veja [docs/pt-BR/KNOWLEDGE.md](docs/pt-BR/KNOWLEDGE.md)) | RAG / CAG / KAG |
+| `core/callbacks` | Eventos, tracer, logger | callbacks |
+| `core/chathistory` | Histórico de chat (memória, arquivo, store) | `ChatMessageHistory` |
+| `chatmodels` | `Init("anthropic:claude-...")` | `init_chat_model` |
+| `providers/{openai,anthropic,ollama}` | Clientes HTTP, streaming SSE, tools, embeddings | `langchain-openai` etc. |
+| `langgraph/graph` | `StateGraph`, runtime Pregel, `Command`, `Send`, `Interrupt`, durabilidade, estado tipado opcional (`NewTyped[T]`) | `langgraph` |
+| `langgraph/channels` | Canais de estado e reducers | `langgraph.channels` |
+| `langgraph/checkpoint` | `Saver` e `Memory` (com namespaces de subgrafo), serde JSON | `langgraph.checkpoint` |
+| `langgraph/checkpoint/sqlsaver` | Saver SQLite/Postgres via `database/sql` | `checkpoint-sqlite/postgres` |
+| `langgraph/store` | Memória de longo prazo entre threads | `BaseStore` |
+| `langgraph/prebuilt` | `ToolNode`, `CreateReactAgent` | `langgraph.prebuilt` |
+| `langgraph/functional` | `Entrypoint` e `Task` | `@entrypoint` / `@task` |
+| `agents`, `agents/middleware` | `agents.Create` + middlewares prontos | `create_agent` |
+| `deepagents` (+ `backends`, `middleware`) | Agent com planejamento, filesystem virtual, subagents | `deepagents` |
+| `mcp` | Cliente MCP (stdio e HTTP) | `langchain-mcp-adapters` |
+| `remote` | Cliente do Agent Server e `RemoteGraph` | `langgraph_sdk` |
+| `tracing/{langsmith,langfuse,otlp}` | Envio de runs ao LangSmith, Langfuse e OpenTelemetry | tracers |
+| `integrations/vectorstore` | 25 backends (os índices locais `Flat`, `Annoy` e `HNSW` incluídos, com leitura de arquivos `.ann` e FAISS flat; mais Redis, FalkorDB, MongoDB/Atlas e Memgraph nos pacotes próprios = 29): Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector, Typesense, Upstash, Neo4j, SurrealDB, MariaDB, ClickHouse, CrateDB, CockroachDB, Oracle 23ai, Solr, ArcadeDB, Infinispan, Couchbase, Azure AI Search, Astra | `langchain-community` e parceiros |
+| `integrations/{redis,mongo,dynamodb,s3}` | `checkpoint.Saver` e `store.Store` em Redis, MongoDB, DynamoDB e S3 (AWS, MinIO, Tigris, R2...); Redis, MongoDB/Atlas e FalkorDB também como vector store | checkpointers/stores |
+| `integrations/{search,loaders,retrieval}` | ~30 buscas e scrapers (Tavily, Exa, Brave, You.com, Zotero, YouTube...), loaders, BM25 e rerank | `langchain-community` |
+| `integrations/graphstore` | `kag.GraphStore` em Neo4j (HTTP) e Memgraph (Bolt), com tipos de relação validados | grafos de conhecimento |
+| `integrations/{graphretriever,spicedb,permit,vectara,aws}` | Graph RAG, retrievers filtrados por permissão (SpiceDB, Permit), Vectara, Bedrock Knowledge Bases, Kendra, tool Lambda | retrievers |
+| `integrations/{kubernetes,jenkins,salesforce,messaging,memgraph,agui}` | Sandbox em pod, Jenkins, SOQL somente leitura, SMS (Plivo/Telnyx), Memgraph (Bolt), protocolo AG-UI | tools / protocolos |
+| `providers/{google,cohere,bedrock,watsonx,replicate}` | Gemini/Vertex, Cohere (chat, embeddings, rerank), Bedrock Converse, IBM watsonx.ai, Replicate | parceiros |
+| `agentprotocol` | API aberta do Agent Protocol (agents, threads, runs, store) + streaming por thread (SSE e WebSocket) e cliente | `agent-protocol` |
+| `ciam` | Contexto para assistentes: índice incremental, busca híbrida, ADR/PRD/planos, memória, tools e servidor MCP | `context-ia-manager` |
+| `mcp/server` | Servidor MCP genérico para qualquer `[]tools.Tool` (stdio e HTTP) | — |
+| `openswe/{prompts,github,sandbox,guards,review,babysit,triggers,slack,linear}` e `openswe` | Fábrica de software: engenheiro com sandbox por thread, revisor de PRs, vigia de CI, webhooks, cron, automações, Slack e Linear | `open-swe` |
+| `langmem` | Memória de longo prazo: managers semântico/episódico, tools de memória, otimização de prompts, resumo incremental, background e middleware | `langmem` |
+| `remote/server` | Servidor de grafos compatível com a API de threads/runs | Agent Server |
+| `langgraph/store/sqlstore` | Store de longo prazo em SQLite/Postgres | `PostgresStore` |
+| `evals` | Avaliação offline: datasets JSONL, avaliadores (exato, regex, JSON, embedding, LLM-as-judge, trajetória de tools), relatório texto/JSON | `langsmith.evaluation`, `openevals`, `agentevals` |
+| `langgraph/dev` e `cmd/langgraph` | Servidor de desenvolvimento (Agent Protocol) para seus grafos; `langgraph dev` serve um agent de demonstração | `langgraph dev` |
+
+## Início rápido
+
+Um agent com uma tool, em menos de 30 linhas:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/chatmodels"
+	"github.com/fsvxavier/golang-chain-eco/core/messages"
+	"github.com/fsvxavier/golang-chain-eco/core/tools"
+	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
+)
+
+type WeatherArgs struct {
+	City string `json:"city" description:"Nome da cidade"`
+}
+
+func main() {
+	weather := tools.New("get_weather", "Clima atual de uma cidade.",
+		func(ctx context.Context, a WeatherArgs) (any, error) {
+			return "Ensolarado, 24°C em " + a.City, nil
+		})
+
+	agent, err := agents.Create(agents.Options{
+		Model:        chatmodels.MustInit("anthropic:claude-sonnet-4-5"), // exige ANTHROPIC_API_KEY
+		Tools:        []tools.Tool{weather},
+		SystemPrompt: "Você é um assistente de clima.",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	out, err := agent.Invoke(context.Background(), graph.State{"messages": "Como está o tempo em Lisboa?"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	msgs := out["messages"].([]messages.Message)
+	fmt.Println(msgs[len(msgs)-1].Text())
+}
+```
+
+O estado do grafo é um `map[string]any` (`graph.State`). A chave `messages` aceita uma string (vira mensagem humana), uma `messages.Message` ou uma `[]messages.Message`.
+
+## Guia de uso
+
+### 1. Modelos e provedores
+
+```go
+import (
+	"github.com/fsvxavier/golang-chain-eco/chatmodels"
+	"github.com/fsvxavier/golang-chain-eco/core/models"
+	"github.com/fsvxavier/golang-chain-eco/providers/openai"
+)
+
+// Por string "provedor:modelo" (equivale a init_chat_model).
+m, err := chatmodels.Init("openai:gpt-4o-mini", models.WithTemperature(0))
+m2 := chatmodels.MustInit("ollama:llama3.1")
+m3 := chatmodels.MustInit("groq:llama-3.3-70b-versatile") // OpenAI-compatível, lê GROQ_API_KEY
+
+// Construção direta, com endpoint próprio (ex.: Azure, vLLM, LM Studio).
+local := &openai.Chat{Model: "qwen2.5", BaseURL: "http://localhost:8000/v1", APIKey: "x"}
+
+// Chamada simples e streaming.
+resp, err := m.Generate(ctx, []messages.Message{messages.System("Seja breve."), messages.Human("Oi")})
+for chunk, err := range m.Stream(ctx, msgs) {
+	fmt.Print(chunk.Text())
+}
+```
+
+Provedores com cliente próprio: `openai`, `anthropic`, `ollama`, `google_genai`, `cohere`, `bedrock`, `azure_openai`, `ibm`/`watsonx`, `replicate`. 75 entradas são OpenAI-compatíveis (chave em `$<PROVEDOR>_API_KEY`): `groq`, `together`, `openrouter`, `deepseek`, `xai`, `mistralai`, `fireworks`, `sarvam`, `telnyx`...; os de endpoint por tenant (`databricks`, `cloudflare`, `snowflake`, `runpod` e gateways de terceiros) exigem `$<PROVEDOR>_BASE_URL`. Matriz completa dos 504 provedores da LangChain: [docs/pt-BR/PROVIDERS.md](docs/pt-BR/PROVIDERS.md). Sem prefixo, `gpt-*`/`o1`/`o3`/`o4` vão para OpenAI e `claude*` para Anthropic.
+
+Utilitários que envolvem qualquer modelo:
+
+```go
+cached := models.WithCache(m, &models.MemoryCache{})            // respostas repetidas
+bound := models.BindTools(m, weather)                           // tools fixas
+limited := models.NewRateLimiter(5, 10)                         // token bucket (req/s, burst)
+embedder, _ := chatmodels.InitEmbeddings("openai:text-embedding-3-small")
+```
+
+### 2. Chains (prompt, modelo, parser)
+
+`Pipe3` é o equivalente tipado do `prompt | model | parser`:
+
+```go
+prompt := prompts.Chat(
+	[2]string{"system", "Responda em uma frase."},
+	[2]string{"human", "Explique {topic}."},
+)
+chain := runnables.Pipe3[prompts.Values, []messages.Message, messages.Message, string](
+	prompt, models.AsRunnable(m), outputparsers.Str{},
+)
+out, err := chain.Invoke(ctx, prompts.Values{"topic": "goroutines"})
+
+// streaming de tokens da chain
+for tok, err := range runnables.Stream[prompts.Values, string](ctx, chain, prompts.Values{"topic": "channels"}) {
+	fmt.Print(tok)
+}
+```
+
+Combinadores úteis em `core/runnables`: `Parallel`, `Assign`, `Pick`, `Branch`, `WithRetry`, `WithFallbacks`, `Map`, `Batch`, `Lambda`.
+
+```go
+robust := runnables.WithRetry(chain, runnables.RetryOptions{MaxAttempts: 4})
+safe := runnables.WithFallbacks(robust, backupChain)
+```
+
+### 3. Saída estruturada
+
+```go
+type Person struct {
+	Name string `json:"name" description:"Nome completo"`
+	Age  int    `json:"age"`
+}
+
+extract := models.Structured[Person](m, models.MethodTool) // ou MethodJSONSchema
+p, err := extract.Invoke(ctx, []messages.Message{messages.Human("Ana Souza tem 31 anos.")})
+// p == Person{Name: "Ana Souza", Age: 31}
+```
+
+### 4. Tools
+
+O schema de argumentos é gerado por reflexão a partir da struct (tags `json`, `description`, e `jsonschema:"enum=a|b,required"`):
+
+```go
+type SearchArgs struct {
+	Query string `json:"query" description:"Termo de busca"`
+	Limit int    `json:"limit,omitempty" jsonschema:"minimum=1,maximum=20"`
+}
+
+search := tools.New("search", "Busca na base.", func(ctx context.Context, a SearchArgs) (any, error) {
+	return doSearch(a.Query, a.Limit)
+})
+
+// Erros do tipo tools.Error são mostrados ao modelo em vez de abortar a execução:
+return nil, tools.Errorf("cidade %q não encontrada", a.City)
+
+// Tool terminal (encerra o loop do agent com o resultado):
+tools.New("finish", "Encerra.", fn, tools.WithReturnDirect())
+```
+
+Uma tool também pode retornar `graph.Command{Update: ...}` para alterar o estado do grafo, ou `tools.ContentAndArtifact{Content, Artifact}` para anexar dados que não vão ao modelo. Dentro de uma tool, `prebuilt.StateOf(ctx)` devolve o estado atual e `tools.CallID(ctx)` o ID da chamada.
+
+### 5. RAG: splitters, embeddings, vector store
+
+```go
+text := loadBigText()
+chunks := textsplitters.NewRecursive(800, 100).SplitText(text)
+
+docs := make([]documents.Document, len(chunks))
+for i, c := range chunks {
+	docs[i] = documents.Document{PageContent: c, Metadata: map[string]any{"source": "manual.txt"}}
+}
+
+emb, _ := chatmodels.InitEmbeddings("openai:text-embedding-3-small") // ou embeddings.Fake{Dim: 64} em testes
+store, err := vectorstores.FromDocuments(ctx, emb, docs)
+
+retriever := retrievers.FromVectorStore(store, retrievers.VectorStoreOptions{K: 4, Type: retrievers.MMR})
+hits, err := retriever.Invoke(ctx, "como cancelar o pedido?")
+
+// Como tool para um agent (RAG agêntico):
+ragTool := retrievers.AsTool(retriever, "search_docs", "Busca na documentação.")
+```
+
+`textsplitters.ForLanguage("go", 1000, 100)` divide código respeitando funções e tipos; `MarkdownHeaders` divide por cabeçalhos. `vectorstores.Memory` persiste em arquivo (`Save`/`Load`).
+
+### 6. LangGraph: StateGraph
+
+O estado é composto por **canais**. Cada chave tem um reducer; sem declarar, vale "último valor". Cada nó recebe uma cópia do estado e devolve uma atualização parcial.
+
+```go
+schema := graph.Schema{
+	"messages": graph.Messages(), // acumula com o reducer add_messages
+	"steps":    graph.Sum(),      // soma inteiros
+	"log":      graph.Append(),   // concatena listas
+	"topic":    channels.LastValue(),
+}
+
+g := graph.NewStateGraph(schema).
+	AddNode("research", func(ctx context.Context, s graph.State) (any, error) {
+		return graph.State{"log": []any{"pesquisou " + s["topic"].(string)}, "steps": 1}, nil
+	}).
+	AddNode("write", writeNode).
+	AddNode("review", reviewNode).
+	AddEdge(graph.Start, "research").
+	AddEdge("research", "write").
+	// roteamento condicional: o router devolve o nome do próximo nó (ou graph.End)
+	AddConditionalEdges("write", func(ctx context.Context, s graph.State) (any, error) {
+		if s["steps"].(int) > 3 {
+			return graph.End, nil
+		}
+		return "review", nil
+	}).
+	AddEdge("review", "write")
+
+app, err := g.Compile()
+out, err := app.Invoke(ctx, graph.State{"topic": "Go generics"})
+fmt.Println(app.Mermaid()) // diagrama
+```
+
+Recursos do runtime:
+
+| Recurso | Como usar |
+|---|---|
+| Paralelismo | Vários `AddEdge(a, x)`, `AddEdge(a, y)`: `x` e `y` rodam no mesmo super-step |
+| Espera por vários nós | `AddJoin([]string{"x","y"}, "merge")` |
+| Fan-out (map-reduce) | Router ou nó retorna `[]graph.Send{{Node: "worker", Arg: graph.State{...}}}` |
+| Controle no nó | Retornar `graph.Command{Update: ..., Goto: []string{"outro"}}` |
+| Retry por nó | `AddNode("n", fn, graph.WithRetry(runnables.RetryOptions{MaxAttempts: 3}))` |
+| Cache por nó | `graph.WithCachePolicy(graph.CachePolicy{TTL: time.Minute})` + `Compile(graph.WithCache(graph.NewMemoryCache()))` |
+| Nó adiado | `graph.Deferred()` roda só quando não há outras tasks pendentes |
+| Limite de passos | `runnables.Config{RecursionLimit: 50}` (padrão 25), erro `*graph.GraphRecursionError` |
+| Subgrafos | Invocar outro `*graph.Compiled` dentro de um nó |
+| Memória entre threads | `Compile(graph.WithStore(store.NewMemory()))` e `graph.StoreFrom(ctx)` no nó |
+
+Fan-out com `Send`:
+
+```go
+AddConditionalEdges("plan", func(ctx context.Context, s graph.State) (any, error) {
+	var sends []graph.Send
+	for _, topic := range s["topics"].([]string) {
+		sends = append(sends, graph.Send{Node: "worker", Arg: graph.State{"topic": topic}})
+	}
+	return sends, nil
+})
+```
+
+### 7. Persistência e human-in-the-loop
+
+Com um checkpointer, cada super-step é salvo por `thread_id`. Isso habilita retomar conversas, pausar para aprovação humana, inspecionar e voltar no tempo.
+
+```go
+saver := checkpoint.NewMemory()
+app, _ := g.Compile(graph.WithCheckpointer(saver))
+
+ctx := runnables.WithConfig(context.Background(), graph.Thread("usuario-42"))
+out, _ := app.Invoke(ctx, graph.State{"messages": "oi"})
+out, _ = app.Invoke(ctx, graph.State{"messages": "e agora?"}) // continua a mesma conversa
+```
+
+**Pausar e retomar** com `graph.Interrupt`:
+
+```go
+approve := func(ctx context.Context, s graph.State) (any, error) {
+	// A primeira execução pausa aqui. Na retomada, Interrupt devolve o valor do resume.
+	answer := graph.Interrupt(ctx, map[string]any{"pergunta": "Aprovar o envio?"})
+	if answer != "sim" {
+		return graph.State{"status": "cancelado"}, nil
+	}
+	return graph.State{"status": "enviado"}, nil
+}
+
+out, _ := app.Invoke(ctx, graph.State{"status": "novo"})
+for _, i := range graph.Interrupts(out) {
+	fmt.Println("pausado em", i.Node, i.Value)
+}
+out, _ = app.Invoke(ctx, graph.Command{Resume: "sim"}) // retoma
+```
+
+O nó **reexecuta desde o início** na retomada; mantenha idempotente o que vem antes do `Interrupt`. Pausas estáticas: `Compile(graph.InterruptBefore("tools"))` e `graph.InterruptAfter(...)`; para continuar, `app.Invoke(ctx, nil)`.
+
+**Inspeção e time travel**:
+
+```go
+snap, _ := app.GetState(ctx)                   // Values, Next, Interrupts, CheckpointID
+hist, _ := app.GetStateHistory(ctx, 10)        // mais recentes primeiro
+app.UpdateState(ctx, graph.State{"topic": "outro"}, "research") // edita como se fosse o nó "research"
+
+// Fork a partir de um checkpoint antigo:
+old := runnables.WithConfig(ctx, runnables.Config{Configurable: map[string]any{"checkpoint_id": hist[3].CheckpointID}})
+app.Invoke(old, nil)
+```
+
+**Persistência em banco** (SQLite ou Postgres, com o driver que você preferir):
+
+```go
+import (
+	"database/sql"
+	_ "modernc.org/sqlite" // ou _ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint/sqlsaver"
+)
+
+db, _ := sql.Open("sqlite", "checkpoints.db")
+saver, err := sqlsaver.New(ctx, db, sqlsaver.SQLite) // ou sqlsaver.Postgres
+app, _ := g.Compile(graph.WithCheckpointer(saver))
+```
+
+Os valores são gravados em JSON. Se o seu estado usa tipos próprios, registre-os para que sobrevivam ao round trip:
+
+```go
+checkpoint.Register("meuapp.Pedido", Pedido{})
+checkpoint.Register("[]meuapp.Pedido", []Pedido{})
+```
+
+Inteiros voltam como `int` e demais números como `float64`. Você também pode implementar `checkpoint.Saver` (4 métodos) para outro backend.
+
+### 8. Streaming
+
+```go
+for ev, err := range app.StreamEvents(ctx, input, graph.ModeUpdates, graph.ModeMessages, graph.ModeCustom) {
+	if err != nil {
+		log.Fatal(err)
+	}
+	switch ev.Mode {
+	case graph.ModeUpdates:  // {nó: atualização} a cada nó concluído
+	case graph.ModeValues:   // estado completo a cada passo
+	case graph.ModeMessages: // tokens do LLM conforme chegam (ev.Data é messages.Message)
+	case graph.ModeCustom:   // o que o nó enviou via graph.StreamWriter(ctx)(valor)
+	}
+}
+```
+
+### 9. Agents com middleware
+
+`agents.Create` monta o loop `modelo ⇄ tools` e deixa você plugar comportamento em pontos definidos: `BeforeAgent`, `BeforeModel`, `WrapModelCall`, `AfterModel`, `WrapToolCall`, `AfterAgent`.
+
+```go
+agent, _ := agents.Create(agents.Options{
+	Model: m,
+	Tools: []tools.Tool{search, sendEmail},
+	Middleware: []agents.Middleware{
+		middleware.ModelCallLimit{RunLimit: 10},
+		middleware.ToolRetry{Options: runnables.RetryOptions{MaxAttempts: 3}},
+		middleware.Summarization{Model: m, MaxTokens: 8000, KeepMessages: 12},
+		middleware.PII{Kinds: []middleware.PIIKind{middleware.PIIEmail, middleware.PIICreditCard}, Strategy: middleware.PIIRedact},
+		middleware.HumanInTheLoop{Tools: map[string]middleware.ToolPolicy{"send_email": {}}},
+	},
+	Compile: []graph.CompileOption{graph.WithCheckpointer(saver)}, // HITL exige checkpointer
+	ResponseFormat: &models.ResponseFormat{ /* JSON Schema opcional; resultado em state["structured_response"] */ },
+})
+```
+
+Middlewares incluídos (`agents/middleware`): `ModelCallLimit`, `ToolCallLimit`, `ModelFallback`, `ModelRetry`, `ToolRetry`, `Summarization`, `ContextEditing`, `TodoList`, `PII`, `HumanInTheLoop`.
+
+**Aprovação humana** de uma tool sensível:
+
+```go
+out, _ := agent.Invoke(ctx, graph.State{"messages": "Envie o relatório para o Bob"})
+// pausa antes de send_email; out traz o pedido em graph.Interrupts(out)
+
+out, _ = agent.Invoke(ctx, graph.Command{Resume: middleware.HITLResponse{
+	Decisions: []middleware.HITLDecision{{Type: middleware.Approve}},
+	// ou {Type: middleware.Edit, EditedAction: &middleware.ActionRequest{Name: "send_email", Args: ...}}
+	// ou {Type: middleware.Reject, Message: "não envie"}
+}})
+```
+
+**Middleware próprio**: implemente `Name()` e qualquer interface de hook.
+
+```go
+type Timing struct{}
+
+func (Timing) Name() string { return "timing" }
+func (Timing) WrapModelCall(ctx context.Context, req *agents.ModelRequest, next agents.ModelCaller) (messages.Message, error) {
+	t := time.Now()
+	out, err := next(ctx, req) // req.System, req.Messages, req.Tools e req.Model podem ser alterados antes
+	log.Println("modelo levou", time.Since(t))
+	return out, err
+}
+```
+
+Um hook pode desviar o fluxo retornando `graph.State{"jump_to": agents.JumpEnd}` (ou `JumpModel`, `JumpTools`). Middlewares também podem declarar tools (`Tools()`) e canais de estado (`StateSchema()`).
+
+Para o caso mínimo sem middleware, existe `prebuilt.CreateReactAgent(prebuilt.ReactOptions{Model, Tools, Prompt})`.
+
+### 10. Deep Agents
+
+Agent para tarefas longas: lista de tarefas (`write_todos`), filesystem virtual (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`), delegação a subagents (`task`), sumarização automática, memória e skills.
+
+```go
+agent, err := deepagents.Create(deepagents.Options{
+	Model:        m,
+	SystemPrompt: "Você é um analista de pesquisa.",
+	Tools:        []tools.Tool{webSearch},
+	SubAgents: []deepagents.SubAgentSpec{{
+		Name:         "critico",
+		Description:  "Revisa rascunhos e aponta falhas.",
+		SystemPrompt: "Você é um revisor rigoroso.",
+	}},
+	Memory:       []string{"/AGENTS.md"}, // injetado no prompt (se existir no backend)
+	Skills:       []string{"/skills/"},   // cada pasta com SKILL.md (name/description no front matter)
+	Checkpointer: saver,
+})
+
+out, _ := agent.Invoke(ctx, graph.State{"messages": "Escreva um relatório sobre baterias de sódio."})
+for path, f := range backends.FilesFromState(out) { // arquivos criados pelo agent
+	fmt.Println(path, len(f.Content))
+}
+```
+
+Sempre existe um subagent `general-purpose`. Cada chamada à tool `task` roda um agent isolado e devolve só a resposta final, mantendo o contexto principal pequeno.
+
+**Backends de arquivos** (`deepagents/backends`):
+
+| Backend | Onde ficam os arquivos |
+|---|---|
+| `backends.State{}` (padrão) | No estado do grafo, por thread |
+| `backends.Store{Store: s, Namespace: ...}` | Em um `store.Store`, compartilhado entre threads |
+| `backends.Filesystem{Root: "./work"}` | Em disco, confinado à raiz (bloqueia `..` e symlinks que escapam) |
+| `backends.LocalShell{...}` | Disco + tool `execute` (**roda comandos no host, sem sandbox: só para uso confiável**; `AllowedCommands` restringe os programas) |
+| `backends.Composite{Default: ..., Routes: ...}` | Roteia por prefixo, ex.: `/memories/` para o Store |
+
+```go
+be := backends.Composite{
+	Default: backends.State{},
+	Routes:  map[string]backends.Backend{"/memories/": backends.Store{Store: store.NewMemory(), Namespace: []string{"mem"}}},
+}
+agent, _ := deepagents.Create(deepagents.Options{Model: m, Backend: be})
+```
+
+**Permissões** por operação e caminho (a primeira regra que casa vale; vale também para subagents):
+
+```go
+deepagents.Options{
+	Model: m,
+	Backend: backends.Filesystem{Root: "./work"},
+	Permissions: []backends.Permission{
+		{Paths: []string{"/secrets/**"}, Deny: true},
+		{Operations: []string{backends.OpWrite}, Paths: []string{"/docs/**"}, Deny: true}, // docs somente leitura
+	},
+}
+```
+
+**Outros middlewares do Deep Agents** (`deepagents/middleware`), passados em `Options.Middleware`:
+
+```go
+// Rubrica: um grader avalia a resposta final e devolve feedback até satisfazer os critérios.
+dmw.Rubric{Grader: m, Criteria: []string{"Cita uma fonte para cada número", "Tem resumo de 3 linhas"}, MaxIterations: 3}
+
+// Subagents assíncronos: o agent dispara trabalho longo e consulta depois.
+dmw.AsyncSubagents{Agents: []dmw.AsyncSubAgent{
+	{Name: "pesquisador", Description: "Pesquisas longas.", Runner: &dmw.LocalRunner{Agent: researcher}},
+	// ou Runner: dmw.RemoteRunner{Client: remote.NewClient(url), AssistantID: "pesquisador"},
+}}
+```
+
+### 11. MCP (Model Context Protocol)
+
+```go
+import "github.com/fsvxavier/golang-chain-eco/mcp"
+
+// Vários servidores de uma vez; as tools ganham o prefixo "<servidor>_".
+ts, closeAll, err := mcp.LoadTools(ctx, map[string]mcp.ServerConfig{
+	"fs":   {Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"}},
+	"docs": {URL: "https://mcp.exemplo.com/mcp", Headers: map[string]string{"Authorization": "Bearer ..."}},
+})
+if err != nil { log.Fatal(err) }
+defer closeAll()
+
+agent, _ := agents.Create(agents.Options{Model: m, Tools: ts})
+```
+
+Uso de baixo nível: `mcp.Connect(ctx, mcp.HTTP(url, headers))` ou `mcp.Stdio(...)`, depois `client.ListTools`, `client.CallTool`. Servidores stdio são processos iniciados por você com as suas permissões: só execute servidores confiáveis.
+
+### 12. Graphs remotos
+
+Use um grafo publicado em um Agent Server (LangGraph Platform) com a mesma API dos grafos locais:
+
+```go
+c := remote.NewClient("https://meu-servidor.exemplo.com") // chave via LANGGRAPH_API_KEY ou c.APIKey
+rg := &remote.Graph{Client: c, AssistantID: "meu-agent"}
+
+ctx := runnables.WithConfig(ctx, graph.Thread("thread-1"))
+out, err := rg.Invoke(ctx, graph.State{"messages": []map[string]any{{"role": "user", "content": "oi"}}})
+for st, err := range rg.Stream(ctx, graph.Command{Resume: "sim"}) { /* estados parciais */ }
+```
+
+`remote.Client` também expõe `CreateThread`, `CreateRun`, `GetRun`, `Join`, `CancelRun`, `GetState` e `UpdateState`.
+
+### 13. Tracing com LangSmith
+
+```go
+tr := langsmith.New(langsmith.Options{Project: "meu-projeto"}) // LANGSMITH_API_KEY no ambiente
+defer tr.Close()                                                // descarrega a fila
+
+ctx := callbacks.WithHandlers(context.Background(), tr)
+agent.Invoke(ctx, input) // chains, modelos, tools e nós aparecem como runs aninhadas
+```
+
+O envio é assíncrono e best-effort: falhas de rede nunca derrubam o programa (use `Options.OnError` para observá-las). Para depuração local, `callbacks.StdOut(os.Stderr)` e `callbacks.Logger(slog.Default())` são handlers prontos.
+
+### 14. API funcional (entrypoint + task)
+
+Escreva o fluxo como código Go comum; tasks são memoizadas no checkpoint, então uma retomada não repete trabalho já feito.
+
+```go
+wf := functional.New("relatorio", saver, func(ctx context.Context, tema string) (string, error) {
+	dados, err := functional.Task(ctx, "coletar", func(ctx context.Context) (string, error) {
+		return coletar(tema) // efeitos colaterais ficam dentro de tasks
+	}).Result()
+	if err != nil {
+		return "", err
+	}
+	ok := graph.Interrupt(ctx, "Publicar?").(string) // human-in-the-loop
+	if ok != "sim" {
+		return "descartado", nil
+	}
+	return publicar(dados)
+})
+
+ctx := runnables.WithConfig(ctx, graph.Thread("wf-1"))
+r, _ := wf.Invoke(ctx, "baterias")   // r.Interrupt != nil: aguardando
+r, _ = wf.Resume(ctx, "sim")         // coletar NÃO roda de novo
+```
+
+### Integrações adicionais
+
+```go
+// Gemini, Cohere, Bedrock, Azure e dezenas de provedores compatíveis com OpenAI, pelo mesmo Init:
+m := chatmodels.MustInit("google_genai:gemini-2.0-flash")
+m = chatmodels.MustInit("bedrock:anthropic.claude-3-5-sonnet-20241022-v2:0") // AWS_ACCESS_KEY_ID/SECRET/REGION
+m = chatmodels.MustInit("perplexity:sonar")                                  // PERPLEXITY_API_KEY
+emb, _ := chatmodels.InitEmbeddings("cohere:embed-v4.0")
+
+// Vector store externo (Qdrant, Chroma, Pinecone, Elasticsearch, Weaviate, Milvus, pgvector):
+store := vectorstore.New(emb, &vectorstore.Qdrant{URL: "http://localhost:6333", Collection: "docs"})
+store.AddDocuments(ctx, docs)
+retr := retrievers.FromVectorStore(store, retrievers.VectorStoreOptions{K: 4})
+
+// Busca na web como tool de um agent:
+web := search.Tool("web_search", "Busca na web.", search.NewTavily(""), 5)   // TAVILY_API_KEY
+
+// Reranking e BM25 sem banco:
+rr, _ := chatmodels.NewReranker("cohere:rerank-v3.5")
+better := retrieval.WithRerank(retr, rr)
+kw := retrieval.NewBM25(docs)
+
+// Tracing em OpenTelemetry (Jaeger, Honeycomb, Datadog...):
+ex := otlp.New(otlp.Options{Endpoint: "http://localhost:4318"}); defer ex.Close()
+ctx = callbacks.WithHandlers(ctx, ex)
+```
+
+Persistência em outros bancos, o mesmo contrato do `checkpoint.Saver`/`store.Store`:
+
+```go
+rc := redis.New("localhost:6379")                       // ou mongo.Connect, dynamodb.Client, s3.Client
+app, _ := g.Compile(graph.WithCheckpointer(redis.NewSaver(rc)), graph.WithStore(redis.NewStore(rc)))
+```
+
+Permissões, grafo, sandbox e protocolo de frontend:
+
+```go
+// Só devolve o que o usuário pode ler (SpiceDB; permit.FilterRetriever é equivalente):
+safe := spicedb.FilterRetriever(retr, client, spicedb.Subject{Type: "user", ID: "alice"}, "document", "view", idOf)
+
+// Graph RAG: segue links de metadados a partir dos melhores resultados.
+gr := &graphretriever.Retriever{Store: vs, K: 6, StartK: 2, Depth: 2, Edges: []graphretriever.Edge{{From: "links", To: "id"}}}
+
+// Um pod do Kubernetes como sandbox de um deep agent (arquivos + shell isolados):
+sb, _ := kubernetes.NewSandbox(ctx, kc, "default", "debian:bookworm-slim")
+defer sb.Close(ctx)
+agent := deepagents.Create(deepagents.Options{Model: m, Backend: sb.Backend()})
+
+// Servir um grafo ao CopilotKit/assistant-ui pelo protocolo AG-UI:
+http.Handle("/agent", agui.Handler(app, func(in agui.RunInput) any { return graph.State{} }))
+```
+
+Lista completa, limitações e extensão: [docs/pt-BR/INTEGRATIONS.md](docs/pt-BR/INTEGRATIONS.md). **Nível de verificação:** a maioria dos
+bancos e serviços de infraestrutura foi testada contra o serviço real em Docker; os provedores de API paga/SaaS (watsonx, Replicate,
+Azure AI Search, Vectara, Permit, Salesforce, AWS Kendra/Knowledge Bases, SMS...) só têm teste de contrato com `httptest`.
+O que ficou de fora e por quê: [docs/pt-BR/PROVIDERS-ANALISE.md](docs/pt-BR/PROVIDERS-ANALISE.md).
+
+### 15. Memória de longo prazo (LangMem)
+
+O pacote `langmem` é o port do [LangMem](https://github.com/langchain-ai/langmem) sobre o `langgraph/store`: o agent lembra entre conversas, aprende com feedback e cabe em contextos longos. Detalhes: [docs/pt-BR/LANGMEM.md](docs/pt-BR/LANGMEM.md) e [capítulo 16 do manual](docs/pt-BR/manual/16-memoria-langmem.md).
+
+```go
+st := langmem.NewIndexedStore(store.NewMemory(), embeddings.Fake{}) // busca semântica sobre qualquer store
+ns := langmem.Namespace{"memories", "{langgraph_user_id}"}           // isolamento por usuário (de Configurable)
+
+// 1) hot path: o agent cuida da própria memória
+cfg := langmem.ToolConfig{Namespace: ns}
+agent, _ := agents.Create(agents.Options{
+	Model:   model,
+	Tools:   []tools.Tool{langmem.ManageMemory(cfg), langmem.SearchMemory(cfg)},
+	Compile: []graph.CompileOption{graph.WithStore(st)},
+})
+
+// 2) background: extrai depois da conversa, com debounce
+sm := langmem.NewStoreManager(model, ns, langmem.WithStore(st))
+ex := &langmem.ReflectionExecutor{Manager: sm}
+ex.Submit(ctx, langmem.Payload{Messages: msgs}, langmem.SubmitOptions{After: 30 * time.Minute})
+
+// 3) procedural: o system prompt aprende com feedback
+opt := langmem.NewPromptOptimizer(model, langmem.Metaprompt, langmem.OptimizerConfig{})
+novo, _ := opt.Optimize(ctx, []langmem.Trajectory{{Messages: conversa, Feedback: "queria código"}}, langmem.Prompt{Name: "main", Prompt: atual})
+
+// 4) curto prazo: resumo incremental dentro do agents.Create
+mw := langmem.SummarizationMiddleware{SummarizeOptions: langmem.SummarizeOptions{Model: m, MaxTokens: 4000}}
+```
+
+Perfil (um documento), episódios, vários prompts, `Middleware` pronto (injeta memórias + tools + formação em background): veja os 5 exemplos em `examples/langmem/`.
+
+### 16. Agent Protocol, ciam e Open SWE
+
+Três sistemas integrados ao ecossistema (referências: [Agent Protocol](docs/pt-BR/AGENT-PROTOCOL.md), [ciam](docs/pt-BR/CIAM.md), [Open SWE](docs/pt-BR/OPENSWE.md); tutoriais: capítulos [17](docs/pt-BR/manual/17-agent-protocol.md), [18](docs/pt-BR/manual/18-ciam-contexto.md) e [19](docs/pt-BR/manual/19-open-swe.md) do manual).
+
+```go
+// Agent Protocol: qualquer grafo compilado vira uma API aberta (agents, threads, runs, store, streaming)
+srv, _ := agentprotocol.New(agentprotocol.Options{Agents: []agentprotocol.AgentSpec{{ID: "bot", Graph: agent}}})
+http.ListenAndServe(":8123", srv)
+c := agentprotocol.NewClient("http://localhost:8123", "")
+out, _ := c.CreateAndWait(ctx, agentprotocol.RunCreate{AgentID: "bot", Input: json.RawMessage(`"oi"`)})
+
+// ciam: contexto cirúrgico para assistentes (busca híbrida + ADR/PRD) como tools e como servidor MCP
+m := ciam.New(embedder, nil)
+m.Index(ctx, "/projeto", ciam.IndexOptions{})
+dc, _ := m.DecisionContext(ctx, "projeto", "adicionar refresh token", 3) // código + ADR + PRD + planos
+ciam.Toolkit{M: m, Project: "/projeto"}.MCPServer(nil).ServeStdio(ctx, os.Stdin, os.Stdout)
+
+// Open SWE: engenheiro (sandbox por thread, PR pela tool auditada), revisor, vigia de CI e gatilhos
+eng, _ := openswe.NewAgent(openswe.Config{Model: model, GitHub: gh, Sandbox: sb, DraftPRs: true})
+d := &triggers.Dispatcher{Runners: map[string]triggers.Runner{triggers.KindAgent: openswe.AgentRunner{Graph: eng}}, Queue: queue}
+http.Handle("/webhooks/github", &triggers.Webhook{Secret: secret, Dispatcher: d, Bot: "openswe", BotLogins: []string{"openswe[bot]"}})
+```
+
+Exemplos offline em `examples/agentprotocol/`, `examples/ciam/` e `examples/openswe/`. A CLI `cmd/ciam` indexa projetos e serve MCP (`go install ./cmd/ciam`); a CLI `cmd/knowledge` indexa documentos e responde com RAG, CAG ou KAG (`go install ./cmd/knowledge`, veja [docs/pt-BR/KNOWLEDGE.md](docs/pt-BR/KNOWLEDGE.md)); `cmd/langgraph dev` sobe um servidor de desenvolvimento ([docs/pt-BR/DEV.md](docs/pt-BR/DEV.md)).
+
+## Configuração
+
+| Variável | Uso |
+|---|---|
+| `ANTHROPIC_API_KEY` | Provedor `anthropic` |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL` | Provedor `openai` (e endpoints compatíveis) |
+| `<PROVEDOR>_API_KEY` | `GROQ_API_KEY`, `TOGETHER_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `MISTRALAI_API_KEY`, `FIREWORKS_API_KEY` |
+| `OLLAMA_HOST` | Endereço do Ollama (padrão `http://localhost:11434`) |
+| `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_ENDPOINT` | Tracing |
+| `LANGGRAPH_API_KEY` | Cliente `remote` |
+| `<PROVEDOR>_BASE_URL` | Endpoint de provedores sem URL padrão (`DATABRICKS_BASE_URL`, `CLOUDFLARE_BASE_URL`, gateways) e sobrescrita de qualquer provedor compatível |
+| `WATSONX_API_KEY`, `WATSONX_URL`, `WATSONX_PROJECT_ID` | Provedor `ibm`/`watsonx` |
+| `REPLICATE_API_TOKEN` | Provedor `replicate` |
+| `PERMIT_API_KEY`, `VECTARA_API_KEY`, `ZOTERO_API_KEY`, `YOUTUBE_API_KEY`, `PERIGON_API_KEY`, `OXYLABS_CREDENTIALS` | Integrações de busca e permissão |
+
+Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente ou um cofre de segredos.
+
+## Exemplos executáveis
+
+63 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 1 próprio do LangGraph, 1 de evals, 6 de integrações, 6 de RAG/CAG/KAG, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 4 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+
+```bash
+go run ./examples/langchain/chain         # prompt | modelo | parser
+go run ./examples/langgraph/react_agent_middleware   # agent com tool e middleware
+go run ./examples/langgraph/hitl_agent          # pausa para aprovação humana
+go run ./examples/deepagents/research     # deep agent com subagents
+go run ./examples/integrations/graph_rag  # retrieval que segue links
+go run ./examples/integrations/agui_server # grafo servido pelo protocolo AG-UI
+go run ./examples/langmem/hot_path        # agent com memória de longo prazo por usuário
+go run ./examples/agentprotocol/serve_and_call  # agent servido pelo Agent Protocol + cliente
+go run ./examples/ciam/project_context    # índice, busca híbrida, ADR e MCP
+go run ./examples/openswe/engineer        # issue → sandbox → PR em rascunho, com as regras impostas
+
+ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com modelo real
+```
+
+## Testes
+
+```bash
+go test -race ./...                                  # tudo; testes de serviços reais se pulam sozinhos (sem rede)
+go test ./internal/sqlitetest/...                    # sqlsaver contra SQLite real (driver modernc.org/sqlite)
+PG_DSN=... go test ./internal/pgtest/...             # PostgreSQL, MariaDB, CockroachDB, Oracle (drivers pgx, mysql, go-ora)
+```
+
+Os testes dos provedores usam `httptest`; nenhum teste chama APIs externas. Os testes de integração com bancos e serviços
+rodam contra o serviço real e **se pulam sozinhos** quando a variável de ambiente não está definida (`REDIS_ADDR`, `MONGO_ADDR`,
+`DYNAMODB_ENDPOINT`, `S3_ENDPOINT`, `SOLR_URL`, `CLICKHOUSE_URL`, `K8S_SERVER`, ...). Todos usam a suíte comum de
+`internal/conformance`. Os que precisam de um driver SQL ficam no pacote `internal/pgtest` (pgvector, MariaDB, CockroachDB, Oracle,
+`sqlsaver`, `sqlstore`). Exemplos de como subir cada serviço: [docs/pt-BR/INTEGRATIONS.md](docs/pt-BR/INTEGRATIONS.md#testes-contra-serviços-reais).
+
+## Equivalência com as libs Python
+
+| Python | Go |
+|---|---|
+| `prompt \| model \| parser` | `runnables.Pipe3(prompt, models.AsRunnable(m), parser)` |
+| `model.with_structured_output(T)` | `models.Structured[T](m, models.MethodTool)` |
+| `@tool` | `tools.New[Args](name, desc, fn)` |
+| `StateGraph(State)` + `Annotated[list, add_messages]` | `graph.NewStateGraph(graph.Schema{"messages": graph.Messages()})` |
+| `graph.compile(checkpointer=...)` | `g.Compile(graph.WithCheckpointer(...))` |
+| `config={"configurable": {"thread_id": ...}}` | `runnables.WithConfig(ctx, graph.Thread(id))` |
+| `interrupt(v)` / `Command(resume=v)` | `graph.Interrupt(ctx, v)` / `graph.Command{Resume: v}` |
+| `Send("n", {...})` / `Command(goto=...)` | `graph.Send{Node, Arg}` / `graph.Command{Goto}` |
+| `graph.stream(..., stream_mode=[...])` | `app.StreamEvents(ctx, in, modes...)` |
+| `create_agent(model, tools, middleware=[...])` | `agents.Create(agents.Options{...})` |
+| `create_deep_agent(...)` | `deepagents.Create(deepagents.Options{...})` |
+| `RemoteGraph(...)` | `remote.Graph{...}` |
+| `create_memory_store_manager(...)` | `langmem.NewStoreManager(...)` |
+| `create_manage_memory_tool(...)` | `langmem.ManageMemory(langmem.ToolConfig{...})` |
+| `create_prompt_optimizer(model, kind=...)` | `langmem.NewPromptOptimizer(model, kind, cfg)` |
+| `summarize_messages(...)` | `langmem.SummarizeMessages(ctx, msgs, running, opts)` |
+| Agent Protocol `POST /runs/wait` | `agentprotocol.NewClient(url, key).CreateAndWait(ctx, req)` |
+| `ciam index` / `ciam_decision_context` | `ciam.Manager.Index` / `Manager.DecisionContext` |
+| Open SWE `open_pull_request`, reviewer, baby-sit | `openswe.NewAgent`, `openswe.ReviewerRunner`, `babysit.Watcher` |
+| Open SWE Slack / Linear | `slack.Handler` + `slack.Notifier`, `linear.Webhook` + `linear.Notifier` |
+
+Detalhes de design em [docs/pt-BR/ARCHITECTURE.md](docs/pt-BR/ARCHITECTURE.md).
+
+## Limitações
+
+- O estado é um `map[string]any`, não um TypedDict/Pydantic; `graph.NewTyped[T]` oferece uma camada tipada opcional (schema por tags de struct) e `tools.Decode` liga valores em structs.
+- No `sqlsaver`, escalares Go (`int64`, `float32`, `time.Time`, `[]byte`…) voltam com o tipo original; números sem tipo explícito voltam como `int` ou `float64`; tipos próprios exigem `checkpoint.Register` (`checkpoint.Strict(true)` faz o struct não registrado falhar ao gravar). SQLite e PostgreSQL foram testados contra bancos reais.
+- Em `graph.Interrupt`, o nó reexecuta desde o início, como no LangGraph Python; subgrafos (com ou sem checkpointer próprio) propagam interrupts para o grafo pai. Quando vários nós de um subgrafo param no mesmo superpasso, as pausas aparecem e as respostas são entregues na ordem das tarefas.
+- `langmem`: atualização por substituição por padrão (JSON patch RFC 6902 com `WithPatchUpdates()`); `ReflectionExecutor` remoto via `remote/server`; busca semântica por varredura ou por índice vetorial opcional (`vectorstore.NewHNSW`); lista completa em [docs/pt-BR/LANGMEM.md](docs/pt-BR/LANGMEM.md#diferenças-em-relação-ao-langmem-python).
+- `agentprotocol`: subgrafos viram namespaces filhos com `graph.Subgraphs()`; registros de runs persistem com `NewStoreRunStore`, mas o buffer de eventos e as runs em execução vivem no processo: várias réplicas exigiriam log de eventos compartilhado, lease de runs (a recuperação marca como erro todo run `pending` na inicialização) e roteamento de cancelamento/comandos para a réplica que executa a run; hoje, use afinidade por `thread_id`; `ciam`: API HTTP (`ciam api`) e MCP, índice vetorial opcional; `openswe`: Slack e Linear como gatilhos (sem botões/cartões de revisão do Slack nem projetos/ciclos do Linear; conferidos com os payloads documentados e o schema público, sem workspace real), o webhook do GitHub processa os eventos de um mesmo issue/PR na ordem de chegada só dentro do processo; sem dashboard/contas, e os guards inspecionam comandos e scripts gravados pelo agent (são guarda-corpos, não fronteira de segurança). Detalhes em [docs/pt-BR/AGENT-PROTOCOL.md](docs/pt-BR/AGENT-PROTOCOL.md), [docs/pt-BR/CIAM.md](docs/pt-BR/CIAM.md) e [docs/pt-BR/OPENSWE.md](docs/pt-BR/OPENSWE.md).
+- Não portado: Studio, build/deploy da CLI (`langgraph dev` é um servidor de demonstração; seus grafos são servidos com `dev.Serve`), backends gerenciados do LangSmith e experimentos/filas de anotação hospedados (os evals rodam localmente, ver [docs/pt-BR/EVALS.md](docs/pt-BR/EVALS.md)).
+- `LocalShell` e servidores MCP via stdio executam código no host (registram um aviso na primeira execução; `LocalShell.AllowedCommands` restringe os programas); use apenas com agents e servidores confiáveis. Para isolamento, use `kubernetes.Sandbox` ou outro runner com `backends.Remote`.
+- `internal/jsonpatch` passa na suíte oficial `json-patch-tests` (RFC 6902). Os savers Redis, MongoDB, DynamoDB e S3 passam na suíte `internal/conformance` (incluindo namespaces de subgrafo) contra os serviços reais em docker.
+- Integrações de SaaS/API paga só têm teste de contrato; 123 provedores da lista da LangChain dependem de documentação de API que não estava disponível ([docs/pt-BR/PROVIDERS-ANALISE.md](docs/pt-BR/PROVIDERS-ANALISE.md)).
+- Os vector stores `Flat`/`Annoy`/`HNSW` são equivalentes em Go puro a FAISS/Annoy/hnswlib. `LoadAnnoyFile` e `LoadFAISSFlat` leem os arquivos nativos (só leitura; Annoy angular/euclidiano, FAISS flat e IDMap; IVF, PQ e HNSW do FAISS não). Ambos são testados contra arquivos gerados por annoy 1.17.3 e faiss-cpu 1.15.1.
+- As ferramentas de envio (SMS) e de leitura de dados (SOQL) agem sobre sistemas reais: restrinja destinos/escopo e exija aprovação humana.
