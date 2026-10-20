@@ -19,6 +19,8 @@ import (
 	"embed"
 	"fmt"
 	"log"
+	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +29,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
 	"github.com/fsvxavier/golang-chain-eco/examples/internal/demo"
+	"github.com/fsvxavier/golang-chain-eco/examples/internal/tasktrack"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/channels"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
@@ -227,10 +230,24 @@ func main() {
 	qa := newAgent(opts, "qa-engineer")
 	reg := newRegistry()
 
+	// Every move of the request and of each task goes through the tracker: the
+	// flow table rejects impossible jumps, and NOTIFY (console, slack, email,
+	// chat) says who hears about it.
+	tr, err := tasktrack.FromEnv(os.Stdout)
+	if err != nil {
+		log.Fatal(err)
+	}
+	tr.OnError = func(err error) { log.Print(err) }
+	move := func(ctx context.Context, kind tasktrack.Kind, id string, to tasktrack.Status, agent, detail string) {
+		if err := tr.Move(ctx, kind, id, to, agent, detail); err != nil {
+			log.Print(err) // a bug in the flow, not in the work: keep going
+		}
+	}
+
 	// gate runs a review or QA step: it reserves a free person, asks the agent
 	// for a verdict and either forwards the task or returns it to its engineer
 	// with the feedback attached.
-	gate := func(agent *graph.Compiled, role, label, onApprove string) graph.NodeFunc {
+	gate := func(agent *graph.Compiled, role, label, onApprove string, start, approved, rejected tasktrack.Status) graph.NodeFunc {
 		return func(ctx context.Context, s graph.State) (any, error) {
 			w := s["work"].(work)
 			m, err := reg.wait(ctx, role, w.ID)
@@ -238,6 +255,7 @@ func main() {
 				return nil, err
 			}
 			defer reg.release(m.id)
+			move(ctx, tasktrack.Task, w.ID, start, m.id, "")
 			prompt := fmt.Sprintf("ROLE: %s\nWHO: %s\n\n%s\n\n## Task under %s\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nATTEMPT: %d\n\n## Submitted work\n%s\n",
 				role, m.id, w.Brief, label, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
 			out, err := ask(ctx, agent, prompt)
@@ -245,6 +263,7 @@ func main() {
 				return nil, err
 			}
 			if strings.HasPrefix(field(out, "VERDICT:"), "APPROVE") {
+				move(ctx, tasktrack.Task, w.ID, approved, m.id, "")
 				say("  %-12s %s approved %s", m.id, label, w.ID)
 				return graph.Command{
 					Update: graph.State{"history": fmt.Sprintf("%s: %s approved by %s", w.ID, label, m.id)},
@@ -253,6 +272,7 @@ func main() {
 			}
 			w.Round++
 			w.Feedback = after(out, "FEEDBACK:")
+			move(ctx, tasktrack.Task, w.ID, rejected, m.id, head(w.Feedback, 100))
 			say("  %-12s %s RETURNED %s (round %d)", m.id, label, w.ID, w.Round)
 			hist := fmt.Sprintf("%s: %s returned by %s -> %s", w.ID, label, m.id, w.Assignee)
 			next := "dev"
@@ -272,6 +292,7 @@ func main() {
 	})
 
 	g.AddNode("manager", func(ctx context.Context, s graph.State) (any, error) {
+		move(ctx, tasktrack.Request, "REQ", tasktrack.Received, "manager", head(fmt.Sprint(s["request"]), 80))
 		out, err := ask(ctx, manager, fmt.Sprintf("ROLE: manager\nMODE: intake\nREQUEST: %v", s["request"]))
 		if err != nil {
 			return nil, err
@@ -284,6 +305,7 @@ func main() {
 	})
 
 	g.AddNode("po", func(ctx context.Context, s graph.State) (any, error) {
+		move(ctx, tasktrack.Request, "REQ", tasktrack.InSpecification, "product-owner", "")
 		out, err := ask(ctx, po, fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v", s["request"], s["kickoff"]))
 		if err != nil {
 			return nil, err
@@ -293,6 +315,7 @@ func main() {
 	})
 
 	g.AddNode("architect", func(ctx context.Context, s graph.State) (any, error) {
+		move(ctx, tasktrack.Request, "REQ", tasktrack.RiskSecReview, "architect", "")
 		out, err := ask(ctx, architect, fmt.Sprintf("ROLE: architect\n\n## Request\n%v\n\n## Specification\n%v", s["request"], s["spec"]))
 		if err != nil {
 			return nil, err
@@ -302,6 +325,7 @@ func main() {
 	})
 
 	g.AddNode("leader", func(ctx context.Context, s graph.State) (any, error) {
+		move(ctx, tasktrack.Request, "REQ", tasktrack.TaskAssignment, "tech-leader", "")
 		brief := dossier(s)
 		out, err := ask(ctx, leader, "ROLE: leader\n\n"+brief)
 		if err != nil {
@@ -315,6 +339,7 @@ func main() {
 				continue
 			}
 			total++
+			move(ctx, tasktrack.Task, p[1], tasktrack.TaskAssignment, "tech-leader", p[2]+" ("+p[3]+")")
 			w := work{ID: p[1], Title: p[2], Complexity: p[3], Desc: p[4], Brief: brief}
 			if m := reg.claim(preference[w.Complexity], w.ID); m != nil {
 				w.Assignee, w.Level = m.id, m.role
@@ -330,6 +355,7 @@ func main() {
 
 	g.AddNode("dev", func(ctx context.Context, s graph.State) (any, error) {
 		w := s["work"].(work)
+		move(ctx, tasktrack.Task, w.ID, tasktrack.InDevelopment, w.Assignee, fmt.Sprintf("attempt %d", w.Round+1))
 		prompt := fmt.Sprintf("ROLE: engineer-%s\nWHO: %s\n\n%s\n\n## Your task\nTASK: %s\nTITLE: %s\nCOMPLEXITY: %s\nDESCRIPTION: %s\nATTEMPT: %d\n",
 			w.Level, w.Assignee, w.Brief, w.ID, w.Title, w.Complexity, w.Desc, w.Round+1)
 		if w.Feedback != "" {
@@ -347,15 +373,19 @@ func main() {
 		}, nil
 	})
 
-	g.AddNode("review", gate(specialist, "specialist", "review", "qa"))
-	g.AddNode("qa", gate(qa, "qa", "qa", "done"))
+	g.AddNode("review", gate(specialist, "specialist", "review", "qa", tasktrack.InCodeReview, tasktrack.ReviewApproved, tasktrack.ReviewRejected))
+	g.AddNode("qa", gate(qa, "qa", "qa", "done", tasktrack.InQATesting, tasktrack.QAApproved, tasktrack.QARejected))
 
 	// done frees the engineer and hands the next queued task to whoever fits.
-	g.AddNode("done", func(_ context.Context, s graph.State) (any, error) {
+	g.AddNode("done", func(ctx context.Context, s graph.State) (any, error) {
 		w := s["work"].(work)
 		if w.Status == "" {
 			w.Status = "approved"
-		}
+			// ponytail: "committed" here means the approved code is recorded as the
+			// task's deliverable; a real run would commit it in the sandbox first.
+			move(ctx, tasktrack.Task, w.ID, tasktrack.Committed, w.Assignee, "approved by review and QA")
+			move(ctx, tasktrack.Task, w.ID, tasktrack.Completed, w.Assignee, "")
+		} // a blocked task stays at the rejection that exhausted its rounds
 		reg.release(w.Assignee)
 		var sends []graph.Send
 		for {
@@ -393,6 +423,7 @@ func main() {
 		if strings.Contains(out, "```") {
 			return nil, fmt.Errorf("manager wrote code: %q", out)
 		}
+		move(ctx, tasktrack.Request, "REQ", tasktrack.Completed, "manager", "")
 		return graph.State{"report": out, "history": "manager -> requester"}, nil
 	}, graph.Deferred())
 
@@ -423,5 +454,23 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	demo.Title("final status")
+	snap2 := tr.Snapshot()
+	ids := make([]string, 0, len(snap2))
+	for id := range snap2 {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		fmt.Printf("%-4s %s\n", id, snap2[id])
+	}
 	fmt.Printf("\nthread %q persisted %d handoffs; %d tasks finished\n", "coupons", len(snap.Values["history"].([]any)), len(out["results"].([]any)))
+}
+
+func head(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
 }
