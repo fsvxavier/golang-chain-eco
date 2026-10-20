@@ -58,6 +58,7 @@ Cada pasta de exemplo tem `README.md` (inglês), `README.pt-BR.md` e `README.es-
 | `map_reduce` | Fan-out com `Send` e redução |
 | `typed_state` | Estado tipado com struct (`NewTyped`, tags de reducer, `Validate`) |
 | `engineering_team` | Time de engenharia em um grafo: handoffs com `Send`/`Command`, reserva atômica de pessoas, skills por agente em `skills/` |
+| `independent_engineering_team` | O mesmo time como serviços separados: reserva atômica com leases, fila de jobs, RAG/CAG/KAG via MCP, workers em Agent Protocol, um modelo por agente via env |
 
 ### `examples/deepagents`
 

@@ -58,6 +58,7 @@ Cada carpeta de ejemplo tiene `README.md` (inglés), `README.pt-BR.md` y `README
 | `map_reduce` | Fan-out con `Send` y reducción |
 | `typed_state` | Estado tipado con struct (`NewTyped`, tags de reducer, `Validate`) |
 | `engineering_team` | Equipo de ingeniería en un grafo: handoffs con `Send`/`Command`, reserva atómica de personas, skills por agente en `skills/` |
+| `independent_engineering_team` | El mismo equipo como servicios separados: reserva atómica con leases, cola de jobs, RAG/CAG/KAG vía MCP, workers en Agent Protocol, un modelo por agente vía env |
 
 ### `examples/deepagents`
 

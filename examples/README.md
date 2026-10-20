@@ -46,6 +46,7 @@ The `langchain`, `langgraph` and `deepagents` groups were ported from the reposi
 | `langgraph/map_reduce` | fan-out with `Send` and reduction | Send API |
 | `langgraph/typed_state` | typed state with a struct (`NewTyped`, reducer tags, `Validate`) | own |
 | `langgraph/engineering_team` | engineering team (manager, PO, architect, leader, 4 devs, 2 reviewers, 2 QA) with `Send`/`Command` handoff, availability registry with atomic reservation and per-agent skills in `skills/` | own |
+| `langgraph/independent_engineering_team` | the same team as separate services: hub (atomic reservation with leases, job queue, RAG/CAG/KAG and team memory over MCP), manager on `remote/server`, workers on Agent Protocol; model per agent by env; Docker compose | own |
 
 ## deepagents
 

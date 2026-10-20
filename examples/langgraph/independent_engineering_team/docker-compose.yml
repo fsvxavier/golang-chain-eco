@@ -1,0 +1,113 @@
+# Every agent is its own container. Start order does not matter: workers retry
+# until the hub is up and register again if they lose their lease.
+#
+#   cp .env.example .env            # add keys; leave empty to run offline
+#   docker compose -f examples/langgraph/independent_engineering_team/docker-compose.yml up --build
+#   docker compose -f ... run --rm client                  # sends the sample request
+#   docker compose -f ... stop senior-1                    # kill a worker mid-run: its job moves to another
+#
+# Build context is the repository root.
+x-build: &build
+  context: ../../..
+  dockerfile: examples/langgraph/independent_engineering_team/Dockerfile
+
+x-env: &env
+  env_file: [{ path: .env, required: false }]
+  environment:
+    HUB_URL: http://hub:8000
+
+services:
+  hub:
+    build: { <<: *build, args: { SERVICE: hub } }
+    env_file: [{ path: .env, required: false }]
+    ports: ["${HUB_PORT:-8000}:8000"]            # GET /state shows workers and the queue
+
+  manager:
+    build: { <<: *build, args: { SERVICE: manager } }
+    <<: *env
+    depends_on: [hub]
+    ports: ["${MANAGER_PORT:-8080}:8080"]            # Agent Server API (remote.Graph "engineering_team")
+
+  client:
+    build: { <<: *build, args: { SERVICE: client } }
+    profiles: ["tools"]
+    env_file: [{ path: .env, required: false }]
+    environment: { MANAGER_URL: http://manager:8080 }
+    depends_on: [manager]
+
+  po:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: po, WORKER_ROLE: po, WORKER_URL: "http://po:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  architect:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: architect, WORKER_ROLE: architect, WORKER_URL: "http://architect:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  leader:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: leader, WORKER_ROLE: leader, WORKER_URL: "http://leader:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  junior-1:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: junior-1, WORKER_ROLE: junior, WORKER_URL: "http://junior-1:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  junior-2:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: junior-2, WORKER_ROLE: junior, WORKER_URL: "http://junior-2:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  mid-1:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: mid-1, WORKER_ROLE: mid, WORKER_URL: "http://mid-1:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  senior-1:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: senior-1, WORKER_ROLE: senior, WORKER_URL: "http://senior-1:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  specialist-1:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: specialist-1, WORKER_ROLE: specialist, WORKER_URL: "http://specialist-1:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  specialist-2:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: specialist-2, WORKER_ROLE: specialist, WORKER_URL: "http://specialist-2:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  qa-1:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: qa-1, WORKER_ROLE: qa, WORKER_URL: "http://qa-1:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
+
+  qa-2:
+    build: { <<: *build, args: { SERVICE: worker } }
+    env_file: [{ path: .env, required: false }]
+    environment: { HUB_URL: "http://hub:8000", WORKER_ID: qa-2, WORKER_ROLE: qa, WORKER_URL: "http://qa-2:9000" }
+    depends_on: [hub]
+    restart: unless-stopped
