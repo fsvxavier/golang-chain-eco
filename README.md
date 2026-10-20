@@ -1,6 +1,6 @@
 # golang-chain-eco
 
-**English** | [Português](README.pt-BR.md) | [Español](README.es.md)
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
 
 Go port of the LangChain ecosystem: **langchain-core**, **LangGraph**, the agent with middleware (`create_agent`), **Deep Agents**, **MCP** client and server, **RemoteGraph**, **LangSmith** tracing, **LangMem** long-term memory, **Agent Protocol**, **ciam** (context for assistants) and **Open SWE** (a software factory built on agents).
 
@@ -764,7 +764,7 @@ Never put keys in code or in repositories; use environment variables or a secret
 
 ## Runnable examples
 
-64 examples in [`examples/`](examples/) (36 ported from the base projects, 2 original to LangGraph, 1 for evals, 6 integrations, 6 for RAG/CAG/KAG, 5 for LangMem, 2 for Agent Protocol, 2 for ciam and 4 for Open SWE) (index in [examples/README.md](examples/README.md)). Without an API key they use a fake model.
+64 examples in [`examples/`](examples/) (36 ported from the base projects, 2 original to LangGraph, 1 for evals, 6 integrations, 6 for RAG/CAG/KAG, 5 for LangMem, 2 for Agent Protocol, 2 for ciam and 4 for Open SWE) (index in [examples/README.md](examples/README.md)). Without an API key they use a fake model. Each example folder has a README in English, Portuguese and Spanish.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | model | parser

@@ -1,5 +1,7 @@
 # hitl_agent
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Pause a tool call for human approval, then resume the same run.
 
 ## What it does

@@ -1,5 +1,7 @@
 # cag
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Cache-augmented generation: the whole corpus goes into one byte-stable system prefix that the provider caches between calls.
 
 ## What it does

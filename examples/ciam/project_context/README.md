@@ -1,5 +1,7 @@
 # project_context
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Cheap, precise project context for an AI assistant: incremental index, hybrid search, compression, decisions (ADR/PRD/Plan), memory and an MCP server.
 
 ## What it does

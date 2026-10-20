@@ -1,5 +1,7 @@
 # profile_episodic
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 The three shapes of long-term memory: a collection of facts, a single strict profile, and episodes of how a situation was handled.
 
 ## What it does

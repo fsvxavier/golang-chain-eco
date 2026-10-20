@@ -235,4 +235,4 @@ if reqs := graph.Interrupts(out); len(reqs) > 0 {
 
 ---
 
-Anterior: [7. LangGraph: StateGraph](07-langgraph.md) · Siguiente: [9. Agents y middleware](09-agents-e-middleware.md) · [Índice del manual](README.md)
+Anterior: [7. LangGraph: StateGraph](07-langgraph.md) · Siguiente: [9. Agents y middleware](09-agents-e-middleware.md) · [Índice del manual](README.es-ES.md)

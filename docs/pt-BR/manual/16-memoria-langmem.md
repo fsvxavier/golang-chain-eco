@@ -170,4 +170,4 @@ puts, _ := sm.Process(ctx, msgs)
 
 ---
 
-Anterior: [15. Exemplos e receitas](15-exemplos-e-receitas.md) · Próximo: [17. Agent Protocol](17-agent-protocol.md) · [Índice do manual](README.md)
+Anterior: [15. Exemplos e receitas](15-exemplos-e-receitas.md) · Próximo: [17. Agent Protocol](17-agent-protocol.md) · [Índice do manual](README.pt-BR.md)

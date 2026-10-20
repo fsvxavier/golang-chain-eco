@@ -1,5 +1,7 @@
 # react_agent_middleware
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A tool-calling agent built with `agents.Create`, a middleware and streamed updates.
 
 ## What it does

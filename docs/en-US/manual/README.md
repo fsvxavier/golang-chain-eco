@@ -1,6 +1,6 @@
 # Usage manual — golang-chain-eco
 
-**English** | [Português](../../pt-BR/manual/README.md) | [Español](../../es-ES/manual/README.md)
+**English** | [Português](../../pt-BR/manual/README.pt-BR.md) | [Español](../../es-ES/manual/README.es-ES.md)
 
 Complete manual for using `golang-chain-eco`: a Go port of the LangChain ecosystem (langchain-core, LangGraph, `create_agent` with middleware, Deep Agents, MCP client, RemoteGraph and tracing).
 

@@ -1,5 +1,7 @@
 # human_in_the_loop
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 The Agent Streaming Protocol: subscribe to a thread, watch tokens and tool activity, answer an approval request and inspect checkpoints.
 
 ## What it does

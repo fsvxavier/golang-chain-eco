@@ -233,4 +233,4 @@ out, _ := agent.Invoke(ctx, graph.State{"messages": "¿tiempo en Lisboa?"})
 
 ---
 
-Anterior: [8. Persistencia, HITL y streaming](08-persistencia-hitl-streaming.md) · Siguiente: [10. Deep Agents](10-deep-agents.md) · [Índice del manual](README.md)
+Anterior: [8. Persistencia, HITL y streaming](08-persistencia-hitl-streaming.md) · Siguiente: [10. Deep Agents](10-deep-agents.md) · [Índice del manual](README.es-ES.md)

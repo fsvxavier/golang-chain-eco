@@ -1,5 +1,7 @@
 # engineer
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 The Open SWE engineer end to end: it edits files in its own sandbox, is stopped when it tries to bypass the PR tool, and delivers an audited draft pull request.
 
 ## What it does

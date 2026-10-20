@@ -1,5 +1,7 @@
 # prompt_optimizer
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Procedural memory: a system prompt that improves itself from conversations plus feedback, and a multi-prompt optimizer that decides which prompt caused a failure.
 
 ## What it does

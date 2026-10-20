@@ -1,5 +1,7 @@
 # chatbot_simulation
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A simulated user talks to your assistant, and an evaluator scores the conversation.
 
 ## What it does

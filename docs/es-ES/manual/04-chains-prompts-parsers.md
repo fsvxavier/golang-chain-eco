@@ -187,4 +187,4 @@ El conteo predeterminado es aproximado (`ApproxTokens`); pasa un `Counter` con u
 
 ---
 
-Anterior: [3. Modelos y proveedores](03-modelos-e-provedores.md) · Siguiente: [5. Tools](05-tools.md) · [Índice del manual](README.md)
+Anterior: [3. Modelos y proveedores](03-modelos-e-provedores.md) · Siguiente: [5. Tools](05-tools.md) · [Índice del manual](README.es-ES.md)

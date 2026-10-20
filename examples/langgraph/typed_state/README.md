@@ -1,5 +1,7 @@
 # typed_state
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A graph whose state is a Go struct with reducer tags and validation, with a human approval step.
 
 ## What it does

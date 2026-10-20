@@ -1,5 +1,7 @@
 # map_reduce
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Fan out with `Send`, run workers in parallel and reduce the results.
 
 ## What it does

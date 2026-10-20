@@ -1,5 +1,7 @@
 # hierarchical_teams
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A top supervisor delegates to team subgraphs, each with its own supervisor and workers.
 
 ## What it does

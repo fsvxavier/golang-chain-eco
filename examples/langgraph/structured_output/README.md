@@ -1,5 +1,7 @@
 # structured_output
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 An agent that finishes with a typed, validated answer instead of free text.
 
 ## What it does

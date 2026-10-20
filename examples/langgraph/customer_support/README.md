@@ -1,5 +1,7 @@
 # customer_support
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 An assistant whose read-only tools run freely but whose sensitive tool needs human approval.
 
 ## What it does

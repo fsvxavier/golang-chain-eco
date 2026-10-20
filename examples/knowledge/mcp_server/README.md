@@ -1,5 +1,7 @@
 # mcp_server
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Serve `knowledge.Toolkit` over MCP so editors and desktop assistants can query your knowledge base.
 
 ## What it does

@@ -1,5 +1,7 @@
 # subgraph
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A compiled graph used as a node of a parent graph, with state mapped in and out.
 
 ## What it does

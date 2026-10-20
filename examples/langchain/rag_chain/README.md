@@ -1,5 +1,7 @@
 # rag_chain
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A classic retrieval chain built from runnables: split, embed, retrieve, prompt and answer.
 
 ## What it does

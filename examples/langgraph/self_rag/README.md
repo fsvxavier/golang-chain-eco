@@ -1,5 +1,7 @@
 # self_rag
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Retrieve, generate, then grade the answer for grounding and regenerate when it is not supported by the documents.
 
 ## What it does

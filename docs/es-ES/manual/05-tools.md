@@ -133,4 +133,4 @@ En la práctica, deja que `agents.Create` o `prebuilt.ToolNode` hagan ese loop (
 
 ---
 
-Anterior: [4. Prompts, chains y parsers](04-chains-prompts-parsers.md) · Siguiente: [6. RAG](06-rag.md) · [Índice del manual](README.md)
+Anterior: [4. Prompts, chains y parsers](04-chains-prompts-parsers.md) · Siguiente: [6. RAG](06-rag.md) · [Índice del manual](README.es-ES.md)

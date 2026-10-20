@@ -173,4 +173,4 @@ Guardrails e governança de terceiros, carteiras e pagamentos, memórias de star
 
 ---
 
-Anterior: [12. Observabilidade](12-observabilidade.md) · Próximo: [14. Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) · [Índice do manual](README.md)
+Anterior: [12. Observabilidade](12-observabilidade.md) · Próximo: [14. Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) · [Índice do manual](README.pt-BR.md)

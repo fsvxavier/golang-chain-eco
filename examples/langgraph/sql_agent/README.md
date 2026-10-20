@@ -1,5 +1,7 @@
 # sql_agent
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 An agent that inspects a schema, writes a query, passes it through a read-only guard and answers.
 
 ## What it does

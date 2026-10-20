@@ -1,5 +1,7 @@
 # summarization
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Short-term memory: a running summary keeps a long chat inside a token budget while the full history stays in state.
 
 ## What it does

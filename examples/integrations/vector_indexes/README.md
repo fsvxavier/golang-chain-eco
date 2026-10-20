@@ -1,5 +1,7 @@
 # vector_indexes
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 The two in-process vector indexes, exact (flat) and approximate (Annoy-style forest), with recall measured against the exact answer.
 
 ## What it does

@@ -130,4 +130,4 @@ Ejemplos: `go run ./examples/agentprotocol/serve_and_call` y `.../human_in_the_l
 
 ---
 
-Anterior: [16. Memoria a largo plazo](16-memoria-langmem.md) · Siguiente: [18. ciam](18-ciam-contexto.md) · [Índice del manual](README.md)
+Anterior: [16. Memoria a largo plazo](16-memoria-langmem.md) · Siguiente: [18. ciam](18-ciam-contexto.md) · [Índice del manual](README.es-ES.md)

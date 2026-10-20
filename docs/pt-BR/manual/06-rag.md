@@ -200,4 +200,4 @@ Quer indexação incremental, busca híbrida pronta, cache de prompt (CAG) ou gr
 
 ---
 
-Anterior: [5. Tools](05-tools.md) · Próximo: [7. LangGraph: StateGraph](07-langgraph.md) · [Índice do manual](README.md)
+Anterior: [5. Tools](05-tools.md) · Próximo: [7. LangGraph: StateGraph](07-langgraph.md) · [Índice do manual](README.pt-BR.md)

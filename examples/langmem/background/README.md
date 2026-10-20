@@ -1,5 +1,7 @@
 # background
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Memories formed "subconsciously" after the conversation goes quiet: a debounced extractor runs once over the full conversation.
 
 ## What it does

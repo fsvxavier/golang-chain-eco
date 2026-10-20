@@ -1,5 +1,7 @@
 # rag
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Retrieval-augmented answers with citations, hybrid search (vector + BM25) and incremental indexing.
 
 ## What it does

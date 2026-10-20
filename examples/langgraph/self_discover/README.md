@@ -1,5 +1,7 @@
 # self_discover
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A four-prompt pipeline: select reasoning modules, adapt them to the task, build a reasoning structure, then solve with it.
 
 ## What it does

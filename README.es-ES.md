@@ -9,7 +9,7 @@ Port en Go del ecosistema LangChain: **langchain-core**, **LangGraph**, el agent
 - Concurrencia nativa: los nodos de un grafo corren en goroutines, y el streaming usa `iter.Seq2`.
 - Todo ejemplo corre sin conexión con un modelo falso; basta definir `ANTHROPIC_API_KEY` u `OPENAI_API_KEY` para usar un proveedor real.
 
-> **Manual completo de uso:** [docs/es-ES/manual/](docs/es-ES/manual/README.md) — 19 capítulos, desde la instalación hasta producción.
+> **Manual completo de uso:** [docs/es-ES/manual/](docs/es-ES/manual/README.es-ES.md) — 19 capítulos, desde la instalación hasta producción.
 
 ## Índice
 
@@ -42,7 +42,7 @@ Port en Go del ecosistema LangChain: **langchain-core**, **LangGraph**, el agent
 
 ## Manual de uso
 
-Guía detallada, con ejemplos y troubleshooting: [docs/es-ES/manual/README.md](docs/es-ES/manual/README.md). Todos los documentos de referencia están listados en [docs/es-ES/README.md](docs/es-ES/README.md).
+Guía detallada, con ejemplos y troubleshooting: [docs/es-ES/manual/README.es-ES.md](docs/es-ES/manual/README.es-ES.md). Todos los documentos de referencia están listados en [docs/es-ES/README.es-ES.md](docs/es-ES/README.es-ES.md).
 
 | # | Capítulo |
 |---|---|
@@ -764,7 +764,7 @@ Nunca pongas claves en el código ni en repositorios; usa variables de entorno o
 
 ## Ejemplos ejecutables
 
-64 ejemplos en [`examples/`](examples/) (36 portados de los proyectos base, 2 propios de LangGraph, 1 de evals, 6 de integraciones, 6 de RAG/CAG/KAG, 5 de LangMem, 2 de Agent Protocol, 2 de ciam y 4 de Open SWE) (índice en [examples/README.md](examples/README.md)). Sin clave de API usan un modelo falso.
+64 ejemplos en [`examples/`](examples/) (36 portados de los proyectos base, 2 propios de LangGraph, 1 de evals, 6 de integraciones, 6 de RAG/CAG/KAG, 5 de LangMem, 2 de Agent Protocol, 2 de ciam y 4 de Open SWE) (índice en [examples/README.es-ES.md](examples/README.es-ES.md)). Sin clave de API usan un modelo falso. Cada carpeta de ejemplo tiene un README en inglés, portugués y español.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser

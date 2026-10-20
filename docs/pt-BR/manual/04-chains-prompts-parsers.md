@@ -187,4 +187,4 @@ A contagem padrão é aproximada (`ApproxTokens`); passe `Counter` com um contad
 
 ---
 
-Anterior: [3. Modelos e provedores](03-modelos-e-provedores.md) · Próximo: [5. Tools](05-tools.md) · [Índice do manual](README.md)
+Anterior: [3. Modelos e provedores](03-modelos-e-provedores.md) · Próximo: [5. Tools](05-tools.md) · [Índice do manual](README.pt-BR.md)

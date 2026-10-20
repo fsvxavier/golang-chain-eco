@@ -1,5 +1,7 @@
 # content_builder
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A deep agent that follows a brand-voice memory file and a skill to write a blog post into a real directory.
 
 ## What it does

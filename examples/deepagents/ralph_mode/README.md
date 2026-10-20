@@ -1,5 +1,7 @@
 # ralph_mode
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A loop of fresh agents with no shared conversation: progress is carried only through a file until the task is done.
 
 ## What it does

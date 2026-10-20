@@ -1,5 +1,7 @@
 # text_to_sql
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A deep agent that plans, validates a query with a subagent and runs it through a read-only SQL tool.
 
 ## What it does

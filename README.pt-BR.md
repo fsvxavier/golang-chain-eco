@@ -1,6 +1,6 @@
 # golang-chain-eco
 
-[English](README.md) | **Português** | [Español](README.es.md)
+[English](README.md) | **Português** | [Español](README.es-ES.md)
 
 Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent com middleware (`create_agent`), **Deep Agents**, cliente e servidor **MCP**, **RemoteGraph**, tracing **LangSmith**, a memória de longo prazo do **LangMem**, o **Agent Protocol**, o **ciam** (contexto para assistentes) e o **Open SWE** (fábrica de software com agents).
 
@@ -9,7 +9,7 @@ Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent 
 - Concorrência nativa: nós de um grafo rodam em goroutines, streaming usa `iter.Seq2`.
 - Todo exemplo roda offline com um modelo fake; basta definir `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` para usar um provedor real.
 
-> **Manual completo de utilização:** [docs/pt-BR/manual/](docs/pt-BR/manual/README.md) — 19 capítulos, da instalação à produção.
+> **Manual completo de utilização:** [docs/pt-BR/manual/](docs/pt-BR/manual/README.pt-BR.md) — 19 capítulos, da instalação à produção.
 
 ## Sumário
 
@@ -42,7 +42,7 @@ Port em Go do ecossistema LangChain: **langchain-core**, **LangGraph**, o agent 
 
 ## Manual de utilização
 
-Guia detalhado em português, com exemplos e troubleshooting: [docs/pt-BR/manual/README.md](docs/pt-BR/manual/README.md). Todos os documentos de referência estão listados em [docs/pt-BR/README.md](docs/pt-BR/README.md).
+Guia detalhado em português, com exemplos e troubleshooting: [docs/pt-BR/manual/README.pt-BR.md](docs/pt-BR/manual/README.pt-BR.md). Todos os documentos de referência estão listados em [docs/pt-BR/README.pt-BR.md](docs/pt-BR/README.pt-BR.md).
 
 | # | Capítulo |
 |---|---|
@@ -767,7 +767,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-64 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 2 próprios do LangGraph, 1 de evals, 6 de integrações, 6 de RAG/CAG/KAG, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 4 do Open SWE) (índice em [examples/README.md](examples/README.md)). Sem chave de API usam um modelo fake.
+64 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 2 próprios do LangGraph, 1 de evals, 6 de integrações, 6 de RAG/CAG/KAG, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 4 do Open SWE) (índice em [examples/README.pt-BR.md](examples/README.pt-BR.md)). Sem chave de API usam um modelo fake. Cada pasta de exemplo tem um README em inglês, português e espanhol.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser

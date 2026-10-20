@@ -1,5 +1,7 @@
 # reviewer
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 The Open SWE pull-request reviewer: read-only, one review per round, and a re-review that reconciles earlier findings instead of starting over.
 
 ## What it does

@@ -1,5 +1,7 @@
 # chain
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 The smallest chain: a chat prompt, a model and an output parser piped together (the LCEL equivalent).
 
 ## What it does

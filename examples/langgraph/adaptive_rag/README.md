@@ -1,5 +1,7 @@
 # adaptive_rag
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A router decides, per question, whether to answer from the vector store or from web search.
 
 ## What it does

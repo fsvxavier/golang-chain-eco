@@ -1,5 +1,7 @@
 # factory
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 How work reaches the agents: a GitHub webhook server, a cron scheduler with stored automations and a CI watcher.
 
 ## What it does

@@ -160,4 +160,4 @@ tracing/           langsmith, langfuse, otlp
 
 ---
 
-Próximo: [2. Conceitos fundamentais](02-conceitos.md) · [Índice do manual](README.md)
+Próximo: [2. Conceitos fundamentais](02-conceitos.md) · [Índice do manual](README.pt-BR.md)

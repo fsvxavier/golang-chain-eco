@@ -1,8 +1,8 @@
 # Documentación
 
-[English](../en-US/README.md) | [Português](../pt-BR/README.md) | **Español**
+[English](../en-US/README.md) | [Português](../pt-BR/README.pt-BR.md) | **Español**
 
-Punto de partida para todo lo que está en `docs/`. La guía de uso paso a paso es el [manual](manual/README.md); los demás archivos son referencia de un paquete o de una decisión.
+Punto de partida para todo lo que está en `docs/`. La guía de uso paso a paso es el [manual](manual/README.es-ES.md); los demás archivos son referencia de un paquete o de una decisión.
 
 ## Por dónde empezar
 
@@ -12,12 +12,12 @@ Punto de partida para todo lo que está en `docs/`. La guía de uso paso a paso 
 | Entender las capas y los tipos centrales | [Manual, capítulo 2](manual/02-conceitos.md) y [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Dar conocimiento a un modelo (RAG, caché de prompt, grafo) | [Manual, capítulo 20](manual/20-rag-cag-kag.md) y [KNOWLEDGE.md](KNOWLEDGE.md) |
 | Llevarlo a producción | [Manual, capítulo 14](manual/14-producao-seguranca-troubleshooting.md) |
-| Encontrar un ejemplo listo | [Manual, capítulo 15](manual/15-exemplos-e-receitas.md) y [examples/README.md](../../examples/README.md) |
+| Encontrar un ejemplo listo | [Manual, capítulo 15](manual/15-exemplos-e-receitas.md) y [examples/README.es-ES.md](../../examples/README.es-ES.md) |
 | Saber si un proveedor o base de datos es compatible | [INTEGRATIONS.md](INTEGRATIONS.md) y [PROVIDERS.md](PROVIDERS.md) |
 
 ## Manual (guía de uso)
 
-El [índice del manual](manual/README.md) tiene los 20 capítulos, desde la instalación hasta RAG/CAG/KAG, con la ruta de lectura sugerida para cada objetivo.
+El [índice del manual](manual/README.es-ES.md) tiene los 20 capítulos, desde la instalación hasta RAG/CAG/KAG, con la ruta de lectura sugerida para cada objetivo.
 
 ## Referencia por paquete
 
@@ -46,6 +46,6 @@ El [índice del manual](manual/README.md) tiene los 20 capítulos, desde la inst
 
 ## Convenciones
 
-- Los documentos se escriben en inglés, idioma canónico; las traducciones al portugués de Brasil (`docs/pt-BR/`) y al español (`docs/es-ES/`) replican esta estructura. Los identificadores y comentarios de código están en inglés.
+- Los documentos se escriben en inglés, idioma canónico; las traducciones al portugués de Brasil (`docs/pt-BR/`) y al español (`docs/es-ES/`) replican esta estructura. Los identificadores y comentarios de código están en inglés. Los README siguen la misma regla por nombre de archivo: `README.md` (inglés), `README.pt-BR.md` y `README.es-ES.md`; cada carpeta de ejemplo tiene los tres.
 - Los fragmentos de código de los manuales son mínimos y siguen la API real; para el uso exacto, los `*_test.go` de cada paquete y los programas en `examples/` son la fuente.
-- Los conteos (paquetes, ejemplos, proveedores) cambian con el código: consulta `examples/README.md` y `PROVIDERS.md` para los números actuales.
+- Los conteos (paquetes, ejemplos, proveedores) cambian con el código: consulta `examples/README.es-ES.md` y `PROVIDERS.md` para los números actuales.

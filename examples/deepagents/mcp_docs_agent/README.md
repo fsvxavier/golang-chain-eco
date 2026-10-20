@@ -1,5 +1,7 @@
 # mcp_docs_agent
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A docs-search agent whose tools come from an MCP server.
 
 ## What it does

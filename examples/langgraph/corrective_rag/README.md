@@ -1,5 +1,7 @@
 # corrective_rag
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Retrieve, grade each document, fall back to web search when nothing is relevant, then answer.
 
 ## What it does

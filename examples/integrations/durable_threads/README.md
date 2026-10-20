@@ -1,5 +1,7 @@
 # durable_threads
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Conversation state that survives restarts because it lives in a checkpointer (S3-compatible storage when configured).
 
 ## What it does

@@ -133,4 +133,4 @@ Cualquier ejecución emite eventos (inicio/fin/error de chain, modelo, tool, nod
 
 ---
 
-Anterior: [1. Introducción e instalación](01-introducao-e-instalacao.md) · Siguiente: [3. Modelos y proveedores](03-modelos-e-provedores.md) · [Índice del manual](README.md)
+Anterior: [1. Introducción e instalación](01-introducao-e-instalacao.md) · Siguiente: [3. Modelos y proveedores](03-modelos-e-provedores.md) · [Índice del manual](README.es-ES.md)

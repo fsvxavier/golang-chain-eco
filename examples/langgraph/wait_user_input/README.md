@@ -1,5 +1,7 @@
 # wait_user_input
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Pause a graph to ask the user something, then resume with the answer.
 
 ## What it does

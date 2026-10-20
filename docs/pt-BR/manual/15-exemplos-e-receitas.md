@@ -18,6 +18,8 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com mod
 
 ## 15.2 Catálogo (64 exemplos)
 
+Cada pasta de exemplo tem `README.md` (inglês), `README.pt-BR.md` e `README.es-ES.md` que explicam o que ele faz, como aplicar o padrão, como rodar e como testar em modo produtivo.
+
 ### `examples/langchain`
 
 | Exemplo | Mostra |
@@ -132,7 +134,7 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com mod
 | `vector_indexes` | `Flat` (exato) e `Annoy` (aproximado), recall e persistência |
 | `durable_threads` | Estado de thread num checkpointer (S3 se `S3_ENDPOINT` definido) |
 
-Índice oficial: [examples/README.md](../../../examples/README.md).
+Índice oficial: [examples/README.pt-BR.md](../../../examples/README.pt-BR.md).
 
 ## 15.3 Receitas
 
@@ -324,8 +326,8 @@ Para expor a mesma coisa a um agent ou a um editor, use `knowledge.Toolkit{Route
 - [ARCHITECTURE.md](../ARCHITECTURE.md) explica as decisões de design do runtime.
 - [INTEGRATIONS.md](../INTEGRATIONS.md) e [PROVIDERS.md](../PROVIDERS.md) detalham cobertura e verificação.
 - [KNOWLEDGE.md](../KNOWLEDGE.md) é a referência de `knowledge`, `rag`, `cag` e `kag`; os demais pacotes têm [LANGMEM.md](../LANGMEM.md), [CIAM.md](../CIAM.md), [AGENT-PROTOCOL.md](../AGENT-PROTOCOL.md), [OPENSWE.md](../OPENSWE.md) e [EVALS.md](../EVALS.md).
-- O [índice de `docs/`](../README.md) lista tudo com uma linha por documento.
+- O [índice de `docs/`](../README.pt-BR.md) lista tudo com uma linha por documento.
 
 ---
 
-Anterior: [14. Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) · Próximo: [16. Memória de longo prazo](16-memoria-langmem.md) · [Índice do manual](README.md)
+Anterior: [14. Produção, segurança e troubleshooting](14-producao-seguranca-troubleshooting.md) · Próximo: [16. Memória de longo prazo](16-memoria-langmem.md) · [Índice do manual](README.pt-BR.md)

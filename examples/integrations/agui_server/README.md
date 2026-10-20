@@ -1,5 +1,7 @@
 # agui_server
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Serve a compiled graph over the AG-UI protocol, the event stream that CopilotKit and assistant-ui consume.
 
 ## What it does

@@ -1,5 +1,7 @@
 # multi_agent_supervisor
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A supervisor routes work to specialist agents until it decides the task is finished.
 
 ## What it does

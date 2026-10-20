@@ -268,4 +268,4 @@ Cuándo usarlo: flujos lineales con pocas ramificaciones y mucha lógica de nego
 
 ---
 
-Anterior: [6. RAG](06-rag.md) · Siguiente: [8. Persistencia, HITL y streaming](08-persistencia-hitl-streaming.md) · [Índice del manual](README.md)
+Anterior: [6. RAG](06-rag.md) · Siguiente: [8. Persistencia, HITL y streaming](08-persistencia-hitl-streaming.md) · [Índice del manual](README.es-ES.md)

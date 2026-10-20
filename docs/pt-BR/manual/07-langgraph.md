@@ -268,4 +268,4 @@ Quando usar: fluxos lineares com poucas ramificações e muita lógica de negóc
 
 ---
 
-Anterior: [6. RAG](06-rag.md) · Próximo: [8. Persistência, HITL e streaming](08-persistencia-hitl-streaming.md) · [Índice do manual](README.md)
+Anterior: [6. RAG](06-rag.md) · Próximo: [8. Persistência, HITL e streaming](08-persistencia-hitl-streaming.md) · [Índice do manual](README.pt-BR.md)

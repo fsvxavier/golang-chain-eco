@@ -12,7 +12,7 @@ La mayoría es cola larga de terceros (guardrails, memorias, wallets, APIs de ni
 Permit, Salesforce, AWS Kendra/Knowledge Bases/Lambda, SMS Plivo/Telnyx, búsquedas de pago): pruebas de contrato con `httptest`, escritas a partir de la
 documentación pública; pueden divergir del servicio real. Ninguna prueba de la suite estándar llama a la red: las de servicio real se omiten solas.
 
-Véase también el uso en el [README](../../README.es.md).
+Véase también el uso en el [README](../../README.es-ES.md).
 
 ## Chat models y embeddings (`chatmodels`, `providers/*`)
 

@@ -173,4 +173,4 @@ Guardrails y gobernanza de terceros, carteras y pagos, memorias de startups, API
 
 ---
 
-Anterior: [12. Observabilidad](12-observabilidade.md) · Siguiente: [14. Producción, seguridad y troubleshooting](14-producao-seguranca-troubleshooting.md) · [Índice del manual](README.md)
+Anterior: [12. Observabilidad](12-observabilidade.md) · Siguiente: [14. Producción, seguridad y troubleshooting](14-producao-seguranca-troubleshooting.md) · [Índice del manual](README.es-ES.md)

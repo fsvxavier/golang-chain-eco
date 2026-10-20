@@ -96,4 +96,4 @@ Ejemplos: `go run ./examples/ciam/project_context` y `.../agent_with_context`.
 
 ---
 
-Anterior: [17. Agent Protocol](17-agent-protocol.md) · Siguiente: [19. Open SWE](19-open-swe.md) · [Índice del manual](README.md)
+Anterior: [17. Agent Protocol](17-agent-protocol.md) · Siguiente: [19. Open SWE](19-open-swe.md) · [Índice del manual](README.es-ES.md)

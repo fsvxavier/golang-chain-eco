@@ -1,5 +1,7 @@
 # basic
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 The smallest deep agent: planning tools, a virtual filesystem and subagent delegation out of the box.
 
 ## What it does
