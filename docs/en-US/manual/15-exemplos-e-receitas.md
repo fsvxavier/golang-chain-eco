@@ -58,6 +58,7 @@ Each example folder has a `README.md` (English), `README.pt-BR.md` and `README.e
 | `map_reduce` | Fan-out with `Send` and reduction |
 | `typed_state` | Typed state with a struct (`NewTyped`, reducer tags, `Validate`) |
 | `engineering_team` | Engineering team as one graph: handoffs with `Send`/`Command`, atomic reservation of people, per-agent skills in `skills/` |
+| `independent_engineering_team` | The same team as separate services: atomic reservation with leases, job queue, RAG/CAG/KAG over MCP, Agent Protocol workers, a model per agent by env |
 
 ### `examples/deepagents`
 

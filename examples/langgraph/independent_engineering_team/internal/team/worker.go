@@ -1,0 +1,208 @@
+package team
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/fsvxavier/golang-chain-eco/agentprotocol"
+	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
+	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
+	"github.com/fsvxavier/golang-chain-eco/mcp"
+)
+
+// groundTool is the knowledge technique each role consults before answering.
+// The right technique depends on the job: relations for the architect,
+// retrieval of standards for engineers, a whole small checklist for gates.
+var groundTool = map[string]string{
+	"po": "knowledge_answer", "leader": "knowledge_answer", "architect": "kag_query",
+	"junior": "rag_answer", "mid": "rag_answer", "senior": "rag_answer",
+	"specialist": "cag_answer", "qa": "cag_answer",
+}
+
+// WorkerConfig describes one worker service.
+type WorkerConfig struct {
+	ID   string // unique, e.g. senior-1
+	Role string // po, architect, leader, junior, mid, senior, specialist, qa
+	Hub  string // base URL of the hub
+	URL  string // public URL of this worker's Agent Protocol server (default: its listener)
+}
+
+// RunWorker serves the role's agent over Agent Protocol on ln and works the
+// hub's queue until ctx ends. It can start before the hub and survive the hub
+// restarting: it retries, and registers again when its lease is lost.
+func RunWorker(ctx context.Context, cfg WorkerConfig, ln net.Listener) error {
+	prompt, err := Skill(cfg.Role)
+	if err != nil {
+		return err
+	}
+	model, label, err := NewModel(cfg.Role, offline)
+	if err != nil {
+		return err
+	}
+	hub := NewHubClient(cfg.Hub)
+	if cfg.URL == "" {
+		cfg.URL = "http://" + ln.Addr().String()
+	}
+
+	mc, err := connectMCP(ctx, cfg.Hub+"/mcp")
+	if err != nil {
+		return err
+	}
+	defer mc.Close()
+	ts, err := mc.Tools(ctx, "")
+	if err != nil {
+		return err
+	}
+	agent, err := agents.Create(agents.Options{
+		Model: model, Tools: ts, SystemPrompt: prompt,
+		Compile: []graph.CompileOption{graph.WithName(cfg.Role), graph.WithCheckpointer(checkpoint.NewMemory())},
+	})
+	if err != nil {
+		return err
+	}
+	ap, err := agentprotocol.New(agentprotocol.Options{Agents: []agentprotocol.AgentSpec{{
+		ID: cfg.Role, Name: cfg.ID, Description: skillDir[cfg.Role], Graph: agent,
+		Metadata: map[string]any{"role": cfg.Role, "worker": cfg.ID},
+	}}})
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Handler: ap, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close()
+
+	w := &worker{cfg: cfg, hub: hub, mc: mc, ap: agentprotocol.NewClient(cfg.URL, "")}
+	log.Printf("%s: %s up on %s (model %s)", cfg.ID, cfg.Role, cfg.URL, label)
+	ttl := w.register(ctx)
+	go w.heartbeat(ctx, ttl)
+
+	for ctx.Err() == nil {
+		j, err := hub.Claim(ctx, cfg.ID)
+		switch {
+		case errors.Is(err, ErrUnknownWorker):
+			w.register(ctx)
+		case err != nil:
+			sleep(ctx, time.Second)
+		case j != nil:
+			w.finish(ctx, j)
+		}
+	}
+	return nil
+}
+
+type worker struct {
+	cfg WorkerConfig
+	hub *HubClient
+	mc  *mcp.Client
+	ap  *agentprotocol.Client
+}
+
+// connectMCP retries until the hub is up.
+func connectMCP(ctx context.Context, url string) (*mcp.Client, error) {
+	for {
+		c, err := mcp.Connect(ctx, mcp.HTTP(url, nil))
+		if err == nil {
+			return c, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		sleep(ctx, time.Second)
+	}
+}
+
+func sleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+	}
+}
+
+// register joins the pool, retrying until the hub answers, and returns the lease TTL.
+func (w *worker) register(ctx context.Context) time.Duration {
+	for {
+		ttl, err := w.hub.Register(ctx, w.cfg.ID, w.cfg.Role, w.cfg.URL)
+		if err == nil {
+			return ttl
+		}
+		if ctx.Err() != nil {
+			return 0
+		}
+		sleep(ctx, time.Second)
+	}
+}
+
+// heartbeat renews the lease while a long model call runs.
+func (w *worker) heartbeat(ctx context.Context, ttl time.Duration) {
+	t := time.NewTicker(max(ttl/3, 100*time.Millisecond))
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if errors.Is(w.hub.Heartbeat(ctx, w.cfg.ID), ErrUnknownWorker) {
+				w.register(ctx)
+			}
+		}
+	}
+}
+
+func (w *worker) finish(ctx context.Context, j *Job) {
+	out, err := w.run(ctx, j)
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+		log.Printf("%s: job %s failed: %v", w.cfg.ID, j.ID, err)
+	}
+	if err := w.hub.Complete(ctx, w.cfg.ID, j.ID, out, msg); errors.Is(err, ErrNotOwner) {
+		log.Printf("%s: job %s was reassigned while running; result dropped", w.cfg.ID, j.ID)
+	}
+}
+
+// run enriches the prompt with knowledge and team memory (both through MCP),
+// runs the agent on the job's thread through its own Agent Protocol endpoint,
+// and records the outcome in the team memory.
+// One path serves both this queue and any Agent Protocol client that calls the
+// worker directly, and every run is visible as an Agent Protocol thread.
+func (w *worker) run(ctx context.Context, j *Job) (string, error) {
+	prompt := "WHO: " + w.cfg.ID + "\n" + j.Prompt // identity is known only after the hub reserves this worker
+	if tool := groundTool[w.cfg.Role]; tool != "" && j.Query != "" {
+		if txt, err := w.mc.CallTool(ctx, tool, map[string]any{"question": j.Query}); err == nil {
+			prompt += fmt.Sprintf("\n\n## Knowledge (%s)\n%v\n", tool, txt)
+		} else {
+			log.Printf("%s: %s: %v", w.cfg.ID, tool, err)
+		}
+	}
+	if j.Scope != "" {
+		if txt, err := w.mc.CallTool(ctx, "memory_search", map[string]any{"scope": j.Scope, "query": j.Query + " " + w.cfg.Role}); err == nil {
+			prompt += fmt.Sprintf("\n\n## Team memory\n%v\n", txt)
+		}
+	}
+	res, err := w.ap.CreateAndWait(ctx, agentprotocol.RunCreate{
+		ThreadID: j.Thread, AgentID: w.cfg.Role, IfNotExists: "create",
+		Messages: []agentprotocol.Message{{Role: "user", Content: prompt}},
+	})
+	if err != nil {
+		return "", err
+	}
+	if res.Run != nil && res.Run.Status != "success" {
+		return "", fmt.Errorf("run %s: %s", res.Run.Status, res.Run.Error)
+	}
+	if len(res.Messages) == 0 {
+		return "", errors.New("agent returned no messages")
+	}
+	out := fmt.Sprint(res.Messages[len(res.Messages)-1].Content)
+	if j.Scope != "" {
+		_, _ = w.mc.CallTool(ctx, "memory_put", map[string]any{
+			"scope": j.Scope, "key": j.ID, "text": fmt.Sprintf("%s (%s): %s", w.cfg.ID, w.cfg.Role, head(out, 400)),
+		})
+	}
+	return out, nil
+}
