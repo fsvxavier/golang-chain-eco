@@ -42,6 +42,7 @@ Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositóri
 | `langgraph/sql_agent` | agent de SQL com guarda somente-leitura | `tutorials/sql-agent.ipynb` |
 | `langgraph/map_reduce` | fan-out com `Send` e redução | Send API |
 | `langgraph/typed_state` | estado tipado com struct (`NewTyped`, tags de reducer, `Validate`) | próprio |
+| `langgraph/engineering_team` | time de engenharia (gerente, PO, arquiteto, líder, 4 devs, 2 revisores, 2 QA) com handoff por `Send`/`Command`, registro de disponibilidade com reserva atômica e skills por agente em `skills/` | próprio |
 
 ## deepagents
 

@@ -16,7 +16,7 @@ go run ./examples/integrations/graph_rag
 ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com modelo real
 ```
 
-## 15.2 Catálogo (63 exemplos)
+## 15.2 Catálogo (64 exemplos)
 
 ### `examples/langchain`
 
@@ -55,6 +55,7 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # com mod
 | `sql_agent` | Agent de SQL com guarda somente-leitura |
 | `map_reduce` | Fan-out com `Send` e redução |
 | `typed_state` | Estado tipado com struct (`NewTyped`, tags de reducer, `Validate`) |
+| `engineering_team` | Time de engenharia em um grafo: handoffs com `Send`/`Command`, reserva atômica de pessoas, skills por agente em `skills/` |
 
 ### `examples/deepagents`
 
