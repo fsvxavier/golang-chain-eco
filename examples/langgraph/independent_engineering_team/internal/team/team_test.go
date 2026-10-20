@@ -170,6 +170,15 @@ func TestTeamDeliversOffline(t *testing.T) {
 	if !strings.Contains(report, "Blocked: none") || !strings.Contains(report, "T3") {
 		t.Fatalf("report: %s", report)
 	}
+	st, _ := out["status"].(map[string]any)
+	if len(st) != 6 { // the request and five tasks
+		t.Fatalf("status: %v", st)
+	}
+	for id, v := range st {
+		if v != "completed" {
+			t.Fatalf("%q ended at %v, want completed", id, v)
+		}
+	}
 	hist := fmt.Sprint(out["history"])
 	if !strings.Contains(hist, "review returned") || !strings.Contains(hist, "qa returned") {
 		t.Fatalf("gates must return a task once: %s", hist)

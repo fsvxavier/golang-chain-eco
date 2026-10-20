@@ -42,6 +42,24 @@ go test -race ./examples/langgraph/engineering_team   # registry atomicity and b
 
 Offline, a scripted model (`brain.go`) answers by the `ROLE:` line of each prompt and makes review return T3 and QA return T2 once, so the loop back to the engineer is visible. With `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` set, the same graph runs with a real model (one model for the whole team; the persona comes from each skill). Expect parallel lines to interleave differently from run to run.
 
+## Task status and notifications
+
+Every task (and the request) always has one of 13 statuses: `received`, `in_specification`, `risk_sec_review`, `task_assignment`, `in_development`, `in_code_review`, `in_qa_testing`, `qa_approved`, `qa_rejected`, `review_approved`, `review_rejected`, `committed`, `completed`. The agent that holds the work is recorded with each move.
+
+```
+request: received -> in_specification -> risk_sec_review -> task_assignment -> completed
+task:    task_assignment -> in_development -> in_code_review -> review_approved -> in_qa_testing -> qa_approved -> committed -> completed
+         in_code_review -> review_rejected -> in_development      in_qa_testing -> qa_rejected -> in_development
+```
+
+`examples/internal/tasktrack` checks every move against this table (a task cannot reach `committed` without review and QA; an illegal move is logged and not recorded). A task that exhausts its 3 rounds stays at the rejection that stopped it. Here `committed` means the approved code is recorded as the task's deliverable; a real run commits it in the sandbox first.
+
+Each move is announced by `NOTIFY` (default `console`): `console`, `slack` (`SLACK_WEBHOOK_URL`), `email` (`SMTP_ADDR`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`) and `chat` (`CHAT_WEBHOOK_URL`, any webhook that accepts `{"text": "...", "event": {...}}`), comma separated. `NOTIFY_STATUSES=review_rejected,qa_rejected,completed` limits slack, email and chat to those statuses; the console always shows all. A failing sink is logged and never blocks the work.
+
+```bash
+NOTIFY=console,slack SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... NOTIFY_STATUSES=qa_rejected,completed go run ./examples/langgraph/engineering_team
+```
+
 ## Test it in production mode
 
 1. Set a provider key and run again. The structure should hold (all five tasks reach `approved` or `blocked`), but wording and the number of review rounds will vary. If the run fails with a parse problem, a model ignored a skill's output format: tighten that skill.

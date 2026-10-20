@@ -8,9 +8,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
+	"github.com/fsvxavier/golang-chain-eco/examples/internal/tasktrack"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
 	"github.com/fsvxavier/golang-chain-eco/remote"
 	"github.com/fsvxavier/golang-chain-eco/remote/server"
@@ -62,7 +64,12 @@ func RunManager(ctx context.Context, hubURL string, ln net.Listener) error {
 	if err != nil {
 		return err
 	}
-	app, err := NewManager(NewHubClient(hubURL), chat)
+	track, err := tasktrack.FromEnv(os.Stdout)
+	if err != nil {
+		return err
+	}
+	track.OnError = func(err error) { log.Print(err) }
+	app, err := NewManager(NewHubClient(hubURL), chat, track)
 	if err != nil {
 		return err
 	}
@@ -101,6 +108,20 @@ const DefaultRequest = "Let shoppers apply a discount coupon at checkout. The la
 func Print(out map[string]any) {
 	fmt.Println("\n== report ==")
 	fmt.Println(out["report"])
+	fmt.Println("\n== final status ==")
+	st, _ := out["status"].(map[string]any)
+	ids := make([]string, 0, len(st))
+	for id := range st {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		name := id
+		if id == "" {
+			name = "request"
+		}
+		fmt.Printf("%-8s %v\n", name, st[id])
+	}
 	fmt.Println("\n== handoff history ==")
 	hist, _ := out["history"].([]any)
 	for i, h := range hist {

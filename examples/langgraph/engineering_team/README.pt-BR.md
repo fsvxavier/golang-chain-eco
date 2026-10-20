@@ -42,6 +42,24 @@ go test -race ./examples/langgraph/engineering_team   # testes de atomicidade do
 
 Offline, um modelo roteirizado (`brain.go`) responde pela linha `ROLE:` de cada prompt e faz a review devolver T3 e o QA devolver T2 uma vez, para que o retorno ao engenheiro fique visível. Com `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY`, o mesmo grafo roda com um modelo real (um modelo para o time inteiro; a persona vem de cada skill). Espere que as linhas paralelas se intercalem de forma diferente a cada execução.
 
+## Status das tarefas e notificações
+
+Toda tarefa (e o pedido) tem sempre um de 13 status: `received`, `in_specification`, `risk_sec_review`, `task_assignment`, `in_development`, `in_code_review`, `in_qa_testing`, `qa_approved`, `qa_rejected`, `review_approved`, `review_rejected`, `committed`, `completed`. O agente que está com o trabalho é registrado em cada movimentação.
+
+```
+request: received -> in_specification -> risk_sec_review -> task_assignment -> completed
+task:    task_assignment -> in_development -> in_code_review -> review_approved -> in_qa_testing -> qa_approved -> committed -> completed
+         in_code_review -> review_rejected -> in_development      in_qa_testing -> qa_rejected -> in_development
+```
+
+`examples/internal/tasktrack` valida cada movimentação contra esta tabela (uma tarefa não chega a `committed` sem revisão e QA; movimentação ilegal é logada e não registrada). Uma tarefa que esgota as 3 rodadas fica na rejeição que a parou. Aqui `committed` significa que o código aprovado foi registrado como entrega da tarefa; uma execução real commita antes no sandbox.
+
+Cada movimentação é anunciada por `NOTIFY` (padrão `console`): `console`, `slack` (`SLACK_WEBHOOK_URL`), `email` (`SMTP_ADDR`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`) e `chat` (`CHAT_WEBHOOK_URL`, qualquer webhook que aceite `{"text": "...", "event": {...}}`), separados por vírgula. `NOTIFY_STATUSES=review_rejected,qa_rejected,completed` limita slack, email e chat a esses status; o console mostra todos. Um canal que falha é logado e nunca trava o trabalho.
+
+```bash
+NOTIFY=console,slack SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... NOTIFY_STATUSES=qa_rejected,completed go run ./examples/langgraph/engineering_team
+```
+
 ## Como testar em modo produtivo
 
 1. Defina uma chave de provedor e rode de novo. A estrutura deve se manter (as cinco tarefas chegam a `approved` ou `blocked`), mas a redação e o número de rodadas de review vão variar. Se a execução falhar por erro de parsing, um modelo ignorou o formato de saída de uma skill: aperte essa skill.
