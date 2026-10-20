@@ -72,6 +72,24 @@ docker compose -f $F down
 
 Portas do host ocupadas? Use `HUB_PORT` e `MANAGER_PORT`. Sem Docker: `go run ./examples/langgraph/independent_engineering_team/cmd/hub`, depois `cmd/manager` e um `cmd/worker` por papel (`WORKER_ID`, `WORKER_ROLE`, `HUB_URL`, `LISTEN`), depois `cmd/client`.
 
+## Status das tarefas e notificações
+
+Toda tarefa (e o pedido) tem sempre um de 13 status: `received`, `in_specification`, `risk_sec_review`, `task_assignment`, `in_development`, `in_code_review`, `in_qa_testing`, `qa_approved`, `qa_rejected`, `review_approved`, `review_rejected`, `committed`, `completed`. O agente que está com o trabalho é registrado em cada movimentação.
+
+```
+request: received -> in_specification -> risk_sec_review -> task_assignment -> completed
+task:    task_assignment -> in_development -> in_code_review -> review_approved -> in_qa_testing -> qa_approved -> committed -> completed
+         in_code_review -> review_rejected -> in_development      in_qa_testing -> qa_rejected -> in_development
+```
+
+`examples/internal/tasktrack` valida cada movimentação contra esta tabela (uma tarefa não chega a `committed` sem revisão e QA; movimentação ilegal é logada e não registrada). Uma tarefa que esgota as 3 rodadas fica na rejeição que a parou. Aqui `committed` significa que o código aprovado foi registrado como entrega da tarefa; uma execução real commita antes no sandbox.
+
+Cada movimentação é anunciada por `NOTIFY` (padrão `console`): `console`, `slack` (`SLACK_WEBHOOK_URL`), `email` (`SMTP_ADDR`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`) e `chat` (`CHAT_WEBHOOK_URL`, qualquer webhook que aceite `{"text": "...", "event": {...}}`), separados por vírgula. `NOTIFY_STATUSES=review_rejected,qa_rejected,completed` limita slack, email e chat a esses status; o console mostra todos. Um canal que falha é logado e nunca trava o trabalho.
+
+```bash
+NOTIFY=console,slack SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... NOTIFY_STATUSES=qa_rejected,completed go run ./examples/langgraph/independent_engineering_team
+```
+
 ## Teste em modo produção
 
 1. Ponha chaves reais no `.env` e rode o cliente. A estrutura se mantém (todas as tarefas `approved` ou `blocked`); texto e rodadas de revisão variam. Erro de parse indica um modelo que ignorou o formato de uma skill: reforce essa skill.

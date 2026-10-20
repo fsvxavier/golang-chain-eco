@@ -74,6 +74,24 @@ Without Docker: `go run ./examples/langgraph/independent_engineering_team/cmd/hu
 
 Host ports taken? Set `HUB_PORT` and `MANAGER_PORT`.
 
+## Task status and notifications
+
+Every task (and the request) always has one of 13 statuses: `received`, `in_specification`, `risk_sec_review`, `task_assignment`, `in_development`, `in_code_review`, `in_qa_testing`, `qa_approved`, `qa_rejected`, `review_approved`, `review_rejected`, `committed`, `completed`. The agent that holds the work is recorded with each move.
+
+```
+request: received -> in_specification -> risk_sec_review -> task_assignment -> completed
+task:    task_assignment -> in_development -> in_code_review -> review_approved -> in_qa_testing -> qa_approved -> committed -> completed
+         in_code_review -> review_rejected -> in_development      in_qa_testing -> qa_rejected -> in_development
+```
+
+`examples/internal/tasktrack` checks every move against this table (a task cannot reach `committed` without review and QA; an illegal move is logged and not recorded). A task that exhausts its 3 rounds stays at the rejection that stopped it. Here `committed` means the approved code is recorded as the task's deliverable; a real run commits it in the sandbox first.
+
+Each move is announced by `NOTIFY` (default `console`): `console`, `slack` (`SLACK_WEBHOOK_URL`), `email` (`SMTP_ADDR`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`) and `chat` (`CHAT_WEBHOOK_URL`, any webhook that accepts `{"text": "...", "event": {...}}`), comma separated. `NOTIFY_STATUSES=review_rejected,qa_rejected,completed` limits slack, email and chat to those statuses; the console always shows all. A failing sink is logged and never blocks the work.
+
+```bash
+NOTIFY=console,slack SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... NOTIFY_STATUSES=qa_rejected,completed go run ./examples/langgraph/independent_engineering_team
+```
+
 ## Test it in production mode
 
 1. Put real keys in `.env` and run the client. Structure holds (all tasks `approved` or `blocked`); wording and review rounds vary. A parse error means a model ignored a skill's output format: tighten that skill.
