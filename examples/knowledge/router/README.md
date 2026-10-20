@@ -1,5 +1,7 @@
 # router
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 One router in front of RAG, CAG and KAG that picks the right technique per question, with forced routes and fallback.
 
 ## What it does

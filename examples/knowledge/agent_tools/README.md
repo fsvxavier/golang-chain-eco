@@ -1,5 +1,7 @@
 # agent_tools
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 An agent that answers from the knowledge base by calling `knowledge.Toolkit` tools (`rag_answer`, ...).
 
 ## What it does

@@ -1,5 +1,7 @@
 # slack_trigger
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Open SWE started from Slack: a signed Events API delivery starts one run on the Slack thread and the outcome is posted back.
 
 ## What it does

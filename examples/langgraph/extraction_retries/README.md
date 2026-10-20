@@ -1,5 +1,7 @@
 # extraction_retries
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Structured extraction that validates the result and feeds errors back to the model until it is right.
 
 ## What it does

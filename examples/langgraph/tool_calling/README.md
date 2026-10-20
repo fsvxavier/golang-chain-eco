@@ -1,5 +1,7 @@
 # tool_calling
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Bind tools to a model, inspect the tool calls it makes and run them concurrently with `ToolNode`.
 
 ## What it does

@@ -1,5 +1,7 @@
 # rubric
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A grader scores the final answer against criteria and sends the agent back until it passes (or the limit is reached).
 
 ## What it does

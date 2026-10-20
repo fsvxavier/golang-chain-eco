@@ -1,5 +1,7 @@
 # info_gather
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A chatbot that collects requirements over several turns, then switches to generating the final prompt.
 
 ## What it does

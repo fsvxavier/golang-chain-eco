@@ -1,5 +1,7 @@
 # basic
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Score a system over a JSONL dataset with exact, contains, embedding and LLM-judge evaluators and print a text and JSON report.
 
 ## What it does

@@ -1,5 +1,7 @@
 # research
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A lead agent plans, delegates two research questions to subagents in parallel and writes a report file.
 
 ## What it does

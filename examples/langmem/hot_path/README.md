@@ -1,5 +1,7 @@
 # hot_path
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 An agent that curates its own long-term memory with `manage_memory` and `search_memory` tools, isolated per user.
 
 ## What it does

@@ -1,5 +1,7 @@
 # rewoo
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Reasoning WithOut Observation: plan every tool call up front with placeholders (`#E1`, `#E2`), execute them in order, then solve.
 
 ## What it does

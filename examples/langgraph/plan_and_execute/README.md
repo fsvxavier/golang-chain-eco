@@ -1,5 +1,7 @@
 # plan_and_execute
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A planner writes the steps, an executor runs them one by one and a replanner decides to continue or answer.
 
 ## What it does

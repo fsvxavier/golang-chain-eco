@@ -1,5 +1,7 @@
 # remote_sandbox
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Any "run a command somewhere" function becomes a full deep-agent backend (files and shell) through `backends.Remote`.
 
 ## What it does

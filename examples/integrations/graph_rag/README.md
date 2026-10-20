@@ -1,5 +1,7 @@
 # graph_rag
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Retrieval that follows links: the best match pulls in related pages that plain similarity search would miss.
 
 ## What it does

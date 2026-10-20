@@ -1,5 +1,7 @@
 # async_subagents
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A deep agent launches a long task in the background and checks on it later.
 
 ## What it does

@@ -1,5 +1,7 @@
 # react_from_scratch
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 The ReAct loop wired by hand with a `StateGraph`, to show what an agent is made of.
 
 ## What it does

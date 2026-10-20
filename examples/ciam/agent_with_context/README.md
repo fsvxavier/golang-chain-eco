@@ -1,5 +1,7 @@
 # agent_with_context
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 An agent that asks the project's context manager before it changes code, and so respects a decision nobody mentioned.
 
 ## What it does

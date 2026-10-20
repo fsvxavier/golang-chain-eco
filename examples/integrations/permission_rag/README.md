@@ -1,5 +1,7 @@
 # permission_rag
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A retriever that only returns documents the caller is allowed to read.
 
 ## What it does

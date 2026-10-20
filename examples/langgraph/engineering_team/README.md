@@ -1,5 +1,7 @@
 # engineering_team
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 An engineering organisation as one graph: a manager routes a request, a product owner specifies it, an architect assesses risk, a tech leader splits it into tasks, four engineers build in parallel, and every task passes code review and QA before delivery. All agents run in one process.
 
 ## What it does

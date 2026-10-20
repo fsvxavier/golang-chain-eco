@@ -1,5 +1,7 @@
 # llm_compiler
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A planner emits a DAG of tool calls; every call whose dependencies are done runs in parallel with `Send`, then a joiner builds the answer.
 
 ## What it does

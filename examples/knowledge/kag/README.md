@@ -1,5 +1,7 @@
 # kag
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 Multi-hop questions answered by walking a knowledge graph instead of retrieving the single best chunk.
 
 ## What it does

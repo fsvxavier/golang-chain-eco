@@ -1,5 +1,7 @@
 # reflection
 
+**English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
+
 A generator and a critic loop until the critic approves the draft.
 
 ## What it does
