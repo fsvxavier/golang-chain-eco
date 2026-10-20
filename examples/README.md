@@ -59,7 +59,7 @@ Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositóri
 
 ## langmem
 
-Memória de longo prazo do [LangMem](https://github.com/langchain-ai/langmem) integrada ao store e ao `agents.Create` (pacote [`langmem`](../langmem), referência em [docs/LANGMEM.md](../docs/LANGMEM.md)). Todos rodam offline com um modelo fake que fala o protocolo de tool calls do extrator.
+Memória de longo prazo do [LangMem](https://github.com/langchain-ai/langmem) integrada ao store e ao `agents.Create` (pacote [`langmem`](../langmem), referência em [docs/en-US/LANGMEM.md](../docs/en-US/LANGMEM.md)). Todos rodam offline com um modelo fake que fala o protocolo de tool calls do extrator.
 
 | Exemplo | Mostra | Origem |
 |---|---|---|
@@ -71,7 +71,7 @@ Memória de longo prazo do [LangMem](https://github.com/langchain-ai/langmem) in
 
 ## agentprotocol
 
-Servir agents pelo [Agent Protocol](https://github.com/langchain-ai/agent-protocol) (pacote [`agentprotocol`](../agentprotocol), referência em [docs/AGENT-PROTOCOL.md](../docs/AGENT-PROTOCOL.md)). Rodam offline (servidor `httptest` em processo).
+Servir agents pelo [Agent Protocol](https://github.com/langchain-ai/agent-protocol) (pacote [`agentprotocol`](../agentprotocol), referência em [docs/en-US/AGENT-PROTOCOL.md](../docs/en-US/AGENT-PROTOCOL.md)). Rodam offline (servidor `httptest` em processo).
 
 | Exemplo | Mostra | Origem |
 |---|---|---|
@@ -80,7 +80,7 @@ Servir agents pelo [Agent Protocol](https://github.com/langchain-ai/agent-protoc
 
 ## ciam
 
-Contexto cirúrgico para assistentes de IA (pacote [`ciam`](../ciam), referência em [docs/CIAM.md](../docs/CIAM.md)). Rodam offline com embeddings por hashing; com Ollama, use `providers/ollama.Embeddings`.
+Contexto cirúrgico para assistentes de IA (pacote [`ciam`](../ciam), referência em [docs/en-US/CIAM.md](../docs/en-US/CIAM.md)). Rodam offline com embeddings por hashing; com Ollama, use `providers/ollama.Embeddings`.
 
 | Exemplo | Mostra | Origem |
 |---|---|---|
@@ -89,7 +89,7 @@ Contexto cirúrgico para assistentes de IA (pacote [`ciam`](../ciam), referênci
 
 ## openswe
 
-Fábrica de software com agents (pacote [`openswe`](../openswe), referência em [docs/OPENSWE.md](../docs/OPENSWE.md)). Usam GitHub, Slack e Linear simulados ([`internal/fakegithub`](internal/fakegithub), [`internal/fakeslack`](internal/fakeslack), [`internal/fakelinear`](internal/fakelinear)), modelo roteirizado e git/sandbox reais em diretórios temporários.
+Fábrica de software com agents (pacote [`openswe`](../openswe), referência em [docs/en-US/OPENSWE.md](../docs/en-US/OPENSWE.md)). Usam GitHub, Slack e Linear simulados ([`internal/fakegithub`](internal/fakegithub), [`internal/fakeslack`](internal/fakeslack), [`internal/fakelinear`](internal/fakelinear)), modelo roteirizado e git/sandbox reais em diretórios temporários.
 
 | Exemplo | Mostra | Origem |
 |---|---|---|

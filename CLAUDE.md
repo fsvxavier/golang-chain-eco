@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Go port of the LangChain ecosystem (module `github.com/fsvxavier/golang-chain-eco`, Go 1.27). Docs and README are in pt-BR; keep that language when editing them. `_old/` and `.kilo/` are ignored reference material, not part of the build.
+Go port of the LangChain ecosystem (module `github.com/fsvxavier/golang-chain-eco`, Go 1.27). Docs (`docs/en-US/`, canonical) and README are written in English, with pt-BR and es-ES translations in `docs/pt-BR/`, `docs/es-ES/`, `README.pt-BR.md` and `README.es.md`; when editing a doc, update all three. `_old/` and `.kilo/` are ignored reference material, not part of the build.
 
 ## Commands
 
@@ -27,7 +27,7 @@ Integration tests for external services skip unless their env var is set (`REDIS
 
 - **Library code is stdlib-only.** No production package may import a third-party module. SQL drivers in `go.mod` are used only by tests under `internal/pgtest` and `internal/sqlitetest`.
 - Examples must run offline (fake model); a real provider is used only when `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` is set.
-- When adding a package or example, update the package map and counts in `README.md`, `docs/ARCHITECTURE.md`, `docs/manual/README.md` and `examples/README.md`.
+- When adding a package or example, update the package map and counts in `README.md`, `docs/en-US/ARCHITECTURE.md`, `docs/en-US/manual/README.md` and `examples/README.md`, and mirror the change in the pt-BR and es translations (`README.pt-BR.md`, `README.es.md`, `docs/pt-BR/`, `docs/es-ES/`).
 
 ## Architecture
 
