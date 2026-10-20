@@ -155,4 +155,4 @@ O módulo exige Go 1.27+ e o código de produção não importa dependências de
 
 ---
 
-Anterior: [13. Integrações](13-integracoes.md) · Próximo: [15. Exemplos e receitas](15-exemplos-e-receitas.md) · [Índice do manual](README.md)
+Anterior: [13. Integrações](13-integracoes.md) · Próximo: [15. Exemplos e receitas](15-exemplos-e-receitas.md) · [Índice do manual](README.pt-BR.md)

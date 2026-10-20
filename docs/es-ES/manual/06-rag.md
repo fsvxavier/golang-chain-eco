@@ -200,4 +200,4 @@ answer, _ := chain.Invoke(ctx, "¿Cuál es la política de reembolso?")
 
 ---
 
-Anterior: [5. Tools](05-tools.md) · Siguiente: [7. LangGraph: StateGraph](07-langgraph.md) · [Índice del manual](README.md)
+Anterior: [5. Tools](05-tools.md) · Siguiente: [7. LangGraph: StateGraph](07-langgraph.md) · [Índice del manual](README.es-ES.md)

@@ -1,6 +1,6 @@
 # Manual de uso — golang-chain-eco
 
-[English](../../en-US/manual/README.md) | [Português](../../pt-BR/manual/README.md) | **Español**
+[English](../../en-US/manual/README.md) | [Português](../../pt-BR/manual/README.pt-BR.md) | **Español**
 
 Manual completo para usar `golang-chain-eco`: un port en Go del ecosistema LangChain (langchain-core, LangGraph, `create_agent` con middleware, Deep Agents, cliente MCP, RemoteGraph y tracing).
 
@@ -47,8 +47,8 @@ Público: desarrolladores Go que quieren construir chains, agents y workflows co
 
 ## Documentos relacionados
 
-- [README del proyecto](../../../README.es.md) — visión general e inicio rápido
-- [Índice de `docs/`](../README.md) — todos los documentos de referencia, con una línea cada uno
+- [README del proyecto](../../../README.es-ES.md) — visión general e inicio rápido
+- [Índice de `docs/`](../README.es-ES.md) — todos los documentos de referencia, con una línea cada uno
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — decisiones de diseño
 - [AGENT-PROTOCOL.md](../AGENT-PROTOCOL.md), [CIAM.md](../CIAM.md) y [OPENSWE.md](../OPENSWE.md) — referencia de los paquetes `agentprotocol`, `ciam` y `openswe`
 - [KNOWLEDGE.md](../KNOWLEDGE.md) — referencia de los paquetes `knowledge`, `rag`, `cag` y `kag`
@@ -57,7 +57,7 @@ Público: desarrolladores Go que quieren construir chains, agents y workflows co
 - [DEV.md](../DEV.md) — servidor de desarrollo (`langgraph/dev`, `cmd/langgraph`)
 - [INTEGRATIONS.md](../INTEGRATIONS.md) — integraciones y nivel de verificación de cada una
 - [PROVIDERS.md](../PROVIDERS.md) y [PROVIDERS-ANALISE.md](../PROVIDERS-ANALISE.md) — cobertura de los 504 proveedores de LangChain
-- [examples/README.md](../../../examples/README.md) — índice de los ejemplos ejecutables
+- [examples/README.es-ES.md](../../../examples/README.es-ES.md) — índice de los ejemplos ejecutables
 
 ## Convenciones del manual
 

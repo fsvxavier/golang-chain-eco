@@ -18,6 +18,8 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/react_from_scratch   # with a 
 
 ## 15.2 Catalog (64 examples)
 
+Each example folder has a `README.md` (English), `README.pt-BR.md` and `README.es-ES.md` that explain what it does, how to apply the pattern, how to run it and how to test it in production mode.
+
 ### `examples/langchain`
 
 | Example | Shows |

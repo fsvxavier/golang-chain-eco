@@ -137,4 +137,4 @@ Publica el ingeniero y el revisor con el capítulo 17 (`agentprotocol`): `Option
 
 ---
 
-Anterior: [18. ciam](18-ciam-contexto.md) · Siguiente: [20. RAG, CAG y KAG](20-rag-cag-kag.md) · [Índice del manual](README.md)
+Anterior: [18. ciam](18-ciam-contexto.md) · Siguiente: [20. RAG, CAG y KAG](20-rag-cag-kag.md) · [Índice del manual](README.es-ES.md)

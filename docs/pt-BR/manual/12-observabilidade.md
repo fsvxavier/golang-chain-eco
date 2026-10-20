@@ -150,4 +150,4 @@ Para depurar a estrutura de um grafo, use `app.Mermaid()` e `app.GetStateHistory
 
 ---
 
-Anterior: [11. MCP, servidor e graphs remotos](11-mcp-remote-servidor.md) · Próximo: [13. Integrações](13-integracoes.md) · [Índice do manual](README.md)
+Anterior: [11. MCP, servidor e graphs remotos](11-mcp-remote-servidor.md) · Próximo: [13. Integrações](13-integracoes.md) · [Índice do manual](README.pt-BR.md)

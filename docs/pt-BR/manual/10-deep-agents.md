@@ -197,4 +197,4 @@ O agent ganha as tools `start`, `check`, `update`, `cancel` e `list` para dispar
 
 ---
 
-Anterior: [9. Agents e middleware](09-agents-e-middleware.md) · Próximo: [11. MCP, servidor e graphs remotos](11-mcp-remote-servidor.md) · [Índice do manual](README.md)
+Anterior: [9. Agents e middleware](09-agents-e-middleware.md) · Próximo: [11. MCP, servidor e graphs remotos](11-mcp-remote-servidor.md) · [Índice do manual](README.pt-BR.md)

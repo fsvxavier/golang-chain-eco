@@ -186,4 +186,4 @@ Para aprovechar la caché con un corpus grande, mira CAG en el [capítulo 20](20
 
 ---
 
-Anterior: [2. Conceptos fundamentales](02-conceitos.md) · Siguiente: [4. Prompts, chains y parsers](04-chains-prompts-parsers.md) · [Índice del manual](README.md)
+Anterior: [2. Conceptos fundamentales](02-conceitos.md) · Siguiente: [4. Prompts, chains y parsers](04-chains-prompts-parsers.md) · [Índice del manual](README.es-ES.md)

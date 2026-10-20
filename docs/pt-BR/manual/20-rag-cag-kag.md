@@ -164,4 +164,4 @@ go run ./cmd/knowledge ask "Quem se relaciona com o contrato Y?"
 
 ---
 
-Anterior: [19. Open SWE](19-open-swe.md) · [Índice do manual](README.md)
+Anterior: [19. Open SWE](19-open-swe.md) · [Índice do manual](README.pt-BR.md)

@@ -1,8 +1,8 @@
 # Documentação
 
-[English](../en-US/README.md) | **Português** | [Español](../es-ES/README.md)
+[English](../en-US/README.md) | **Português** | [Español](../es-ES/README.es-ES.md)
 
-Ponto de partida para tudo que está em `docs/`. O guia de uso passo a passo é o [manual](manual/README.md); os demais arquivos são referência de um pacote ou de uma decisão.
+Ponto de partida para tudo que está em `docs/`. O guia de uso passo a passo é o [manual](manual/README.pt-BR.md); os demais arquivos são referência de um pacote ou de uma decisão.
 
 ## Por onde começar
 
@@ -12,12 +12,12 @@ Ponto de partida para tudo que está em `docs/`. O guia de uso passo a passo é 
 | Entender as camadas e os tipos centrais | [Manual, capítulo 2](manual/02-conceitos.md) e [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Dar conhecimento a um modelo (RAG, cache de prompt, grafo) | [Manual, capítulo 20](manual/20-rag-cag-kag.md) e [KNOWLEDGE.md](KNOWLEDGE.md) |
 | Levar para produção | [Manual, capítulo 14](manual/14-producao-seguranca-troubleshooting.md) |
-| Achar um exemplo pronto | [Manual, capítulo 15](manual/15-exemplos-e-receitas.md) e [examples/README.md](../../examples/README.md) |
+| Achar um exemplo pronto | [Manual, capítulo 15](manual/15-exemplos-e-receitas.md) e [examples/README.pt-BR.md](../../examples/README.pt-BR.md) |
 | Saber se um provedor ou banco é suportado | [INTEGRATIONS.md](INTEGRATIONS.md) e [PROVIDERS.md](PROVIDERS.md) |
 
 ## Manual (guia de uso)
 
-O [índice do manual](manual/README.md) tem os 20 capítulos, de instalação a RAG/CAG/KAG, com o caminho de leitura sugerido para cada objetivo.
+O [índice do manual](manual/README.pt-BR.md) tem os 20 capítulos, de instalação a RAG/CAG/KAG, com o caminho de leitura sugerido para cada objetivo.
 
 ## Referência por pacote
 
@@ -46,6 +46,6 @@ O [índice do manual](manual/README.md) tem os 20 capítulos, de instalação a 
 
 ## Convenções
 
-- Texto em português do Brasil; identificadores e comentários de código em inglês. `ARCHITECTURE.md` é a exceção e está em inglês.
+- Texto em português do Brasil; identificadores e comentários de código em inglês. Os READMEs seguem a mesma regra pelo nome do arquivo: `README.md` (inglês), `README.pt-BR.md` e `README.es-ES.md`; cada pasta de exemplo tem os três. `ARCHITECTURE.md` é a exceção e está em inglês.
 - Trechos de código dos manuais são mínimos e seguem a API real; para o uso exato, os `*_test.go` de cada pacote e os programas em `examples/` são a fonte.
-- Contagens (pacotes, exemplos, provedores) mudam com o código: confira `examples/README.md` e `PROVIDERS.md` para os números atuais.
+- Contagens (pacotes, exemplos, provedores) mudam com o código: confira `examples/README.pt-BR.md` e `PROVIDERS.md` para os números atuais.

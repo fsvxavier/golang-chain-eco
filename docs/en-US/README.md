@@ -1,6 +1,6 @@
 # Documentation
 
-**English** | [Português](../pt-BR/README.md) | [Español](../es-ES/README.md)
+**English** | [Português](../pt-BR/README.pt-BR.md) | [Español](../es-ES/README.es-ES.md)
 
 Starting point for everything in `docs/`. The step-by-step usage guide is the [manual](manual/README.md); the other files are reference for a package or a decision.
 
@@ -46,6 +46,6 @@ The [manual index](manual/README.md) has the 20 chapters, from installation to R
 
 ## Conventions
 
-- Documents are written in English, the canonical language; translations to Brazilian Portuguese (`docs/pt-BR/`) and Spanish (`docs/es-ES/`) mirror this structure. Identifiers and code comments are in English.
+- Documents are written in English, the canonical language; translations to Brazilian Portuguese (`docs/pt-BR/`) and Spanish (`docs/es-ES/`) mirror this structure. Identifiers and code comments are in English. READMEs follow the same rule by file name: `README.md` (English), `README.pt-BR.md` and `README.es-ES.md`; every example folder has all three.
 - Code snippets in the manuals are minimal and follow the real API; for exact usage, the `*_test.go` files of each package and the programs in `examples/` are the source of truth.
 - Counts (packages, examples, providers) change with the code: check `examples/README.md` and `PROVIDERS.md` for the current numbers.

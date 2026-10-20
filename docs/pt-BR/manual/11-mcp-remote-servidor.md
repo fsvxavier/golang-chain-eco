@@ -158,4 +158,4 @@ Para a **API aberta do Agent Protocol** (agents, threads, runs, store e streamin
 
 ---
 
-Anterior: [10. Deep Agents](10-deep-agents.md) · Próximo: [12. Observabilidade](12-observabilidade.md) · [Índice do manual](README.md)
+Anterior: [10. Deep Agents](10-deep-agents.md) · Próximo: [12. Observabilidade](12-observabilidade.md) · [Índice do manual](README.pt-BR.md)
