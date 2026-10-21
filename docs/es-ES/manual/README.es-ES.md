@@ -26,7 +26,7 @@ Público: desarrolladores Go que quieren construir chains, agents y workflows co
 |---|---|---|
 | 1 | [Introducción e instalación](01-introducao-e-instalacao.md) | Requisitos, instalación, primer agent, variables de entorno, ejecución offline |
 | 2 | [Conceptos fundamentales](02-conceitos.md) | Capas, `Runnable`, mensajes, estado, canales, contexto y configuración |
-| 3 | [Modelos y proveedores](03-modelos-e-provedores.md) | `chatmodels.Init`, proveedores nativos y compatibles, embeddings, caché, rate limit, modelo fake |
+| 3 | [Modelos y proveedores](03-modelos-e-provedores.md) | `chatmodels.Init`, proveedores nativos y compatibles, router entre gateways, embeddings, caché, rate limit, modelo fake |
 | 4 | [Prompts, chains y parsers](04-chains-prompts-parsers.md) | Plantillas, `Pipe`, combinadores, retry, fallbacks, salida estructurada, historial de chat |
 | 5 | [Tools](05-tools.md) | Crear tools tipadas, schema, errores, tools terminales, artefactos, `Command` |
 | 6 | [RAG](06-rag.md) | Loaders, splitters, embeddings, vector stores, retrievers, RAG agéntico |
