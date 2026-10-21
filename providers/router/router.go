@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"math"
 	"math/rand/v2"
 	"strings"
 	"sync/atomic"
@@ -78,6 +79,9 @@ func New(targets []Target, cfg Config) (*Router, error) {
 		if !names[name] {
 			return nil, fmt.Errorf("router: weight for unknown target %q", name)
 		}
+		if math.IsNaN(w) || math.IsInf(w, 0) {
+			return nil, fmt.Errorf("router: non-finite weight for target %q", name)
+		}
 		if w < 0 {
 			return nil, fmt.Errorf("router: negative weight for target %q", name)
 		}
@@ -142,7 +146,7 @@ func (r *Router) Stream(ctx context.Context, msgs []messages.Message, opts ...mo
 				return
 			}
 			in := msgs
-			if text.Len() > 0 {
+			if strings.TrimSpace(text.String()) != "" {
 				in = withContinuation(msgs, text.String())
 			}
 			toolSeen, stopped, err := r.streamAttempt(ctx, r.targets[i].Model, in, opts, &text, yield)

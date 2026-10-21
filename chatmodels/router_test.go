@@ -82,6 +82,9 @@ func TestRouterInitErrors(t *testing.T) {
 		{"empty model", "router:", map[string]string{"ROUTER_TARGETS": "omniroute", "OMNIROUTE_BASE_URL": "http://x"}, "omniroute"},
 		{"weights unknown name", "router:m", map[string]string{"ROUTER_TARGETS": "omniroute", "OMNIROUTE_BASE_URL": "http://x", "ROUTER_WEIGHTS": "omniroute:1,ghost:2"}, "ROUTER_WEIGHTS: \"ghost\""},
 		{"weights duplicate name", "router:m", map[string]string{"ROUTER_TARGETS": "omniroute", "OMNIROUTE_BASE_URL": "http://x", "ROUTER_WEIGHTS": "omniroute:1,OMNIROUTE:2"}, "ROUTER_WEIGHTS: duplicate"},
+		{"weights without weighted mode", "router:m", map[string]string{"ROUTER_TARGETS": "omniroute", "OMNIROUTE_BASE_URL": "http://x", "ROUTER_WEIGHTS": "omniroute:1"}, "ROUTER_MODE=weighted"},
+		{"base url without scheme", "router:m", map[string]string{"ROUTER_TARGETS": "omniroute", "OMNIROUTE_BASE_URL": "localhost:8080/v1"}, "OMNIROUTE_BASE_URL"},
+		{"base url garbage", "router:m", map[string]string{"ROUTER_TARGETS": "omniroute", "OMNIROUTE_BASE_URL": "not a url"}, "OMNIROUTE_BASE_URL"},
 		{"duplicate names", "router:m", map[string]string{"ROUTER_TARGETS": "omni,OMNI", "OMNI_BASE_URL": "http://x"}, "duplicate"},
 	}
 	for _, c := range cases {
@@ -247,6 +250,7 @@ func TestRouterModesAndTimeoutInit(t *testing.T) {
 		{"ROUTER_MODE": "round_robin"},
 		{"ROUTER_MODE": "weighted", "ROUTER_WEIGHTS": "gw-a:3,gw-b:1"},
 		{"ROUTER_TIMEOUT": "2s"},
+		{"ROUTER_MODE": " Round_Robin\r", "ROUTER_TIMEOUT": "30s\r"},
 	} {
 		clearRouterEnv(t)
 		t.Setenv("ROUTER_TARGETS", "gw-a,gw-b")

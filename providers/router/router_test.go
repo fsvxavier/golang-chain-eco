@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -880,6 +881,61 @@ func TestStreamStallBeforeFirstChunkFailsOver(t *testing.T) {
 	}
 	if !reflect.DeepEqual(texts, []string{"y"}) {
 		t.Errorf("chunks = %q, want [y]", texts)
+	}
+	if !reflect.DeepEqual(b.msgs, history) {
+		t.Errorf("b msgs = %v, want original %v", b.msgs, history)
+	}
+}
+
+func twoBlocking() (*stub, *stub, *Router) {
+	a := &stub{name: "a", block: true}
+	b := &stub{name: "b", reply: "ok", block: true}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 500 * time.Millisecond})
+	return a, b, r
+}
+
+func TestGenerateCallerDeadlineDuringAttempt(t *testing.T) {
+	_, b, r := twoBlocking()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, err := r.Generate(ctx, nil)
+	if !errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "all targets") {
+		t.Fatalf("err = %v, want bare DeadlineExceeded", err)
+	}
+	if b.calls.Load() != 0 {
+		t.Errorf("second target called %d times, want 0", b.calls.Load())
+	}
+}
+
+func TestStreamCallerDeadlineDuringAttempt(t *testing.T) {
+	_, b, r := twoBlocking()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, err := drain(r.Stream(ctx, nil))
+	if !errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "all targets") {
+		t.Fatalf("err = %v, want bare DeadlineExceeded", err)
+	}
+	if b.calls.Load() != 0 {
+		t.Errorf("second target called %d times, want 0", b.calls.Load())
+	}
+}
+
+func TestNewRejectsNonFiniteWeight(t *testing.T) {
+	for _, w := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		_, err := New([]Target{{Name: "a", Model: &stub{name: "a"}}}, Config{Weights: map[string]float64{"a": w}})
+		if err == nil || !strings.Contains(err.Error(), `"a"`) {
+			t.Errorf("weight %v: err = %v, want error naming a", w, err)
+		}
+	}
+}
+
+func TestStreamWhitespaceOnlyPartialNotContinued(t *testing.T) {
+	history := []messages.Message{messages.Human("hi")}
+	a := &stub{name: "a", chunks: []string{"  \n"}, streamErrAfter: 1, streamErr: status(503)}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	if _, err := drain(r.Stream(context.Background(), history)); err != nil {
+		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.msgs, history) {
 		t.Errorf("b msgs = %v, want original %v", b.msgs, history)

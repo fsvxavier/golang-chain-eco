@@ -3,6 +3,7 @@ package chatmodels
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -37,6 +38,9 @@ func newRouter(model string, defaults ...models.Option) (models.ChatModel, error
 	weights, err := routerWeights(names)
 	if err != nil {
 		return nil, err
+	}
+	if len(weights) > 0 && mode != router.ModeWeighted {
+		return nil, fmt.Errorf("chatmodels: ROUTER_WEIGHTS needs ROUTER_MODE=weighted")
 	}
 	timeout, err := routerTimeout()
 	if err != nil {
@@ -80,15 +84,33 @@ func routerTarget(name, model string, defaults []models.Option) (models.ChatMode
 		return Init(name+":"+m, defaults...)
 	}
 	if base := OpenAICompatible[name]; base != "" {
+		if err := checkBaseURL(env, os.Getenv(env+"_BASE_URL")); err != nil {
+			return nil, err
+		}
 		return Init(name+":"+m, defaults...)
 	}
 	base := os.Getenv(env + "_BASE_URL")
 	if base == "" {
 		return nil, fmt.Errorf("chatmodels: router target %q needs $%s_BASE_URL", name, env)
 	}
+	if err := checkBaseURL(env, base); err != nil {
+		return nil, err
+	}
 	c := openai.New(m, defaults...)
 	c.BaseURL, c.APIKey = base, os.Getenv(env+"_API_KEY")
 	return c, nil
+}
+
+// checkBaseURL requires an http(s) URL with a host; empty is accepted (unset).
+func checkBaseURL(env, base string) error {
+	if base == "" {
+		return nil
+	}
+	u, err := url.Parse(base)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("chatmodels: $%s_BASE_URL: want an http(s) URL with a host, such as https://gateway.example/v1", env)
+	}
+	return nil
 }
 
 // envName upper-cases a target name and maps every byte outside [A-Z0-9] to
@@ -107,7 +129,7 @@ func envName(name string) string {
 }
 
 func routerMode() (router.Mode, error) {
-	switch m := router.Mode(os.Getenv("ROUTER_MODE")); m {
+	switch m := router.Mode(strings.ToLower(strings.TrimSpace(os.Getenv("ROUTER_MODE")))); m {
 	case "", router.ModeFailover:
 		return router.ModeFailover, nil
 	case router.ModeRoundRobin, router.ModeRandom, router.ModeWeighted:
@@ -144,7 +166,7 @@ func routerWeights(targets []string) (map[string]float64, error) {
 }
 
 func routerTimeout() (time.Duration, error) {
-	raw := os.Getenv("ROUTER_TIMEOUT")
+	raw := strings.TrimSpace(os.Getenv("ROUTER_TIMEOUT"))
 	if raw == "" {
 		return 0, nil
 	}
