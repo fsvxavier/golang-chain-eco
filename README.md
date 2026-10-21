@@ -94,6 +94,7 @@ go test -race ./...
 | `core/chathistory` | Chat history (memory, file, store) | `ChatMessageHistory` |
 | `chatmodels` | `Init("anthropic:claude-...")` | `init_chat_model` |
 | `providers/{openai,anthropic,ollama}` | HTTP clients, SSE streaming, tools, embeddings | `langchain-openai` etc. |
+| `providers/router` | Failover / round-robin / weighted chat model over several providers and gateways (`router:<model>`) | — |
 | `langgraph/graph` | `StateGraph`, Pregel runtime, `Command`, `Send`, `Interrupt`, durability, optional typed state (`NewTyped[T]`) | `langgraph` |
 | `langgraph/channels` | State channels and reducers | `langgraph.channels` |
 | `langgraph/checkpoint` | `Saver` and `Memory` (with subgraph namespaces), JSON serde | `langgraph.checkpoint` |

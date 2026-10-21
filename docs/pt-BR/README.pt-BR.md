@@ -37,6 +37,7 @@ O [índice do manual](manual/README.pt-BR.md) tem os 20 capítulos, de instalaç
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Camadas, decisões de design e como os pacotes se apoiam (em inglês) |
 | [INTEGRATIONS.md](INTEGRATIONS.md) | O que cada integração cobre, como foi verificada e como testar contra serviços reais |
+| [Manuais de integração](../integrations/pt-BR/README.md) | Router com freellmapi, omniroute e bifrost; clientes MCP (VS Code, Claude Code, Kilo Code, Copilot CLI, Opencode, Cursor) |
 | [PROVIDERS.md](PROVIDERS.md) | Matriz dos 504 provedores da LangChain: o que existe e o que não |
 | [PROVIDERS-ANALISE.md](PROVIDERS-ANALISE.md) | Análise dos provedores que faltam e por que |
 

@@ -26,7 +26,7 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 |---|---|---|
 | 1 | [Introdução e instalação](01-introducao-e-instalacao.md) | Requisitos, instalação, primeiro agent, variáveis de ambiente, rodando offline |
 | 2 | [Conceitos fundamentais](02-conceitos.md) | Camadas, `Runnable`, mensagens, estado, canais, contexto e configuração |
-| 3 | [Modelos e provedores](03-modelos-e-provedores.md) | `chatmodels.Init`, provedores nativos e compatíveis, embeddings, cache, rate limit, modelo fake |
+| 3 | [Modelos e provedores](03-modelos-e-provedores.md) | `chatmodels.Init`, provedores nativos e compatíveis, router entre gateways, embeddings, cache, rate limit, modelo fake |
 | 4 | [Prompts, chains e parsers](04-chains-prompts-parsers.md) | Templates, `Pipe`, combinadores, retry, fallbacks, saída estruturada, histórico de chat |
 | 5 | [Tools](05-tools.md) | Criar tools tipadas, schema, erros, tools terminais, artefatos, `Command` |
 | 6 | [RAG](06-rag.md) | Loaders, splitters, embeddings, vector stores, retrievers, RAG agêntico |
@@ -56,6 +56,7 @@ Público: desenvolvedores Go que querem construir chains, agents e workflows com
 - [EVALS.md](../EVALS.md) — avaliação offline de agents e chains (`evals`)
 - [DEV.md](../DEV.md) — servidor de desenvolvimento (`langgraph/dev`, `cmd/langgraph`)
 - [INTEGRATIONS.md](../INTEGRATIONS.md) — integrações e nível de verificação de cada uma
+- [Manuais de integração](../../integrations/pt-BR/README.md) — router com vários gateways e clientes MCP
 - [PROVIDERS.md](../PROVIDERS.md) e [PROVIDERS-ANALISE.md](../PROVIDERS-ANALISE.md) — cobertura dos 504 provedores da LangChain
 - [examples/README.pt-BR.md](../../../examples/README.pt-BR.md) — índice dos exemplos executáveis
 

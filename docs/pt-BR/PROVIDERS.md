@@ -28,6 +28,47 @@ sem API pública estável para portar com fidelidade.
 - **Busca, ferramentas e loaders:** Tavily, Exa Search, You.com, LinkUp, SearchApi, SerpApi, Apify, Stack Overflow, Reddit, Hacker News, arXiv, OpenAlexSearch, Firecrawl, Unstructured, ScraperAPI, ScrapingBee, Brightdata, Diffbot, Tigris, XNS, SpiceDB, Jenkins, Kubernetes, AG-UI Protocol, Graph RAG, Zotero, YouTube, Perigon, Oxylabs, Permit, Salesforce, Plivo (`integrations/search`, `integrations/loaders`).
 - **Observabilidade:** LangFuse (`tracing/langfuse`); Datadog, MLflow Tracking e OpenInference aceitam OTLP (`tracing/otlp`, não testado nesses destinos).
 
+### Router
+
+`router:<model>` (`providers/router`, via `chatmodels.Init`) envia cada chamada a uma lista ordenada de destinos e passa ao próximo em erro recuperável. Os destinos vêm do ambiente:
+
+| Variável | Significado |
+|---|---|
+| `ROUTER_TARGETS` | Nomes dos destinos em ordem, separados por vírgula (obrigatória). `anthropic` e `openai` são nativos e exigem `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; qualquer outro nome é um gateway OpenAI-compatível. Nomes da lista OpenAI-compatível embutida que têm URL padrão (por exemplo `groq`, `openrouter`) usam essa URL e não exigem `<NAME>_BASE_URL` (a variável ainda a sobrescreve); todos os outros nomes exigem `<NAME>_BASE_URL` (opcional `<NAME>_API_KEY`). |
+| `ROUTER_MODE` | `failover` (padrão), `round_robin`, `random` ou `weighted`: como o primeiro destino de cada chamada é escolhido; os demais seguem na ordem da lista. |
+| `ROUTER_WEIGHTS` | `nome:peso,...` para `weighted`. Ausente = 1, 0 = nunca é o primeiro. |
+| `ROUTER_MODEL_<NAME>` | Modelo de um destino; senão usa-se o modelo depois de `router:`. |
+| `ROUTER_TIMEOUT` | Duração como `30s`. `Generate`: a chamada inteira. `Stream`: timeout de inatividade (primeiro chunk e cada intervalo entre chunks). |
+
+`ROUTER_MODE` é aparado e não diferencia maiúsculas (`" Round_Robin\r"` funciona), assim como `ROUTER_TIMEOUT`. `ROUTER_WEIGHTS` exige `ROUTER_MODE=weighted`. A URL base de cada gateway deve ser uma URL `http(s)` com host.
+
+Exemplo: três gateways locais e os dois provedores nativos como último recurso.
+
+```bash
+export ROUTER_TARGETS=freellmapi,omniroute,bifrost,anthropic,openai
+export ROUTER_MODE=failover
+export FREELLMAPI_BASE_URL=http://localhost:PORT/v1
+export OMNIROUTE_BASE_URL=http://localhost:PORT/v1
+export BIFROST_BASE_URL=http://localhost:PORT/v1
+export FREELLMAPI_API_KEY=...
+export OMNIROUTE_API_KEY=...
+export BIFROST_API_KEY=...
+export ANTHROPIC_API_KEY=...
+export OPENAI_API_KEY=...
+export ROUTER_MODEL_ANTHROPIC=claude-sonnet-4-5
+export ROUTER_TIMEOUT=60s
+```
+
+```go
+m, err := chatmodels.Init("router:gpt-4o-mini") // same model on every target unless ROUTER_MODEL_<NAME> overrides it
+resp, err := m.Generate(ctx, msgs)
+```
+
+- **Recuperáveis** (próximo destino): erros de rede, timeouts, HTTP 408, 425, 429 e 5xx. **Finais** (devolvidos na hora): 400, 401, 403, 404 e demais 4xx, e cancelamento do `ctx` do chamador.
+- Todo destino recebe as mesmas mensagens completas e opções, então o contexto é mantido no failover.
+- Streaming: falha antes de qualquer texto passa ao próximo destino com as mensagens originais. Falha depois de texto (sem tool call) envia ao próximo destino as mensagens originais, o texto parcial do assistente e uma mensagem de usuário "continue"; o chamador vê uma resposta contínua (a qualidade depende do modelo). Uma tool call parcial não pode ser continuada: o erro é devolvido.
+- O contador do `round_robin` pertence a uma instância do router (uma chamada a `Init`), então um processo por agente gira de forma independente.
+
 Os gateways Helicone e Portkey funcionam como provedores OpenAI-compatíveis (proxy). Ver também [INTEGRATIONS.md](INTEGRATIONS.md).
 
 ## Não implementados (368)

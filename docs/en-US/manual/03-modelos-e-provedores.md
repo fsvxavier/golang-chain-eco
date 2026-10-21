@@ -114,6 +114,32 @@ resp, err := local.Generate(ctx, msgs)
 
 For Azure OpenAI there is `openai.Azure`. IBM watsonx.ai reuses the same client with `Path`, `StreamPath`, `Query`, `TokenFunc` (per-request token) and `Rewrite` (edits the body).
 
+### 3.6.1 Router across gateways
+
+To spread calls over several gateways and providers, use `router:<model>`. The environment decides the targets, the order and how the first one is picked:
+
+```bash
+export ROUTER_TARGETS=freellmapi,omniroute,bifrost,anthropic,openai
+export ROUTER_MODE=failover
+export FREELLMAPI_BASE_URL=http://localhost:PORT/v1
+export OMNIROUTE_BASE_URL=http://localhost:PORT/v1
+export BIFROST_BASE_URL=http://localhost:PORT/v1
+export FREELLMAPI_API_KEY=...
+export OMNIROUTE_API_KEY=...
+export BIFROST_API_KEY=...
+export ANTHROPIC_API_KEY=...
+export OPENAI_API_KEY=...
+export ROUTER_MODEL_ANTHROPIC=claude-sonnet-4-5
+export ROUTER_TIMEOUT=60s
+```
+
+```go
+m, err := chatmodels.Init("router:gpt-4o-mini") // same model on every target unless ROUTER_MODEL_<NAME> overrides it
+resp, err := m.Generate(ctx, msgs)
+```
+
+Retry rules and streaming continuation are the same as in [PROVIDERS.md](../PROVIDERS.md#router).
+
 ## 3.7 Utilities that wrap any model
 
 ```go

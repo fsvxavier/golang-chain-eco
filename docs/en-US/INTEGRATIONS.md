@@ -13,6 +13,7 @@ Permit, Salesforce, AWS Kendra/Knowledge Bases/Lambda, SMS Plivo/Telnyx, paid se
 public documentation; they may diverge from the real service. No test in the standard suite calls the network: the real-service tests skip themselves.
 
 See also the usage in the [README](../../README.md).
+Manuals for the router with several gateways and for MCP clients (VS Code, Claude Code, Kilo Code, Copilot CLI, Opencode, Cursor): [docs/integrations](../integrations/en-US/README.md).
 
 ## Chat models and embeddings (`chatmodels`, `providers/*`)
 

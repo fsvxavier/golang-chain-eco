@@ -91,6 +91,7 @@ todo list, PII scrubbing, human-in-the-loop.
   `vectorstore.Backend` (`Upsert`, `Query`, `Delete`; `vectorstore.New(embedder, backend)` adds
   embedding, filters and MMR), `checkpoint.Saver` (4 methods), `store.Store`, `retrievers.Retriever`,
   `backends.Backend` / `backends.Executor` for Deep Agents.
+* **Router.** `providers/router` is a `ChatModel` over an ordered list of targets (native providers or OpenAI-compatible gateways) with failover on retryable errors, round-robin/random/weighted entry, and streaming continuation; `chatmodels.Init("router:<model>")` builds it from `ROUTER_*` variables.
 * **No SDKs.** HTTP/JSON services use `net/http`; the wire protocols that had no HTTP form are implemented
   directly with the standard library: RESP (Redis), MongoDB OP_MSG + BSON + SCRAM-SHA-256, Bolt/PackStream
   (Memgraph), the Kubernetes exec WebSocket, Digest auth (Infinispan) and AWS SigV4 (`providers/bedrock.Sign`,

@@ -91,6 +91,7 @@ subagents via `task` + sumarização + memória opcional (`AGENTS.md`), skills
   `vectorstore.Backend` (`Upsert`, `Query`, `Delete`; `vectorstore.New(embedder, backend)` adiciona
   embedding, filtros e MMR), `checkpoint.Saver` (4 métodos), `store.Store`, `retrievers.Retriever`,
   `backends.Backend` / `backends.Executor` para o Deep Agents.
+* **Router.** `providers/router` é um `ChatModel` sobre uma lista ordenada de destinos (provedores nativos ou gateways OpenAI-compatíveis) com failover em erros recuperáveis, entrada round-robin/random/ponderada e continuação de streaming; `chatmodels.Init("router:<model>")` o monta a partir das variáveis `ROUTER_*`.
 * **Sem SDKs.** Serviços HTTP/JSON usam `net/http`; os protocolos de fio que não tinham forma HTTP são
   implementados diretamente com a stdlib: RESP (Redis), MongoDB OP_MSG + BSON + SCRAM-SHA-256, Bolt/PackStream
   (Memgraph), o WebSocket de exec do Kubernetes, autenticação Digest (Infinispan) e AWS SigV4 (`providers/bedrock.Sign`,
