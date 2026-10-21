@@ -4,7 +4,7 @@
 
 Responde as perguntas de histórico e de shell com um modelo Laya dentro do próprio processo, por meio de `laya-go` e `compress.Decider`. Sem suporte nativo, cai nas regras, então o exemplo sempre roda.
 
-Este é um módulo Go próprio (`replace github.com/fsvxavier/golang-chain-eco => ../../..`). Seu `go.mod` exige `github.com/metalagman/laya-go`; o `go.mod` da raiz também o exige, para `full_team/native` (atrás da tag `laya_native`).
+Usa o `go.mod` da raiz, que exige `github.com/metalagman/laya-go`. Só a build tag `laya_native` compila esse import; sem ela, `go build ./...` não precisa de cgo.
 
 ## O que faz
 

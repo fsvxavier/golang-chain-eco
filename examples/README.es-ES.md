@@ -54,7 +54,7 @@ Los grupos `langchain`, `langgraph` y `deepagents` se portaron de los repositori
 | `langgraph/compress_toon` | resultado JSON de herramienta en TOON, tamaños antes y después, fallback `TOONShorter` | propio |
 | `langgraph/compress_ponytail` | nota Ponytail por nivel tal como la recibe el modelo; system prompt intacto | propio |
 | `langgraph/decider_laya_http` | `HTTPDecider` contra `laya-serve` (servidor falso offline) | propio |
-| `langgraph/decider_laya_native` | decider laya-go nativo, módulo separado, tag `laya_native` | propio |
+| `langgraph/decider_laya_native` | decider laya-go nativo, tag `laya_native` | propio |
 | `langgraph/full_team` | el equipo independiente con compresión de llamadas; decider y modelo falsos por defecto | propio |
 
 ## deepagents

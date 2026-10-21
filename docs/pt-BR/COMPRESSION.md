@@ -3,7 +3,7 @@
 [English](../en-US/COMPRESSION.md) | **Português** | [Español](../es-ES/COMPRESSION.md)
 
 Referência do pacote `compress`, do middleware `Compression` em `agents/middleware` e do hook `backends.LocalShell.Rewrite`.
-O código da biblioteca usa só a biblioteca padrão. O `go.mod` da raiz exige o laya-go para o decider nativo de Laya, mas só a build tag `laya_native` o compila. `examples/langgraph/decider_laya_native` é um módulo Go separado.
+O código da biblioteca usa só a biblioteca padrão. O `go.mod` da raiz exige o laya-go para o decider nativo de Laya, mas só a build tag `laya_native` o compila. `examples/langgraph/decider_laya_native` e `examples/langgraph/full_team/native` são pacotes do módulo raiz.
 
 ## A ideia
 
@@ -149,9 +149,9 @@ O exemplo `decider_laya_http` roda offline contra um servidor falso em processo.
 
 ## Laya nativo (laya-go)
 
-`github.com/metalagman/laya-go` v0.2.6 roda o modelo em processo. Precisa de cgo e ONNX Runtime. O `go.mod` da raiz o exige, mas ele só é compilado com a build tag `laya_native`, em `examples/langgraph/full_team/native`, um pacote do módulo raiz. Qualificação: **linux/amd64, somente FP32**. Entrada maior que a janela do modelo devolve `ErrInputTooLong`, a menos que o truncamento esteja ligado.
+`github.com/metalagman/laya-go` v0.2.6 roda o modelo em processo. Precisa de cgo e ONNX Runtime. O `go.mod` da raiz o exige, mas ele só é compilado com a build tag `laya_native`, em `examples/langgraph/decider_laya_native` e `examples/langgraph/full_team/native`, pacotes do módulo raiz. Qualificação: **linux/amd64, somente FP32**. Entrada maior que a janela do modelo devolve `ErrInputTooLong`, a menos que o truncamento esteja ligado.
 
-Exemplo: `examples/langgraph/decider_laya_native` é um módulo Go separado (com `go.mod` próprio e `replace` para a raiz do repositório). Sem a tag ou sem `LAYA_BUNDLE_DIR`, ele informa o motivo e usa `RuleDecider`. Sem a tag, `go build ./...` não compila o laya-go e não precisa de cgo.
+Exemplo: `examples/langgraph/decider_laya_native` é um pacote do módulo raiz. Sem a tag ou sem `LAYA_BUNDLE_DIR`, ele informa o motivo e usa `RuleDecider`. Sem a tag, `go build ./...` não compila o laya-go e não precisa de cgo.
 
 ## JEV (planejado)
 
@@ -170,7 +170,7 @@ Todos rodam offline com um modelo falso, a menos que um serviço real esteja con
 | `langgraph/compress_toon` | um resultado JSON de 20 linhas, sua forma TOON, tamanhos antes e depois, e o fallback `TOONShorter` para um objeto pequeno |
 | `langgraph/compress_ponytail` | a nota Ponytail que o modelo recebe em cada nível, e a prova de que o prompt de sistema não muda |
 | `langgraph/decider_laya_http` | `HTTPDecider` contra o `laya-serve` (servidor falso offline) |
-| `langgraph/decider_laya_native` | laya-go nativo, módulo separado, tag `laya_native` |
+| `langgraph/decider_laya_native` | laya-go nativo, módulo raiz, tag `laya_native` |
 | `langgraph/full_team` | o time de `independent_engineering_team` com compressão de chamadas; decider e modelo falsos por padrão. Com `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY`, a ferramenta de shell oferece só `ls`, `grep` e `echo` |
 
-Teste em modo de produção: configure a URL real do decider ou o bundle nativo, e rode `go test -race -count=1` no módulo do exemplo.
+Teste em modo de produção: configure a URL real do decider ou o bundle nativo, e rode `go test -race -count=1` como de costume.

@@ -104,7 +104,7 @@ go test -race ./...
 | `langgraph/functional` | `Entrypoint` e `Task` | `@entrypoint` / `@task` |
 | `agents`, `agents/middleware` | `agents.Create` + middlewares prontos | `create_agent` |
 | `deepagents` (+ `backends`, `middleware`) | Agent com planejamento, filesystem virtual, subagents | `deepagents` |
-| `compress` | Compressão de chamadas: `Summary`, `RuleDecider`, fallback `Guarded`, `HTTPDecider` (servidor Laya), compressor de texto Caveman, diretiva Ponytail, codificador TOON para resultados JSON de ferramentas e roteamento de shell pelo RTK; `middleware.Compression` em `agents/middleware`; laya-go compilado só com a tag `laya_native` (`full_team/native`), e `decider_laya_native` como módulo próprio ([docs/pt-BR/COMPRESSION.md](docs/pt-BR/COMPRESSION.md)) | — |
+| `compress` | Compressão de chamadas: `Summary`, `RuleDecider`, fallback `Guarded`, `HTTPDecider` (servidor Laya), compressor de texto Caveman, diretiva Ponytail, codificador TOON para resultados JSON de ferramentas e roteamento de shell pelo RTK; `middleware.Compression` em `agents/middleware`; laya-go compilado só com a tag `laya_native` (`full_team/native` e `decider_laya_native`) ([docs/pt-BR/COMPRESSION.md](docs/pt-BR/COMPRESSION.md)) | — |
 | `mcp` | Cliente MCP (stdio e HTTP) | `langchain-mcp-adapters` |
 | `remote` | Cliente do Agent Server e `RemoteGraph` | `langgraph_sdk` |
 | `tracing/{langsmith,langfuse,otlp}` | Envio de runs ao LangSmith, Langfuse e OpenTelemetry | tracers |

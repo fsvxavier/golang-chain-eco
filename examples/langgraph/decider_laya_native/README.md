@@ -4,7 +4,7 @@
 
 Answers the history and shell questions with an in-process Laya model, through `laya-go` and `compress.Decider`. Without native support it falls back to the rules, so the example always runs.
 
-This is its own Go module (`replace github.com/fsvxavier/golang-chain-eco => ../../..`). Its `go.mod` requires `github.com/metalagman/laya-go`; the root `go.mod` also requires it, for `full_team/native` (behind the `laya_native` tag).
+It uses the root `go.mod`, which requires `github.com/metalagman/laya-go`. Only the `laya_native` build tag compiles that import; without it `go build ./...` needs no cgo.
 
 ## What it does
 

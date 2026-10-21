@@ -3,7 +3,7 @@
 **English** | [Português](../pt-BR/COMPRESSION.md) | [Español](../es-ES/COMPRESSION.md)
 
 Reference for the `compress` package, the `agents/middleware` `Compression` middleware and the `backends.LocalShell.Rewrite` hook.
-The library code uses only the standard library. The root `go.mod` requires laya-go for the native Laya decider, but only the `laya_native` build tag compiles it. `examples/langgraph/decider_laya_native` is a separate Go module.
+The library code uses only the standard library. The root `go.mod` requires laya-go for the native Laya decider, but only the `laya_native` build tag compiles it. `examples/langgraph/decider_laya_native` and `examples/langgraph/full_team/native` are packages of the root module.
 
 ## The idea
 
@@ -149,9 +149,9 @@ The example `decider_laya_http` runs offline against an in-process fake server. 
 
 ## Native Laya (laya-go)
 
-`github.com/metalagman/laya-go` v0.2.6 runs the model in-process. It needs cgo and ONNX Runtime. The root `go.mod` requires it, but it is compiled only with the `laya_native` build tag, in `examples/langgraph/full_team/native`, a package of the root module. Its qualification: **linux/amd64, FP32 only**. Input longer than the model window returns `ErrInputTooLong` unless truncation is on.
+`github.com/metalagman/laya-go` v0.2.6 runs the model in-process. It needs cgo and ONNX Runtime. The root `go.mod` requires it, but it is compiled only with the `laya_native` build tag, in `examples/langgraph/decider_laya_native` and `examples/langgraph/full_team/native`, packages of the root module. Its qualification: **linux/amd64, FP32 only**. Input longer than the model window returns `ErrInputTooLong` unless truncation is on.
 
-Example: `examples/langgraph/decider_laya_native` is a separate Go module (own `go.mod`, `replace` to the repo root). Without the tag or with no `LAYA_BUNDLE_DIR`, it prints why and uses `RuleDecider`. Without the tag, `go build ./...` does not compile laya-go and does not need cgo.
+Example: `examples/langgraph/decider_laya_native` is a package of the root module. Without the tag or with no `LAYA_BUNDLE_DIR`, it prints why and uses `RuleDecider`. Without the tag, `go build ./...` does not compile laya-go and does not need cgo.
 
 ## JEV (planned)
 
@@ -170,7 +170,7 @@ All run offline with a fake model unless a real service is configured. Each has 
 | `langgraph/compress_toon` | a 20-row JSON tool result, its TOON form, sizes before and after, and the `TOONShorter` fallback for a tiny object |
 | `langgraph/compress_ponytail` | the Ponytail note the model receives at each level, and proof that the system prompt is untouched |
 | `langgraph/decider_laya_http` | `HTTPDecider` against `laya-serve` (fake server offline) |
-| `langgraph/decider_laya_native` | native laya-go, separate module, `laya_native` tag |
+| `langgraph/decider_laya_native` | native laya-go, root module, `laya_native` tag |
 | `langgraph/full_team` | the team of `independent_engineering_team` with call compression; fake decider and model by default. With `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, the shell tool offers only `ls`, `grep` and `echo` |
 
-Test in production mode: set the real decider URL or the native bundle, and run `go test -race -count=1` in the example's module.
+Test in production mode: set the real decider URL or the native bundle, and run `go test -race -count=1` as usual.
