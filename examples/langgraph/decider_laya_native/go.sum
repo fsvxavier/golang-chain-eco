@@ -1,0 +1,6 @@
+github.com/metalagman/laya-go v0.1.0 h1:RhPSyw30mGRixrfjhSNEH9LKoUiPjsU9elE+fyevnA4=
+github.com/metalagman/laya-go v0.1.0/go.mod h1:4uilDCrWx7etd+kLnwx3mKlgvpq08SZx7bPN9OQfRS0=
+github.com/yalue/onnxruntime_go v1.36.0 h1:iH1Q++DcsyT9sWtN26KYimESlI5hhXpKaChHDS44oV4=
+github.com/yalue/onnxruntime_go v1.36.0/go.mod h1:b4X26A8pekNb1ACJ58wAXgNKeUCGEAQ9dmACut9Sm/4=
+golang.org/x/sys v0.48.0 h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=
+golang.org/x/sys v0.48.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
