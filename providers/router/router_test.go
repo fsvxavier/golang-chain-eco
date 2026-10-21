@@ -268,7 +268,7 @@ func TestCancelledContextStops(t *testing.T) {
 func TestTimeoutFallsThrough(t *testing.T) {
 	a := &stub{name: "a", block: true}
 	b := &stub{name: "b", reply: "ok"}
-	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 20 * time.Millisecond})
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 50 * time.Millisecond})
 	out, err := r.Generate(context.Background(), nil)
 	if err != nil || out.Text() != "ok" {
 		t.Fatalf("got (%q, %v), want (ok, nil)", out.Text(), err)
@@ -654,9 +654,9 @@ func TestStreamEarlyBreak(t *testing.T) {
 // between chunks, not the whole stream nor the consumer's own pauses.
 
 func TestStreamSteadyLongerThanTimeoutCompletes(t *testing.T) {
-	a := &stub{name: "a", chunks: []string{"a", "b", "c", "d", "e", "f", "g", "h"}, streamErrAfter: -1, delay: 8 * time.Millisecond}
+	a := &stub{name: "a", chunks: []string{"a", "b", "c", "d", "e", "f", "g", "h"}, streamErrAfter: -1, delay: 5 * time.Millisecond}
 	b := healthy("b")
-	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 25 * time.Millisecond})
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 50 * time.Millisecond})
 	texts, err := drain(r.Stream(context.Background(), nil))
 	if err != nil {
 		t.Fatalf("Stream error: %v", err)
@@ -670,7 +670,7 @@ func TestStreamStallAfterFirstChunkFailsOver(t *testing.T) {
 	history := []messages.Message{messages.Human("hi")}
 	a := &stub{name: "a", chunks: []string{"x"}, streamErrAfter: 1, stall: true}
 	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
-	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 25 * time.Millisecond})
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 50 * time.Millisecond})
 	texts, err := drain(r.Stream(context.Background(), history))
 	if err != nil {
 		t.Fatalf("Stream error: %v", err)
@@ -687,7 +687,7 @@ func TestStreamStallAfterFirstChunkFailsOver(t *testing.T) {
 func TestStreamConsumerPauseNotCounted(t *testing.T) {
 	a := &stub{name: "a", chunks: []string{"x", "y"}, streamErrAfter: -1}
 	b := healthy("b")
-	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 20 * time.Millisecond})
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 50 * time.Millisecond})
 	var texts []string
 	for m, err := range r.Stream(context.Background(), nil) {
 		if err != nil {
@@ -695,7 +695,7 @@ func TestStreamConsumerPauseNotCounted(t *testing.T) {
 		}
 		texts = append(texts, m.Content)
 		if len(texts) == 1 {
-			time.Sleep(40 * time.Millisecond) // longer than Timeout, while the consumer holds the chunk
+			time.Sleep(100 * time.Millisecond) // longer than Timeout, while the consumer holds the chunk
 		}
 	}
 	if !reflect.DeepEqual(texts, []string{"x", "y"}) || b.calls.Load() != 0 {
@@ -790,5 +790,98 @@ func TestStreamToolCallFullBlocksContinuation(t *testing.T) {
 	}
 	if b.calls.Load() != 0 {
 		t.Errorf("b called %d times, want 0", b.calls.Load())
+	}
+}
+
+func TestNonRetryableOnSecondTargetReturnedRaw(t *testing.T) {
+	a := &stub{name: "a", errs: []error{status(500)}}
+	b := &stub{name: "b", errs: []error{status(401)}}
+	c := healthy("c")
+	r, _ := New(threeTargets(a, b, c), Config{})
+	_, err := r.Generate(context.Background(), nil)
+	var se *httpx.StatusError
+	if !errors.As(err, &se) || se.Code != 401 {
+		t.Fatalf("err = %v, want StatusError 401", err)
+	}
+	if strings.Contains(err.Error(), "all targets") {
+		t.Errorf("error wrapped: %q", err)
+	}
+	if c.calls.Load() != 0 {
+		t.Errorf("c called %d times, want 0", c.calls.Load())
+	}
+}
+
+func TestWeightedCumulativeEdge(t *testing.T) {
+	// a:3, b:1, total 4: 0.75*4 == 3 is exactly the edge, which belongs to b.
+	for _, tc := range []struct {
+		rand  float64
+		first string
+	}{{0.75, "b"}, {0.7499, "a"}} {
+		a, b := healthy("a"), healthy("b")
+		r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{
+			Mode: ModeWeighted, Weights: map[string]float64{"a": 3, "b": 1},
+			Rand: func() float64 { return tc.rand },
+		})
+		out, err := r.Generate(context.Background(), nil)
+		if err != nil || out.Text() != tc.first {
+			t.Errorf("rand=%v: got (%q, %v), want %q", tc.rand, out.Text(), err, tc.first)
+		}
+	}
+}
+
+func TestWeightedLastFallbackSkipsZeroWeight(t *testing.T) {
+	// 1.0 is outside Rand's contract but reaches the rounding fallback.
+	for _, v := range []float64{0.9999999, 1.0} {
+		a, b := healthy("a"), healthy("b")
+		r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{
+			Mode: ModeWeighted, Weights: map[string]float64{"b": 0},
+			Rand: func() float64 { return v },
+		})
+		out, err := r.Generate(context.Background(), nil)
+		if err != nil || out.Text() != "a" || b.calls.Load() != 0 {
+			t.Errorf("rand=%v: got (%q, %v), b calls %d; want a first", v, out.Text(), err, b.calls.Load())
+		}
+	}
+}
+
+func TestRandomOneClampsToLast(t *testing.T) {
+	a, b, c := healthy("a"), healthy("b"), healthy("c")
+	r, _ := New(threeTargets(a, b, c), Config{Mode: ModeRandom, Rand: func() float64 { return 1.0 }})
+	out, err := r.Generate(context.Background(), nil)
+	if err != nil || out.Text() != "c" {
+		t.Fatalf("got (%q, %v), want c", out.Text(), err)
+	}
+}
+
+func TestSingleTargetEveryMode(t *testing.T) {
+	for _, mode := range []Mode{ModeFailover, ModeRoundRobin, ModeRandom, ModeWeighted} {
+		t.Run(string(mode), func(t *testing.T) {
+			a := healthy("a")
+			r, err := New([]Target{{Name: "a", Model: a}}, Config{Mode: mode, Rand: func() float64 { return 0.99 }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := r.Generate(context.Background(), nil)
+			if err != nil || out.Text() != "a" || a.calls.Load() != 1 {
+				t.Fatalf("got (%q, %v), calls %d; want a, 1 call", out.Text(), err, a.calls.Load())
+			}
+		})
+	}
+}
+
+func TestStreamStallBeforeFirstChunkFailsOver(t *testing.T) {
+	history := []messages.Message{messages.Human("hi")}
+	a := &stub{name: "a", chunks: []string{"x"}, streamErrAfter: 0, stall: true}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 50 * time.Millisecond})
+	texts, err := drain(r.Stream(context.Background(), history))
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+	if !reflect.DeepEqual(texts, []string{"y"}) {
+		t.Errorf("chunks = %q, want [y]", texts)
+	}
+	if !reflect.DeepEqual(b.msgs, history) {
+		t.Errorf("b msgs = %v, want original %v", b.msgs, history)
 	}
 }

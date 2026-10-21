@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,7 +34,7 @@ func newRouter(model string, defaults ...models.Option) (models.ChatModel, error
 	if err != nil {
 		return nil, err
 	}
-	weights, err := routerWeights()
+	weights, err := routerWeights(names)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +91,11 @@ func routerTarget(name, model string, defaults []models.Option) (models.ChatMode
 	return c, nil
 }
 
-// envName upper-cases a target name and maps every byte outside [A-Z0-9] to '_'.
+// envName upper-cases a target name and maps every byte outside [A-Z0-9] to
+// '_' (my-gw -> MY_GW), so any ROUTER_TARGETS entry yields a valid variable
+// name; strings.ToUpper alone would leave "MY-GW_BASE_URL", which a shell
+// cannot export. The baseURL and envKey helpers are not reused because they
+// only upper-case, and must keep doing exactly that for the table providers.
 func envName(name string) string {
 	b := []byte(strings.ToUpper(name))
 	for i, c := range b {
@@ -112,8 +117,9 @@ func routerMode() (router.Mode, error) {
 	}
 }
 
-// routerWeights parses "name:weight,..." (names lower-cased). Unset means none.
-func routerWeights() (map[string]float64, error) {
+// routerWeights parses "name:weight,..." (names lower-cased) and checks each
+// name is one of targets, once. Unset means none.
+func routerWeights(targets []string) (map[string]float64, error) {
 	raw := strings.TrimSpace(os.Getenv("ROUTER_WEIGHTS"))
 	if raw == "" {
 		return nil, nil
@@ -125,6 +131,12 @@ func routerWeights() (map[string]float64, error) {
 		name = strings.ToLower(strings.TrimSpace(name))
 		if !ok || name == "" || err != nil || f < 0 || math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, fmt.Errorf("chatmodels: ROUTER_WEIGHTS %q: want name:weight pairs with weights >= 0", raw)
+		}
+		if !slices.Contains(targets, name) {
+			return nil, fmt.Errorf("chatmodels: ROUTER_WEIGHTS: %q is not in ROUTER_TARGETS", name)
+		}
+		if _, dup := weights[name]; dup {
+			return nil, fmt.Errorf("chatmodels: ROUTER_WEIGHTS: duplicate name %q", name)
 		}
 		weights[name] = f
 	}

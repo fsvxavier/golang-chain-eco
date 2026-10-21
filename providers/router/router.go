@@ -40,7 +40,7 @@ type Config struct {
 	Mode    Mode               // "" = failover
 	Weights map[string]float64 // weighted only; missing name = 1; 0 = never first
 	Timeout time.Duration      // per attempt; 0 = none. Generate bounds the whole call; Stream treats it as idle time (to first chunk, and between chunks; consumer pauses not counted)
-	Rand    func() float64     // [0,1); nil = math/rand/v2 Float64
+	Rand    func() float64     // [0,1); nil = math/rand/v2 Float64. Called from concurrent calls: a custom Rand must be safe for concurrent use
 }
 
 // Router is a models.ChatModel that tries its targets in turn.
