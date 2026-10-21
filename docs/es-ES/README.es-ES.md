@@ -24,6 +24,7 @@ El [índice del manual](manual/README.es-ES.md) tiene los 20 capítulos, desde l
 | Documento | Paquetes | Asunto |
 |---|---|---|
 | [KNOWLEDGE.md](KNOWLEDGE.md) | `knowledge`, `rag`, `cag`, `kag`, `integrations/graphstore`, `cmd/knowledge` | RAG, CAG y KAG sobre un contrato común, router, tools y MCP, grafo en Neo4j y Memgraph |
+| [COMPRESSION.md](COMPRESSION.md) | `compress`, `middleware.Compression`, `LocalShell.Rewrite` | Compresión de llamadas: RTK para salida de shell, Caveman para turnos antiguos, un decider (reglas o Laya) que decide cuándo |
 | [LANGMEM.md](LANGMEM.md) | `langmem` | Memoria a largo plazo (semántica, episódica, procedural) y diferencias respecto a LangMem de Python |
 | [AGENT-PROTOCOL.md](AGENT-PROTOCOL.md) | `agentprotocol` | Servidor y cliente del Agent Protocol, streaming tipado |
 | [CIAM.md](CIAM.md) | `ciam`, `cmd/ciam` | Contexto de proyecto para asistentes de IA: índice, búsqueda híbrida, ADR/PRD/planes, MCP |

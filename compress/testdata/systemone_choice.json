@@ -1,0 +1,14 @@
+{
+  "_unverified": true,
+  "model": "multilingual",
+  "answers": {
+    "level": {
+      "type": "choice",
+      "choice": "full",
+      "probabilities": {"lite": 0.12, "full": 0.8, "ultra": 0.08},
+      "confidence": 0.8
+    }
+  },
+  "usage": {},
+  "routing": {}
+}

@@ -104,6 +104,7 @@ go test -race ./...
 | `langgraph/functional` | `Entrypoint` y `Task` | `@entrypoint` / `@task` |
 | `agents`, `agents/middleware` | `agents.Create` + middlewares listos | `create_agent` |
 | `deepagents` (+ `backends`, `middleware`) | Agent con planificación, filesystem virtual, subagents | `deepagents` |
+| `compress` | Compresión de llamadas: `Summary`, `RuleDecider`, fallback `Guarded`, `HTTPDecider` (servidor Laya), compresor de texto Caveman, directiva Ponytail, codificador TOON para resultados JSON de herramientas y enrutado de shell por RTK; `middleware.Compression` en `agents/middleware`; laya-go compilado solo con la tag `laya_native` (`full_team/native` y `decider_laya_native`) ([docs/es-ES/COMPRESSION.md](docs/es-ES/COMPRESSION.md)) | — |
 | `mcp` | Cliente MCP (stdio y HTTP) | `langchain-mcp-adapters` |
 | `remote` | Cliente del Agent Server y `RemoteGraph` | `langgraph_sdk` |
 | `tracing/{langsmith,langfuse,otlp}` | Envío de runs a LangSmith, Langfuse y OpenTelemetry | tracers |
@@ -765,7 +766,7 @@ Nunca pongas claves en el código ni en repositorios; usa variables de entorno o
 
 ## Ejemplos ejecutables
 
-64 ejemplos en [`examples/`](examples/) (36 portados de los proyectos base, 2 propios de LangGraph, 1 de evals, 6 de integraciones, 6 de RAG/CAG/KAG, 5 de LangMem, 2 de Agent Protocol, 2 de ciam y 4 de Open SWE) (índice en [examples/README.es-ES.md](examples/README.es-ES.md)). Sin clave de API usan un modelo falso. Cada carpeta de ejemplo tiene un README en inglés, portugués y español.
+74 ejemplos en [`examples/`](examples/) (36 portados de los proyectos base, 3 propios de LangGraph, 1 de evals, 6 de integraciones, 6 de RAG/CAG/KAG, 5 de LangMem, 2 de Agent Protocol, 2 de ciam, 4 de Open SWE y 9 de compresión de llamadas) (índice en [examples/README.es-ES.md](examples/README.es-ES.md)). Sin clave de API usan un modelo falso. Cada carpeta de ejemplo tiene un README en inglés, portugués y español.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser

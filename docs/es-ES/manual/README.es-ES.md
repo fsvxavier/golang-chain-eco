@@ -52,6 +52,7 @@ Público: desarrolladores Go que quieren construir chains, agents y workflows co
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — decisiones de diseño
 - [AGENT-PROTOCOL.md](../AGENT-PROTOCOL.md), [CIAM.md](../CIAM.md) y [OPENSWE.md](../OPENSWE.md) — referencia de los paquetes `agentprotocol`, `ciam` y `openswe`
 - [KNOWLEDGE.md](../KNOWLEDGE.md) — referencia de los paquetes `knowledge`, `rag`, `cag` y `kag`
+- [COMPRESSION.md](../COMPRESSION.md) — referencia del paquete `compress` y de la compresión de llamadas (RTK, Caveman, Ponytail, TOON, decider)
 - [LANGMEM.md](../LANGMEM.md) — referencia del paquete `langmem` y diferencias respecto a LangMem de Python
 - [EVALS.md](../EVALS.md) — evaluación offline de agents y chains (`evals`)
 - [DEV.md](../DEV.md) — servidor de desarrollo (`langgraph/dev`, `cmd/langgraph`)
