@@ -165,3 +165,45 @@ func TestCompressNeverGrowsOrEmpties(t *testing.T) {
 		}
 	}
 }
+
+func TestCompressKeepsCodePunctuation(t *testing.T) {
+	// Level "" runs only the mechanical rules, so no words are dropped.
+	cases := map[string]string{
+		"std::vector<int> v;":     "std::vector<int> v;",
+		"a ?? b":                  "a ?? b",
+		"x ;; y :: z ,, w":        "x ;; y :: z ,, w",
+		"Done!!":                  "Done!!",
+		"Really???":               "Really?",
+		"Done!!!!":                "Done!",
+		"Wait!!!\nnext ???? line": "Wait!\nnext ? line",
+	}
+	for in, want := range cases {
+		if got := Compress(in, Level("")); got != want {
+			t.Errorf("Compress(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCompressKeepsSingleQuotedStrings(t *testing.T) {
+	in := "The error is 'the file is not found' today"
+	for _, lvl := range []Level{Lite, Full, Ultra} {
+		out := Compress(in, lvl)
+		if !strings.Contains(out, "'the file is not found'") {
+			t.Errorf("%s: quoted string changed: %q", lvl, out)
+		}
+	}
+	// An apostrophe is not an opening quote, so the article after it still goes.
+	if out := Compress("I don't think the file is here", Full); !strings.Contains(out, "don't") || strings.Contains(out, " the ") {
+		t.Errorf("apostrophe handled as quote: %q", out)
+	}
+}
+
+func TestCompressKeepsIndentedCode(t *testing.T) {
+	in := "Look at this:\n    the value is set\n\tthe other value\nSure, the end."
+	for _, lvl := range []Level{Lite, Full, Ultra} {
+		out := Compress(in, lvl)
+		if !strings.Contains(out, "    the value is set") || !strings.Contains(out, "\tthe other value") {
+			t.Errorf("%s: indented code changed: %q", lvl, out)
+		}
+	}
+}

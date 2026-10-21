@@ -2,7 +2,9 @@ package compress
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -15,16 +17,46 @@ import (
 // backends.LocalShell and wrap the executor with Executor so output sizes are
 // recorded.
 type RTK struct {
-	Decider  Decider
+	Decider Decider
+	// LookPath finds the rtk binary. Nil searches the PATH in Env.
 	LookPath func(string) (string, error)
+	// Env is the shell's child environment (LocalShell's Env). Nil means the
+	// host environment. Its PATH decides whether rtk exists, because the
+	// shell cannot run an rtk that its own PATH does not contain.
+	Env []string
 
 	mu  sync.Mutex
 	max map[string]int // largest output seen per command key
 }
 
-// NewRTK wraps d in NewGuarded and looks rtk up with exec.LookPath.
+// NewRTK wraps d in NewGuarded. Set Env to the shell's environment if it
+// differs from the host.
 func NewRTK(d Decider) *RTK {
-	return &RTK{Decider: NewGuarded(d), LookPath: exec.LookPath}
+	return &RTK{Decider: NewGuarded(d)}
+}
+
+// lookPath finds name in the PATH entries of Env (or the host PATH when Env
+// is nil). Empty entries are skipped; the last PATH entry wins, as in exec.
+func (r *RTK) lookPath(name string) (string, error) {
+	path := os.Getenv("PATH")
+	if r.Env != nil {
+		path = ""
+		for _, kv := range r.Env {
+			if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+				path = v
+			}
+		}
+	}
+	for _, dir := range filepath.SplitList(path) {
+		if dir == "" {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return p, nil
+		}
+	}
+	return "", exec.ErrNotFound
 }
 
 // Rewrite returns "rtk " + command when rtk is on PATH, the command is simple
@@ -35,7 +67,7 @@ func (r *RTK) Rewrite(ctx context.Context, command string) string {
 	}
 	look := r.LookPath
 	if look == nil {
-		look = exec.LookPath
+		look = r.lookPath
 	}
 	if _, err := look("rtk"); err != nil {
 		return command

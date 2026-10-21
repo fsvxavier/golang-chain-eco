@@ -8,10 +8,15 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"time"
 )
 
 // DefaultHTTPDeciderURL is the laya-serve endpoint used when HTTPDecider.URL is empty.
 const DefaultHTTPDeciderURL = "http://localhost:8000/v1/systemone"
+
+// defaultHTTPClient bounds calls made without a Client, so a hung endpoint
+// cannot block a model call even when the decider is used without Guarded.
+var defaultHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 // HTTPDecider asks a laya-serve / TypeSafe Jev endpoint (POST <URL>) to answer
 // the questions. Model and MaxLen are omitted from the request when zero, so
@@ -22,7 +27,7 @@ type HTTPDecider struct {
 	APIKey string // sent as "Authorization: Bearer <APIKey>" when set
 	Model  string
 	MaxLen int
-	Client *http.Client // nil uses http.DefaultClient; ctx bounds each call
+	Client *http.Client // nil uses a client with a 10s timeout; ctx bounds each call
 }
 
 type httpQuestion struct {
@@ -88,7 +93,7 @@ func (d HTTPDecider) Decide(ctx context.Context, st State, qs []Question) ([]Ans
 	}
 	client := d.Client
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultHTTPClient
 	}
 	resp, err := client.Do(hr)
 	if err != nil {

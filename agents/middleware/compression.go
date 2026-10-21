@@ -13,20 +13,24 @@ import (
 // directive. Tool calls and tool results are never touched, so every tool-call
 // id and order survives. Stored history is never rewritten.
 //
-// Keep is the number of recent turns left alone (default 4). Floor is the
-// confidence floor used by the guard built in NewCompression (default 0.7).
+// Keep is the number of recent turns left alone (default 4).
+//
+// NewCompression wraps the decider in compress.NewGuarded (2s timeout, 0.7
+// confidence floor, rules as fallback). A literal Compression{Decider: x} uses
+// x as is: no timeout, no confidence check. Use NewCompression unless you
+// wrap the decider yourself.
+//
 // Summarization stays a separate BeforeModel middleware: set its MaxTokens
 // above the decider's threshold so it acts as a backstop.
 type Compression struct {
 	Decider compress.Decider
 	Keep    int
-	Floor   float64
 }
 
 // NewCompression wraps d in compress.NewGuarded, so a slow or wrong decider
 // falls back to the rules.
 func NewCompression(d compress.Decider) Compression {
-	return Compression{Decider: compress.NewGuarded(d), Keep: 4, Floor: 0.7}
+	return Compression{Decider: compress.NewGuarded(d), Keep: 4}
 }
 
 func (Compression) Name() string { return "compression" }

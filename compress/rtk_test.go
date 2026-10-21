@@ -133,3 +133,36 @@ func TestRTKRealBinary(t *testing.T) {
 		t.Fatalf("compile error lost through rtk: %s", res.Output)
 	}
 }
+
+func fakeRTKDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rtk"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestRTKLooksUpShellEnvPath(t *testing.T) {
+	ctx := context.Background()
+	withRTK := fakeRTKDir(t)
+	empty := t.TempDir()
+	// The host PATH has rtk, but the shell's Env does not: no rewrite.
+	t.Setenv("PATH", withRTK)
+
+	r := &RTK{Decider: routeDecider(true), Env: []string{"PATH=" + empty}}
+	if got := r.Rewrite(ctx, "go test ./..."); got != "go test ./..." {
+		t.Errorf("shell PATH without rtk: got %q, want unchanged", got)
+	}
+
+	r = &RTK{Decider: routeDecider(true), Env: []string{"HOME=/x", "PATH=" + empty + string(os.PathListSeparator) + withRTK}}
+	if got := r.Rewrite(ctx, "go test ./..."); got != "rtk go test ./..." {
+		t.Errorf("shell PATH with rtk: got %q, want rewritten", got)
+	}
+
+	// Env nil means the host PATH is searched.
+	r = &RTK{Decider: routeDecider(true)}
+	if got := r.Rewrite(ctx, "go test ./..."); got != "rtk go test ./..." {
+		t.Errorf("host PATH with rtk: got %q, want rewritten", got)
+	}
+}

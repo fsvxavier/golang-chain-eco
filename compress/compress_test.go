@@ -29,6 +29,18 @@ func TestAnswerConfident(t *testing.T) {
 	if a.Confident(0.7) {
 		t.Fatal("P>1 should not be confident")
 	}
+	a.P = -0.1
+	if a.Confident(0.7) {
+		t.Fatal("P<0 should not be confident")
+	}
+	a.P = 0.1
+	if !a.Confident(0.7) {
+		t.Fatal("P=0.1 (confident false) should be confident at floor 0.7")
+	}
+	a.P = 0.5
+	if a.Confident(0.7) {
+		t.Fatal("P=0.5 should not be confident at floor 0.7")
+	}
 
 	c := Answer{ID: QLevel, Kind: KindChoice, Pick: "full", Dist: map[string]float64{"full": 0.9}}
 	if !c.Confident(0.7) {

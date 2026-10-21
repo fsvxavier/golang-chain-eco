@@ -4,7 +4,10 @@
 // falls back to rules so a bad or slow decider never fails a run.
 package compress
 
-import "context"
+import (
+	"context"
+	"math"
+)
 
 // State is the JSON-object view of the conversation that deciders read.
 type State map[string]any
@@ -40,12 +43,17 @@ type Answer struct {
 	Dist  map[string]float64
 }
 
-// Confident reports whether the answer's probability is a valid value in
-// [0,1] and at least floor. NaN and out-of-range values are never confident.
+// Confident reports whether the answer is sure enough to override the rules.
+// For KindNoul the confidence is max(P, 1-P), so a confident "false" (P near
+// 0) counts as much as a confident "true" (P near 1). For KindChoice it is
+// Dist[Pick]. The value must lie in [0,1] (NaN never does) and be >= floor.
 func (a Answer) Confident(floor float64) bool {
 	var p float64
 	if a.Kind == KindNoul {
-		p = a.P
+		if !(a.P >= 0 && a.P <= 1) {
+			return false
+		}
+		p = math.Max(a.P, 1-a.P)
 	} else {
 		v, ok := a.Dist[a.Pick]
 		if !ok {

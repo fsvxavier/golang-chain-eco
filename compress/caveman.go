@@ -103,6 +103,9 @@ func cvRun(text string, lvl Level, t *cvTable) string {
 			fence = cvFenceOpen(trim)
 		case cvJSONLike(trim):
 			isProt = true
+		case strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t"):
+			// Indented code: copied verbatim so words inside are never dropped.
+			isProt = trim != ""
 		}
 		s := line
 		if !isProt {
@@ -220,6 +223,11 @@ func cvSplit(line string) []cvSpan {
 	}
 	for i := 0; i < len(line); {
 		rest := line[i:]
+		if q := cvSingleQuote(line, i); q > 0 {
+			mark(i, i+q)
+			i += q
+			continue
+		}
 		adv := 0
 		switch {
 		case line[i] == '`':
@@ -253,6 +261,26 @@ func cvSplit(line string) []cvSpan {
 	}
 	flush(len(line))
 	return spans
+}
+
+// cvSingleQuote returns the byte length of a single-quoted string that starts
+// at i, or 0. The opening quote must follow the start of the line, a space, an
+// open bracket, '=', ':' or ','. The closing quote must be followed by the end
+// of the line, a space, a closing bracket or punctuation, so apostrophes such
+// as "don't" are not treated as quotes.
+func cvSingleQuote(line string, i int) int {
+	if line[i] != '\'' || (i > 0 && strings.IndexByte(" \t([{=:,", line[i-1]) < 0) {
+		return 0
+	}
+	for j := i + 1; j < len(line); j++ {
+		if line[j] != '\'' {
+			continue
+		}
+		if j+1 == len(line) || strings.IndexByte(" \t)]}.,;:!?", line[j+1]) >= 0 {
+			return j - i + 1
+		}
+	}
+	return 0
 }
 
 // cvTokenize splits prose into word, space and single-rune punctuation tokens.
@@ -299,15 +327,25 @@ func cvProse(line string, lvl Level, t *cvTable) string {
 		}
 	}
 
-	// Mechanical: collapse spaces and repeated !?,;: punctuation.
+	// Mechanical: collapse spaces, and runs of three or more '!' or '?' into
+	// one. Pairs and other punctuation are kept (code uses "::", "??", ";;").
 	norm := make([]cvTok, 0, len(toks))
-	for _, tk := range toks {
+	for i := 0; i < len(toks); i++ {
+		tk := toks[i]
 		n := len(norm)
 		if tk.kind == cvSpace && n > 0 && norm[n-1].kind == cvSpace {
 			continue
 		}
-		if tk.kind == cvPunct && n > 0 && norm[n-1].kind == cvPunct && norm[n-1].s == tk.s && strings.Contains("!?,;:", tk.s) {
-			continue
+		if tk.kind == cvPunct && (tk.s == "!" || tk.s == "?") {
+			j := i
+			for j+1 < len(toks) && toks[j+1].kind == cvPunct && toks[j+1].s == tk.s {
+				j++
+			}
+			if j-i >= 2 {
+				norm = append(norm, tk)
+				i = j
+				continue
+			}
 		}
 		norm = append(norm, tk)
 	}

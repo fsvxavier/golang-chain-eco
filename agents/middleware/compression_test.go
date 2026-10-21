@@ -181,3 +181,10 @@ func TestCompressionLevelUsed(t *testing.T) {
 		t.Fatalf("got %q, want ultra %q", got.Messages[0].Text(), want)
 	}
 }
+
+func TestNewCompressionGuardsDecider(t *testing.T) {
+	c := NewCompression(answerDecider("ultra", false))
+	if _, ok := c.Decider.(compress.Guarded); !ok {
+		t.Fatalf("NewCompression decider = %T, want compress.Guarded", c.Decider)
+	}
+}
