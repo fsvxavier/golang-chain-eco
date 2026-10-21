@@ -103,3 +103,144 @@ NOTIFY=console,slack SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... NOTI
 
 - `examples/langgraph/engineering_team`: o mesmo fluxo em um processo
 - [Manual, capítulo 7: LangGraph](../../../docs/pt-BR/manual/07-langgraph.md), [Checklist de produção](../../../docs/pt-BR/manual/14-producao-seguranca-troubleshooting.md)
+
+## Ponte para chats (MCP)
+
+`cmd/bridge` é um servidor MCP em stdio. Os chats e consoles o iniciam sozinhos e falam com ele por stdin/stdout, então nada precisa escutar numa porta. Ele alcança a stack em execução por três variáveis.
+
+### 1. Compile o servidor uma vez
+
+```bash
+go build -o bin/bridge ./cmd/bridge
+```
+
+Use um binário em vez de `go run`: inicia na hora e não imprime nada além do protocolo no stdout. Abaixo, `/caminho/abs/para/bridge` é o arquivo que você acabou de compilar.
+
+### 2. Variáveis
+
+| Variável | Padrão | Uso |
+|---|---|---|
+| `MANAGER_URL` | `http://localhost:8080` | manager (Agent Server API) |
+| `MANAGER_API_KEY` | vazio | chave, quando o manager define uma |
+| `HUB_URL` | `http://localhost:8000` | hub (fila, `GET /state`, memória do time) |
+
+### 3. Ferramentas
+
+`team_submit` envia uma demanda e devolve o `thread_id` na hora; `team_status` mostra status das tarefas, relatório e histórico; `team_queue` lista workers e fila; `team_ask_worker` pergunta a um worker via Agent Protocol; `team_memory` lê a memória do time.
+
+### 4. Registre em cada aplicação
+
+Coloque segredos (`MANAGER_API_KEY`) no cofre da própria ferramenta ou no ambiente do shell, não num arquivo versionado. Os formatos de configuração mudam entre versões; se uma chave for rejeitada, confira a documentação MCP da ferramenta.
+
+#### GitHub Copilot (VS Code)
+
+Requer VS Code com Copilot Chat em modo Agent. Crie `.vscode/mcp.json` no workspace (ou rode **MCP: Open User Configuration** para valer em todos):
+
+```json
+{
+  "inputs": [
+    { "type": "promptString", "id": "manager-key", "description": "MANAGER_API_KEY", "password": true }
+  ],
+  "servers": {
+    "team-bridge": {
+      "type": "stdio",
+      "command": "/caminho/abs/para/bridge",
+      "env": {
+        "MANAGER_URL": "http://localhost:8080",
+        "HUB_URL": "http://localhost:8000",
+        "MANAGER_API_KEY": "${input:manager-key}"
+      }
+    }
+  }
+}
+```
+
+Abra o arquivo e clique em **Start** acima do servidor (ou rode **MCP: List Servers**). No Copilot Chat escolha **Agent**, abra o seletor de ferramentas e habilite `team-bridge`. A entrada `inputs` faz o VS Code pedir a chave uma vez e mantê-la fora do arquivo.
+
+#### Claude Code
+
+Linha de comando (`--scope local` é o padrão; `project` grava `.mcp.json` para compartilhar com o time; `user` vale para todos os projetos):
+
+```bash
+claude mcp add --transport stdio --scope project \
+  --env MANAGER_URL=http://localhost:8080 --env HUB_URL=http://localhost:8000 \
+  team-bridge -- /caminho/abs/para/bridge
+```
+
+Ou escreva `.mcp.json` na raiz do projeto à mão:
+
+```json
+{
+  "mcpServers": {
+    "team-bridge": {
+      "command": "/caminho/abs/para/bridge",
+      "args": [],
+      "env": { "MANAGER_URL": "http://localhost:8080", "HUB_URL": "http://localhost:8000" }
+    }
+  }
+}
+```
+
+Confira com `claude mcp list` ou `/mcp` dentro da sessão. Servidores de escopo projeto pedem aprovação na primeira vez.
+
+#### Cursor
+
+Crie `.cursor/mcp.json` no projeto (ou `~/.cursor/mcp.json` para todos os projetos):
+
+```json
+{
+  "mcpServers": {
+    "team-bridge": {
+      "command": "/caminho/abs/para/bridge",
+      "args": [],
+      "env": { "MANAGER_URL": "http://localhost:8080", "HUB_URL": "http://localhost:8000" }
+    }
+  }
+}
+```
+
+Abra **Settings → Cursor Settings → MCP**, ligue o servidor e espere o ponto verde. O Cursor lista as ferramentas ali; o agente as usa no modo Agent.
+
+#### Kilo Code
+
+O Kilo Code lê `mcpServers` de `.kilocode/mcp.json` no projeto (configuração global: **MCP Servers → Edit Global MCP** no painel do Kilo). Atenção: versões novas do Kilo, baseadas no Opencode, leem `kilo.json` com o mesmo formato do Opencode abaixo; isso não foi verificado aqui, então use o que a tela de MCP da sua versão mostrar.
+
+```json
+{
+  "mcpServers": {
+    "team-bridge": {
+      "command": "/caminho/abs/para/bridge",
+      "args": [],
+      "env": { "MANAGER_URL": "http://localhost:8080", "HUB_URL": "http://localhost:8000" },
+      "alwaysAllow": ["team_status", "team_queue", "team_memory"],
+      "disabled": false
+    }
+  }
+}
+```
+
+Abra o ícone **MCP Servers** no painel do Kilo para ver status e ferramentas. `alwaysAllow` deixa as ferramentas listadas rodarem sem confirmação; omita para aprovar cada chamada.
+
+#### Opencode
+
+Crie `opencode.json` no projeto (ou `~/.config/opencode/opencode.json` para todos os projetos):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "team-bridge": {
+      "type": "local",
+      "command": ["/caminho/abs/para/bridge"],
+      "environment": { "MANAGER_URL": "http://localhost:8080", "HUB_URL": "http://localhost:8000" },
+      "enabled": true
+    }
+  }
+}
+```
+
+Rode `opencode mcp list` para conferir. Na TUI as ferramentas aparecem como `team-bridge_team_submit` e assim por diante.
+
+### 5. Use
+
+Peça no chat, por exemplo: *"Use team_submit para enviar: permitir cupom de desconto no checkout"*, depois *"mostre o team_status dessa thread"* ou *"quem está no team_queue?"*. Suba a stack antes (`docker compose up`, veja acima).

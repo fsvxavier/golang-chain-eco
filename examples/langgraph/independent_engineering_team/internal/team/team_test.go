@@ -184,3 +184,25 @@ func TestTeamDeliversOffline(t *testing.T) {
 		t.Fatalf("gates must return a task once: %s", hist)
 	}
 }
+
+func TestBridgeQueueAndAskUnknown(t *testing.T) {
+	hub := NewHub(time.Minute)
+	hub.Register("dev-1", "junior", "http://127.0.0.1:1")
+	ts := newTestServer(t, hub.Handler(nil))
+	b := &Bridge{Hub: NewHubClient(ts.URL), HubURL: ts.URL}
+	call := func(name string, args map[string]any) (any, error) {
+		for _, tl := range b.Tools() {
+			if tl.Name() == name {
+				return tl.Call(context.Background(), args)
+			}
+		}
+		t.Fatalf("no tool %s", name)
+		return nil, nil
+	}
+	if out, err := call("team_queue", nil); err != nil || !strings.Contains(fmt.Sprint(out), "dev-1") {
+		t.Fatalf("queue: %v %v", out, err)
+	}
+	if _, err := call("team_ask_worker", map[string]any{"worker": "nope", "question": "hi"}); err == nil {
+		t.Fatal("want unknown worker error")
+	}
+}
