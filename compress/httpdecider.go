@@ -130,7 +130,8 @@ func (d HTTPDecider) Decide(ctx context.Context, st State, qs []Question) ([]Ans
 
 // toAnswer maps one wire answer to an Answer. The noul shape is unverified:
 // a number is P(true); a bool is P(true) = confidence when true, 1-confidence
-// when false, or NaN (not confident) when no confidence is sent.
+// when false, or NaN (not confident) when no confidence is sent. True is
+// always derived from P, never taken from the wire bool.
 func toAnswer(q Question, ha httpAnswer) (Answer, error) {
 	a := Answer{ID: q.ID, Kind: q.Kind}
 	switch {
@@ -159,6 +160,11 @@ func toAnswer(q Question, ha httpAnswer) (Answer, error) {
 		}
 	default:
 		return Answer{}, fmt.Errorf("compress: decider answer type %q for question %q (%s)", ha.Type, q.ID, q.Kind)
+	}
+	if q.Kind == KindNoul {
+		// True follows P so both shapes agree. NaN gives false, which is
+		// harmless: a NaN answer is never confident.
+		a.True = a.P >= 0.5
 	}
 	return a, nil
 }

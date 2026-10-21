@@ -2,7 +2,8 @@
 // model (build tag laya_native). Without the tag, or without LAYA_BUNDLE_DIR,
 // it falls back to the scripted decider and says why.
 //
-// This is a nested module so laya-go and onnxruntime stay out of the main one.
+// It is a package of the root module. laya-go is compiled only with the
+// laya_native tag, so the default build does not need cgo or ONNX Runtime.
 package main
 
 import (

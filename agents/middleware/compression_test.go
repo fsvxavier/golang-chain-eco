@@ -33,7 +33,11 @@ func answerDecider(level string, reply bool) compress.Decider {
 			case compress.QLevel:
 				out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, Pick: level, Dist: map[string]float64{level: 1}})
 			case compress.QCompressReply:
-				out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, True: reply, P: 1})
+				p := 0.0
+				if reply {
+					p = 1
+				}
+				out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, True: reply, P: p})
 			default:
 				out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, True: true, P: 1})
 			}

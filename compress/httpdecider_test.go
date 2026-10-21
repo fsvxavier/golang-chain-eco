@@ -109,8 +109,8 @@ func TestHTTPDeciderNoulBoolNoConfidenceIsNaN(t *testing.T) {
 	if !math.IsNaN(got[0].P) {
 		t.Errorf("P = %v, want NaN", got[0].P)
 	}
-	if !got[0].True {
-		t.Errorf("True = false, want the bool value true")
+	if got[0].True {
+		t.Errorf("True = true with no confidence (P NaN); True must follow P")
 	}
 	if got[0].Confident(0.7) {
 		t.Errorf("NaN answer must not be confident")
@@ -244,6 +244,46 @@ func TestGuardedWithHTTPDown(t *testing.T) {
 	for i := range want {
 		if got[i].ID != want[i].ID || got[i].True != want[i].True || got[i].Pick != want[i].Pick {
 			t.Errorf("answer %d = %+v, want rule answer %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestHTTPDeciderNoulBoolConfidenceTrueFollowsP(t *testing.T) {
+	// A bool true with confidence 0.3 means P(true)=0.3, so True must be false.
+	srv := serveJSON(t, 200, `{"answers":{"compress_history":{"type":"noul","noul":true,"confidence":0.3}}}`, nil, nil)
+	defer srv.Close()
+	got, err := HTTPDecider{URL: srv.URL}.Decide(context.Background(), State{}, HistoryQuestions()[:1])
+	if err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	if math.Abs(got[0].P-0.3) > 1e-9 || got[0].True {
+		t.Errorf("bool true conf 0.3 = %+v, want P 0.3 True false", got[0])
+	}
+	if got[0].Confident(0.8) {
+		t.Errorf("P=0.3 (confidence 0.7 in false) must not be confident at floor 0.8")
+	}
+}
+
+func TestHTTPDeciderNoulTrueMatchesP(t *testing.T) {
+	cases := []struct {
+		body string
+		p    float64
+		want bool
+	}{
+		{`{"answers":{"compress_history":{"type":"noul","noul":0.2}}}`, 0.2, false},
+		{`{"answers":{"compress_history":{"type":"noul","noul":0.5}}}`, 0.5, true},
+		{`{"answers":{"compress_history":{"type":"noul","noul":true,"confidence":0.9}}}`, 0.9, true},
+		{`{"answers":{"compress_history":{"type":"noul","noul":false,"confidence":0.9}}}`, 0.1, false},
+	}
+	for _, c := range cases {
+		srv := serveJSON(t, 200, c.body, nil, nil)
+		got, err := HTTPDecider{URL: srv.URL}.Decide(context.Background(), State{}, HistoryQuestions()[:1])
+		srv.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", c.body, err)
+		}
+		if got[0].True != c.want || math.Abs(got[0].P-c.p) > 1e-9 {
+			t.Errorf("%s: got P=%v True=%v, want P=%v True=%v", c.body, got[0].P, got[0].True, c.p, c.want)
 		}
 	}
 }

@@ -101,7 +101,8 @@ func cvRun(text string, lvl Level, t *cvTable) string {
 		case cvFenceOpen(trim) != "":
 			isProt = true
 			fence = cvFenceOpen(trim)
-		case cvJSONLike(trim):
+		case cvJSONLike(trim), cvTableRow(trim), cvCodeLike(trim):
+			// JSON, Markdown table rows and code-like lines are copied verbatim.
 			isProt = true
 		case strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t"):
 			// Indented code: copied verbatim so words inside are never dropped.
@@ -144,6 +145,26 @@ func cvCloses(trim, fence string) bool {
 		n++
 	}
 	return n >= len(fence) && n == len(trim)
+}
+
+// cvTableRow reports a Markdown table row: its first non-space character is '|'.
+func cvTableRow(trim string) bool {
+	return strings.HasPrefix(trim, "|")
+}
+
+// cvCodeOps are operators and brackets that mark a line as code. Prose with
+// one of them is copied verbatim too, which is the safe side of the trade.
+var cvCodeOps = []string{"==", "!=", ":=", "=>", "->", "&&", "||", "{", "}"}
+
+// cvCodeLike reports a line that looks like code: it contains a code operator
+// or brace, or ends with ';' or ') {'.
+func cvCodeLike(trim string) bool {
+	for _, op := range cvCodeOps {
+		if strings.Contains(trim, op) {
+			return true
+		}
+	}
+	return strings.HasSuffix(trim, ";") || strings.HasSuffix(trim, ") {") || strings.HasSuffix(trim, "){")
 }
 
 func cvJSONLike(trim string) bool {

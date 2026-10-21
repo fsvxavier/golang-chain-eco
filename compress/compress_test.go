@@ -217,3 +217,20 @@ func TestGuardedPropagatesCancel(t *testing.T) {
 		t.Fatalf("err=%v, want context.Canceled", err)
 	}
 }
+
+func TestGuardedRejectsNoulTrueDisagreeingWithP(t *testing.T) {
+	// P=0 says "certainly false" but True says true. The answer is confident
+	// by max(P,1-P), so only the True/P consistency check can reject it.
+	st := State{"tokens": 100}
+	qs := []Question{{ID: QCompressHistory, Kind: KindNoul}}
+	inner := FuncDecider(func(_ context.Context, _ State, qs []Question) ([]Answer, error) {
+		return []Answer{{ID: QCompressHistory, Kind: KindNoul, True: true, P: 0}}, nil
+	})
+	got, err := NewGuarded(inner).Decide(context.Background(), st, qs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].True || got[0].P != 0 {
+		t.Errorf("inconsistent noul accepted: %+v; want rule answer (False)", got[0])
+	}
+}

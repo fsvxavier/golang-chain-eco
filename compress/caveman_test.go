@@ -207,3 +207,39 @@ func TestCompressKeepsIndentedCode(t *testing.T) {
 		}
 	}
 }
+
+func TestCompressKeepsTableRowsAndCodeLines(t *testing.T) {
+	keep := []string{
+		"if a == b {",
+		"x := y && z",
+		"a != b",
+		"f => g",
+		"p -> q",
+		"x || y",
+		"func f() {",
+		"return f(x);",
+		"| a | b |",
+		"  | the | is |",
+	}
+	for _, line := range keep {
+		for _, lvl := range []Level{Lite, Full, Ultra} {
+			if out := Compress(line, lvl); out != line {
+				t.Errorf("%s: %q changed to %q", lvl, line, out)
+			}
+		}
+	}
+	// Protected lines survive next to prose, byte for byte.
+	in := "The answer is basically in the table below.\n| a | b |\nif a == b { return the }"
+	out := Compress(in, Ultra)
+	if !strings.Contains(out, "| a | b |\nif a == b { return the }") {
+		t.Errorf("code or table lines altered: %q", out)
+	}
+}
+
+func TestCompressStillCompressesProseWithPunctuation(t *testing.T) {
+	in := "I think this is basically the answer, honestly."
+	out := Compress(in, Full)
+	if out == in || strings.Contains(strings.ToLower(out), "basically") {
+		t.Errorf("prose not compressed: %q", out)
+	}
+}

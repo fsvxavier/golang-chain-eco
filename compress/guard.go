@@ -74,6 +74,11 @@ func (g Guarded) usable(a Answer, q Question) bool {
 	if a.ID != q.ID || a.Kind != q.Kind || !a.Confident(g.Floor) {
 		return false
 	}
+	// A noul answer's True must agree with P, or the decider's two signals
+	// contradict each other and the rules decide.
+	if q.Kind == KindNoul && a.True != (a.P >= 0.5) {
+		return false
+	}
 	if q.Kind == KindChoice && len(q.Options) > 0 && !ruleContains(q.Options, a.Pick) {
 		return false
 	}

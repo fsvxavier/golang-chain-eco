@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -87,6 +88,17 @@ func scripted(_ context.Context, _ compress.State, qs []compress.Question) ([]co
 	return out, nil
 }
 
+// allowedPrograms is what the shell tool may run. Offline, the scripted run
+// keeps go and git (it never calls the tool, so this is for the demo shape).
+// With a real provider key the model is a live one that can write files, so
+// go and git (which run code) are withheld: ls, grep and echo only.
+func allowedPrograms(getenv func(string) string) []string {
+	if getenv("ANTHROPIC_API_KEY") != "" || getenv("OPENAI_API_KEY") != "" {
+		return []string{"ls", "grep", "echo"}
+	}
+	return []string{"go", "git", "ls", "grep", "echo"}
+}
+
 type shellArgs struct {
 	Command string `json:"command"`
 }
@@ -96,14 +108,15 @@ type shellArgs struct {
 func shellTool(dir string, rtk *compress.RTK) tools.Tool {
 	env := os.Environ()
 	rtk.Env = env
+	allowed := allowedPrograms(os.Getenv)
 	sh := backends.LocalShell{
 		Filesystem:      backends.Filesystem{Root: dir},
 		Env:             env,
-		AllowedCommands: []string{"go", "git", "ls", "grep", "echo"},
+		AllowedCommands: allowed,
 		Rewrite:         rtk.Rewrite,
 	}
 	run := rtk.Executor(sh)
-	return tools.New("shell", "Run one shell command in the team workspace. Allowed programs: go, git, ls, grep, echo.",
+	return tools.New("shell", "Run one shell command in the team workspace. Allowed programs: "+strings.Join(allowed, ", ")+".",
 		func(ctx context.Context, a shellArgs) (any, error) {
 			res, err := run.Execute(ctx, a.Command, 30*time.Second)
 			if err != nil {
