@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
 )
 
@@ -36,6 +37,7 @@ func listen() (net.Listener, string, error) {
 type LocalOptions struct {
 	Middleware []agents.Middleware
 	Tools      []tools.Tool
+	Offline    func([]messages.Message) messages.Message
 }
 
 // StartLocal brings up hub, manager and the 11 workers. It returns when the hub
@@ -70,7 +72,7 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
 		go func() {
 			defer l.wg.Done()
 			_ = RunWorker(wctx, WorkerConfig{ID: c.ID, Role: c.Role, Hub: hubURL,
-				Middleware: opts.Middleware, Tools: opts.Tools}, ln)
+				Middleware: opts.Middleware, Tools: opts.Tools, Offline: opts.Offline}, ln)
 		}()
 	}
 	hc := NewHubClient(hubURL)

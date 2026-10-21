@@ -11,6 +11,7 @@ import (
 
 	"github.com/fsvxavier/golang-chain-eco/agentprotocol"
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
@@ -36,6 +37,9 @@ type WorkerConfig struct {
 	// Empty means none: the worker is unchanged.
 	Middleware []agents.Middleware
 	Tools      []tools.Tool
+	// Offline is the scripted model's answer function when no provider is set.
+	// Nil means the role's own offline answers (offline in text.go).
+	Offline func([]messages.Message) messages.Message
 }
 
 // RunWorker serves the role's agent over Agent Protocol on ln and works the
@@ -46,7 +50,11 @@ func RunWorker(ctx context.Context, cfg WorkerConfig, ln net.Listener) error {
 	if err != nil {
 		return err
 	}
-	model, label, err := NewModel(cfg.Role, offline)
+	fake := offline
+	if cfg.Offline != nil {
+		fake = cfg.Offline
+	}
+	model, label, err := NewModel(cfg.Role, fake)
 	if err != nil {
 		return err
 	}
