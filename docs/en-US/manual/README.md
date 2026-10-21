@@ -56,6 +56,7 @@ Audience: Go developers who want to build chains, agents and workflows with LLMs
 - [EVALS.md](../EVALS.md) — offline evaluation of agents and chains (`evals`)
 - [DEV.md](../DEV.md) — development server (`langgraph/dev`, `cmd/langgraph`)
 - [INTEGRATIONS.md](../INTEGRATIONS.md) — integrations and the verification level of each one
+- [Integration manuals](../../integrations/en-US/README.md) — router with several gateways and MCP clients
 - [PROVIDERS.md](../PROVIDERS.md) and [PROVIDERS-ANALISE.md](../PROVIDERS-ANALISE.md) — coverage of LangChain's 504 providers
 - [examples/README.md](../../../examples/README.md) — index of the runnable examples
 

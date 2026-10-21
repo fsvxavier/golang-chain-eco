@@ -13,6 +13,7 @@ Permit, Salesforce, AWS Kendra/Knowledge Bases/Lambda, SMS Plivo/Telnyx, buscas 
 documentação pública; podem divergir do serviço real. Nenhum teste da suíte padrão chama a rede: os de serviço real se pulam sozinhos.
 
 Veja também o uso no [README](../../README.pt-BR.md).
+Manuais do router com vários gateways e de clientes MCP (VS Code, Claude Code, Kilo Code, Copilot CLI, Opencode, Cursor): [docs/integrations](../../integrations/pt-BR/README.md).
 
 ## Chat models e embeddings (`chatmodels`, `providers/*`)
 

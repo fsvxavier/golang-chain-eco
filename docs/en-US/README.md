@@ -37,6 +37,7 @@ The [manual index](manual/README.md) has the 20 chapters, from installation to R
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Layers, design decisions and how the packages build on each other |
 | [INTEGRATIONS.md](INTEGRATIONS.md) | What each integration covers, how it was verified and how to test against real services |
+| [Integration manuals](../integrations/en-US/README.md) | Router with freellmapi, omniroute and bifrost; MCP clients (VS Code, Claude Code, Kilo Code, Copilot CLI, Opencode, Cursor) |
 | [PROVIDERS.md](PROVIDERS.md) | Matrix of LangChain's 504 providers: what exists and what does not |
 | [PROVIDERS-ANALISE.md](PROVIDERS-ANALISE.md) | Analysis of the missing providers and why |
 
