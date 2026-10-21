@@ -39,7 +39,7 @@ type Config struct {
 	Model   string             // label for ModelID: "router:"+Model
 	Mode    Mode               // "" = failover
 	Weights map[string]float64 // weighted only; missing name = 1; 0 = never first
-	Timeout time.Duration      // per attempt; 0 = none
+	Timeout time.Duration      // per attempt; 0 = none. Generate bounds the whole call; Stream treats it as idle time (to first chunk, and between chunks; consumer pauses not counted)
 	Rand    func() float64     // [0,1); nil = math/rand/v2 Float64
 }
 
@@ -170,28 +170,57 @@ func (r *Router) Stream(ctx context.Context, msgs []messages.Message, opts ...mo
 }
 
 // streamAttempt streams one target, forwarding its chunks and accumulating
-// their text. It reports whether a tool-call chunk was seen, whether the
-// consumer stopped (yield returned false), and the error that ended the stream.
-// Config.Timeout bounds the whole stream, consumer pauses included.
-func (r *Router) streamAttempt(ctx context.Context, m models.ChatModel, msgs []messages.Message, opts []models.Option, text *strings.Builder, yield func(messages.Message, error) bool) (toolSeen, stopped bool, err error) {
+// their text. It reports whether a tool call was seen, whether the consumer
+// stopped (yield returned false), and the error that ended the stream. With
+// Config.Timeout set, an idle timer cancels the stream when no chunk arrives
+// in time; the timer is stopped while the consumer holds a chunk.
+func (r *Router) streamAttempt(parent context.Context, m models.ChatModel, msgs []messages.Message, opts []models.Option, text *strings.Builder, yield func(messages.Message, error) bool) (toolSeen, stopped bool, err error) {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	var idle *time.Timer
+	var fired atomic.Bool
 	if r.cfg.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, r.cfg.Timeout)
-		defer cancel()
+		idle = time.AfterFunc(r.cfg.Timeout, func() {
+			fired.Store(true)
+			cancel()
+		})
+		defer idle.Stop()
 	}
 	for chunk, cerr := range m.Stream(ctx, msgs, opts...) {
+		if idle != nil {
+			idle.Stop()
+		}
+		// A chunk may arrive together with an error: forward it first.
+		if cerr == nil || hasPayload(chunk) {
+			if hasToolCall(chunk) {
+				toolSeen = true
+			}
+			text.WriteString(chunk.Content)
+			if !yield(chunk, nil) {
+				return toolSeen, true, nil
+			}
+		}
 		if cerr != nil {
+			if fired.Load() && parent.Err() == nil {
+				cerr = context.DeadlineExceeded
+			}
 			return toolSeen, false, cerr
 		}
-		if len(chunk.ToolCallChunks) > 0 || len(chunk.ToolCalls) > 0 {
-			toolSeen = true
-		}
-		text.WriteString(chunk.Content)
-		if !yield(chunk, nil) {
-			return toolSeen, true, nil
+		if idle != nil {
+			idle.Reset(r.cfg.Timeout)
 		}
 	}
 	return toolSeen, false, nil
+}
+
+// hasPayload reports whether a chunk carries anything to forward.
+func hasPayload(m messages.Message) bool {
+	return m.Content != "" || hasToolCall(m)
+}
+
+// hasToolCall reports whether a chunk carries a (partial) tool call.
+func hasToolCall(m messages.Message) bool {
+	return len(m.ToolCalls) > 0 || len(m.ToolCallChunks) > 0
 }
 
 // withContinuation returns the original messages plus the partial answer and

@@ -78,6 +78,10 @@ type stub struct {
 	toolCall       bool
 	streamErrAfter int
 	streamErr      error
+	stall          bool          // at streamErrAfter, wait for ctx instead of failing
+	errWithChunk   bool          // at streamErrAfter, yield the next item together with streamErr
+	toolCallFull   bool          // a tool call in ToolCalls rather than ToolCallChunks
+	delay          time.Duration // wait before each item, cut short by ctx
 
 	calls atomic.Int32
 	mu    sync.Mutex // guards msgs and opts when called concurrently
@@ -122,12 +126,34 @@ func (s *stub) Stream(ctx context.Context, msgs []messages.Message, opts ...mode
 		if s.toolCall {
 			items = append(items, messages.Message{Role: messages.RoleAI, ToolCallChunks: []messages.ToolCallChunk{{ID: "call_1", Name: "search", Args: `{"q":"go"}`}}})
 		}
+		if s.toolCallFull {
+			items = append(items, messages.Message{Role: messages.RoleAI, ToolCalls: []messages.ToolCall{{ID: "call_2", Name: "search", Args: map[string]any{"q": "go"}}}})
+		}
 		for i := 0; i <= len(items); i++ {
 			if i == s.streamErrAfter {
-				yield(messages.Message{}, s.streamErr)
+				switch {
+				case s.stall:
+					<-ctx.Done()
+					yield(messages.Message{}, ctx.Err())
+				case s.errWithChunk && i < len(items):
+					yield(items[i], s.streamErr)
+				default:
+					yield(messages.Message{}, s.streamErr)
+				}
 				return
 			}
-			if i == len(items) || !yield(items[i], nil) {
+			if i == len(items) {
+				return
+			}
+			if s.delay > 0 {
+				select {
+				case <-time.After(s.delay):
+				case <-ctx.Done():
+					yield(messages.Message{}, ctx.Err())
+					return
+				}
+			}
+			if !yield(items[i], nil) {
 				return
 			}
 		}
@@ -554,16 +580,25 @@ func TestStreamTwoSwitches(t *testing.T) {
 	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: 1, streamErr: status(503)}
 	c := &stub{name: "c", chunks: []string{"z"}, streamErrAfter: -1}
 	r, _ := New(threeTargets(a, b, c), Config{})
-	texts, err := drain(r.Stream(context.Background(), nil))
+	history := []messages.Message{messages.Human("hi")}
+	opts := []models.Option{models.WithTemperature(0.2), models.WithMaxTokens(64)}
+	texts, err := drain(r.Stream(context.Background(), history, opts...))
 	if err != nil {
 		t.Fatalf("Stream error: %v", err)
 	}
 	if !reflect.DeepEqual(texts, []string{"x", "y", "z"}) {
 		t.Errorf("chunks = %q, want [x y z]", texts)
 	}
-	last := c.msgs[len(c.msgs)-2:]
-	if !reflect.DeepEqual(last, []messages.Message{messages.AI("xy"), messages.Human(continuePrompt)}) {
-		t.Errorf("c continuation = %v, want assistant xy then continue prompt", last)
+	wantB := append(append([]messages.Message{}, history...), messages.AI("x"), messages.Human(continuePrompt))
+	wantC := append(append([]messages.Message{}, history...), messages.AI("xy"), messages.Human(continuePrompt))
+	if !reflect.DeepEqual(b.msgs, wantB) {
+		t.Errorf("b msgs = %v, want %v", b.msgs, wantB)
+	}
+	if !reflect.DeepEqual(c.msgs, wantC) {
+		t.Errorf("c msgs = %v, want %v", c.msgs, wantC)
+	}
+	if !reflect.DeepEqual(a.opts, b.opts) || !reflect.DeepEqual(b.opts, c.opts) {
+		t.Errorf("options differ: a=%+v b=%+v c=%+v", a.opts, b.opts, c.opts)
 	}
 }
 
@@ -609,6 +644,149 @@ func TestStreamEarlyBreak(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("consumer saw %d chunks, want 1", n)
+	}
+	if b.calls.Load() != 0 {
+		t.Errorf("b called %d times, want 0", b.calls.Load())
+	}
+}
+
+// Stream timeout is idle time: it bounds time to first chunk and each gap
+// between chunks, not the whole stream nor the consumer's own pauses.
+
+func TestStreamSteadyLongerThanTimeoutCompletes(t *testing.T) {
+	a := &stub{name: "a", chunks: []string{"a", "b", "c", "d", "e", "f", "g", "h"}, streamErrAfter: -1, delay: 8 * time.Millisecond}
+	b := healthy("b")
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 25 * time.Millisecond})
+	texts, err := drain(r.Stream(context.Background(), nil))
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+	if len(texts) != 8 || b.calls.Load() != 0 {
+		t.Errorf("chunks = %d, b calls = %d; want 8 chunks and no failover", len(texts), b.calls.Load())
+	}
+}
+
+func TestStreamStallAfterFirstChunkFailsOver(t *testing.T) {
+	history := []messages.Message{messages.Human("hi")}
+	a := &stub{name: "a", chunks: []string{"x"}, streamErrAfter: 1, stall: true}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 25 * time.Millisecond})
+	texts, err := drain(r.Stream(context.Background(), history))
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+	if !reflect.DeepEqual(texts, []string{"x", "y"}) {
+		t.Errorf("chunks = %q, want [x y]", texts)
+	}
+	want := append(append([]messages.Message{}, history...), messages.AI("x"), messages.Human(continuePrompt))
+	if !reflect.DeepEqual(b.msgs, want) {
+		t.Errorf("b msgs = %v, want %v", b.msgs, want)
+	}
+}
+
+func TestStreamConsumerPauseNotCounted(t *testing.T) {
+	a := &stub{name: "a", chunks: []string{"x", "y"}, streamErrAfter: -1}
+	b := healthy("b")
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{Timeout: 20 * time.Millisecond})
+	var texts []string
+	for m, err := range r.Stream(context.Background(), nil) {
+		if err != nil {
+			t.Fatalf("Stream error: %v", err)
+		}
+		texts = append(texts, m.Content)
+		if len(texts) == 1 {
+			time.Sleep(40 * time.Millisecond) // longer than Timeout, while the consumer holds the chunk
+		}
+	}
+	if !reflect.DeepEqual(texts, []string{"x", "y"}) || b.calls.Load() != 0 {
+		t.Errorf("chunks = %q, b calls = %d; want [x y] and no failover", texts, b.calls.Load())
+	}
+}
+
+func TestStreamChunkWithErrorForwardedFirst(t *testing.T) {
+	history := []messages.Message{messages.Human("hi")}
+	a := &stub{name: "a", chunks: []string{"x", "y"}, streamErrAfter: 1, streamErr: status(503), errWithChunk: true}
+	b := &stub{name: "b", chunks: []string{"z"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	texts, err := drain(r.Stream(context.Background(), history))
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+	if !reflect.DeepEqual(texts, []string{"x", "y", "z"}) {
+		t.Errorf("chunks = %q, want [x y z]", texts)
+	}
+	want := append(append([]messages.Message{}, history...), messages.AI("xy"), messages.Human(continuePrompt))
+	if !reflect.DeepEqual(b.msgs, want) {
+		t.Errorf("b msgs = %v, want %v", b.msgs, want)
+	}
+}
+
+func TestStreamNoChunksNoErrorCompletes(t *testing.T) {
+	a := &stub{name: "a", streamErrAfter: -1}
+	b := healthy("b")
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	texts, err := drain(r.Stream(context.Background(), nil))
+	if err != nil || len(texts) != 0 || b.calls.Load() != 0 {
+		t.Errorf("got (%q, %v), b calls %d; want no chunks, no error, no failover", texts, err, b.calls.Load())
+	}
+}
+
+func TestStreamAllTargetsFail(t *testing.T) {
+	a := &stub{name: "a", streamErrAfter: 0, streamErr: status(500)}
+	b := &stub{name: "b", streamErrAfter: 0, streamErr: status(503)}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	_, err := drain(r.Stream(context.Background(), nil))
+	if err == nil {
+		t.Fatal("want error")
+	}
+	msg := err.Error()
+	for _, want := range []string{"router: all targets failed:", "a: http 500", "b: http 503"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q does not contain %q", msg, want)
+		}
+	}
+	var se *httpx.StatusError
+	if !errors.As(err, &se) {
+		t.Errorf("errors.As to StatusError failed for %q", msg)
+	}
+}
+
+func TestStreamSingleTargetErrorUnwrapped(t *testing.T) {
+	a := &stub{name: "a", streamErrAfter: 0, streamErr: status(500)}
+	r, _ := New([]Target{{Name: "a", Model: a}}, Config{})
+	_, err := drain(r.Stream(context.Background(), nil))
+	var se *httpx.StatusError
+	if !errors.As(err, &se) || se.Code != 500 {
+		t.Fatalf("err = %v, want StatusError 500", err)
+	}
+	if strings.Contains(err.Error(), "all targets") {
+		t.Errorf("single target error wrapped: %q", err)
+	}
+}
+
+func TestStreamCancelledBeforeStart(t *testing.T) {
+	a := &stub{name: "a", chunks: []string{"x"}, streamErrAfter: -1}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := drain(r.Stream(ctx, nil))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if a.calls.Load() != 0 || b.calls.Load() != 0 {
+		t.Errorf("calls a=%d b=%d, want 0 and 0", a.calls.Load(), b.calls.Load())
+	}
+}
+
+func TestStreamToolCallFullBlocksContinuation(t *testing.T) {
+	a := &stub{name: "a", toolCallFull: true, streamErrAfter: 1, streamErr: status(503)}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	_, err := drain(r.Stream(context.Background(), nil))
+	var se *httpx.StatusError
+	if !errors.As(err, &se) || se.Code != 503 {
+		t.Fatalf("err = %v, want StatusError 503", err)
 	}
 	if b.calls.Load() != 0 {
 		t.Errorf("b called %d times, want 0", b.calls.Load())
