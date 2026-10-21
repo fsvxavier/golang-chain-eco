@@ -1,4 +1,4 @@
-# Call compression: RTK, Caveman and a small decision model
+# Call compression: RTK, Caveman, Ponytail, TOON and a small decision model
 
 **English** | [Português](../pt-BR/COMPRESSION.md) | [Español](../es-ES/COMPRESSION.md)
 
@@ -10,25 +10,31 @@ The library code uses only the standard library. The root `go.mod` requires laya
 Agents spend most of their tokens on two things: long conversation histories and noisy shell output. Compression is decided per call, from a small summary, by a decider:
 
 - **Caveman** shortens the text of old turns, and asks for a terse reply.
+- **Ponytail** is a prompt directive that nudges a coding agent to write less code. It is a rules text, not a compressor.
+- **TOON** re-encodes JSON tool results in a more compact notation, only when the result is strictly shorter.
 - **RTK** (the `rtk` CLI, optional) shortens the output of simple shell commands.
 - **A decider** answers typed questions about the current state. It is a rule set (`RuleDecider`), or a System 1 model: Laya (`HTTPDecider` or the native module), or TypeSafe JEV later.
 
 A model never reads the whole history. It reads a `Summary` (counts, sizes, tool share, language, a short tail) that fits its window. Compression never rewrites stored state or checkpoints: it changes only the per-call copy sent to the model, so a resumed thread sees the original text.
 
-## The four questions
+## The questions
 
 | Id | Site | Kind | Effect when "yes" (or the chosen level) |
 |---|---|---|---|
 | `compress_history` | before a model call | Noul | compress old turns with Caveman |
-| `level` | before a model call (asked when history or reply is on) | Choice: `lite`, `full`, `ultra` | Caveman level, shared by history and reply |
+| `level` | before a model call (asked when history or reply is on) | Choice: `lite`, `full`, `ultra` | Caveman level, shared by history, reply and Ponytail |
 | `compress_reply` | before a model call | Noul | append the terse-reply directive after the last user message |
+| `ponytail` | before a model call | Noul | append the Ponytail directive after the last user message |
+| `toon_tool_results` | before a model call | Noul | rewrite JSON tool results as TOON when strictly shorter |
 | `route_rtk` | before a shell command | Noul | prefix the command with `rtk ` |
 
-Question and answer ids are exact strings (`compress.QCompressHistory`, `QLevel`, `QCompressReply`, `QRouteRTK`). Answers are matched by id. Noul answers carry a truth value and a probability; Choice answers carry a pick and a distribution.
+The first five form the model-call set (`compress.HistoryQuestions()`, in that order). `route_rtk` is asked before a shell command, not before a model call.
+
+Question and answer ids are exact strings (`compress.QCompressHistory`, `QLevel`, `QCompressReply`, `QPonytail`, `QTOON`, `QRouteRTK`). Answers are matched by id. Noul answers carry a truth value and a probability; Choice answers carry a pick and a distribution.
 
 ## Summary budget
 
-`compress.Summarize(messages, SummaryOptions{})` builds a `Summary`: message and turn counts, estimated tokens, the share of tool output, the size of the largest tool result, the dominant language (English, Portuguese, Spanish or other, by stopword count) and the last messages, truncated. Tokens are estimated as bytes / 4.
+`compress.Summarize(messages, SummaryOptions{})` builds a `Summary`: message and turn counts, estimated tokens, the share of tool output, the size of the largest tool result, the dominant language (English, Portuguese, Spanish or other, by stopword count) and the last messages, truncated. Two signals feed the Ponytail and TOON questions: `CodeShare` (the share of bytes inside fenced code blocks of Human and AI messages, 0 to 1; state key `code_share`) and `JSONToolBytes` (the total bytes of tool messages whose content parses as a JSON object or array; state key `json_tool_bytes`). Tokens are estimated as bytes / 4.
 
 With the default `SummaryOptions`, the encoded state (`Summary.State()` as JSON) stays under **700 tokens**, so the questions fit a 1024-token decider window. A huge message, unicode text and an empty history all stay under the budget (tested). Larger `SummaryOptions` are not clipped, so they can exceed it.
 
@@ -40,6 +46,8 @@ With the default `SummaryOptions`, the encoded state (`Summary.State()` as JSON)
 
 - `compress_history`: yes when the history is above an estimated **4000** tokens.
 - `level`: `full`.
+- `ponytail`: yes when `code_share >= 0.1`.
+- `toon_tool_results`: yes when `json_tool_bytes >= 2048`.
 - `route_rtk`: yes when the first word is one of `git go ls grep find docker kubectl npm cargo pytest` and the previous output of that command was over **2048** bytes or unknown.
 
 `compress.NewGuarded(inner)` wraps a decider with these defaults: fallback `RuleDecider{}`, confidence **floor 0.7**, decider **timeout 2s**. Per question, the inner answer is used only when it exists, has the right id and kind, and is confident. Confidence is the top-class probability for Choice and `max(P, 1-P)` for Noul. Any other answer, an inner error, a timeout or a panic sends that question to the fallback. Cancellation of the caller's context is returned as an error. A decider never fails a run.
@@ -70,13 +78,43 @@ Caveman never touches tool results, tool-call arguments, system prompts, JSON, c
 - `LocalShell.Rewrite` is applied after that check, to the command that is executed. Nil keeps the old behaviour.
 - RTK keeps the exit code, and the error lines of `go vet` survive (tested).
 
+## Ponytail (less code written)
+
+`compress.PonytailDirective(lvl)` returns a rules text for a coding agent. Its idea comes from the Ponytail project (`github.com/DietrichGebert/ponytail`, MIT). The wording here is an original, shorter rewrite, not a copy.
+
+- **Levels.** `Lite` is two sentences. `Full` (the default) is a seven-rung ladder: does it need to exist, does the codebase already have it, does the standard library do it, does a native platform feature cover it, does an installed dependency solve it, can it be one line, and only then the minimum code. `Ultra` is the longest set and adds "ask whether it must exist at all". Each text is under 1200 bytes and ends with a `Ponytail:` line.
+- **The rule that keeps it safe.** The text says "Lazy about the solution, never about reading": the agent must read the affected code end to end before it picks a rung. It never tells the model to skip input validation at trust boundaries, error handling that prevents data loss, security checks, accessibility basics, or the one test that guards risky logic.
+- **Where it goes.** `middleware.Compression` appends `"\n\n" + PonytailDirective(level)` to the last Human message of the per-call copy, once per call, before the reply directive when both apply. The system prompt is not changed, so byte-stable prefixes keep their cache.
+- **When it is asked.** The `ponytail` question is yes when `CodeShare >= 0.1`, so only sessions with a real share of code in the conversation get the note.
+
+What is known and what is not:
+
+- The vendor reports **code -53% and tokens -45%** over its own 39-task run. Those are the vendor's numbers. They are not reproduced here, and this project has not measured them.
+- The directive is a nudge. Whether a model writes less code depends on the model and the task. Measure it with a real model (see the example below); the offline example shows only what the model receives.
+
+## TOON (JSON tool results)
+
+TOON (Token-Oriented Object Notation) is a compact, indentation-based encoding of JSON. This package follows **spec v4.4** (`https://github.com/toon-format/spec`, `SPEC.md`) for the subset it implements.
+
+- `compress.TOONFromJSON(text, compress.TOONOptions{Delimiter})` encodes JSON text. The delimiter is `","` (default), `"\t"` or `"|"`; any other value is an error. Invalid JSON is an error.
+- `compress.TOONShorter(text)` returns the TOON text and `true` only when `text` is a JSON object or array **and** the TOON is strictly shorter. Otherwise it returns the input and `false`. Use this when the output must never be longer than the input.
+- Implemented: 2-space indentation, LF, no trailing newline; keys unquoted only when they match `^[A-Za-z_][A-Za-z0-9_.]*$`; strings quoted when empty, numeric-like, `true`/`false`/`null`, padded with spaces, containing `: " \ [ ] { }`, a control character or the active delimiter, or starting with `-` or `#`; key order kept as in the JSON text; numbers in plain decimal with the shortest round-trip digits (exponent form outside `1e-6 <= |n| < 1e21`), `-0` as `0`, NaN and Inf as `null`, large integers kept digit for digit.
+- Arrays: primitive arrays inline (`tags[3]: admin,ops,dev`); arrays of objects with the same keys and only primitive values as a **tabular** block (`users[2]{id,name,role}:` with one row per object); mixed or non-uniform arrays in list form with `- ` items; empty arrays as `key: []`.
+- **Not implemented:** there is **no decoder** (TOON back to JSON), no **keyed tabular** form, and no **key folding**. Nested objects are written as nested indentation instead. Losslessness rests on the golden tests in `compress/toon_test.go`, which use the spec's examples, not on a round trip.
+
+**In the middleware.** The `toon_tool_results` question is yes when `JSONToolBytes >= 2048`. Then each tool message whose content parses as a JSON object or array, and that has no `Parts`, is replaced in the per-call copy by its TOON form, but only when that form is strictly shorter. Tool-call ids and the order of messages never change. Non-JSON tool output and messages with `Parts` are left untouched. Stored state is not rewritten.
+
+This is the one exception to "tool results are never touched". Caveman still never touches them.
+
+**Savings depend on the model.** TOON only helps if the model reads it well, and the saving in model tokens varies with the tokenizer. The TOON project publishes its own benchmarks; they are not reproduced here. The example reports bytes and an estimate (`messages.ApproxTokens`, bytes / 4), not billed tokens.
+
 ## Compression middleware
 
 `middleware.NewCompression(decider)` (`agents/middleware`) is a `WrapModelCall` transform:
 
-- It builds the `Summary`, asks the guarded decider, and applies Caveman to old Human and AI turns, and the reply directive after the last Human message.
+- It builds the `Summary`, asks the guarded decider, and applies Caveman to old Human and AI turns, the Ponytail directive (when asked) and the reply directive after the last Human message, and TOON to JSON tool results (when asked).
 - `Keep` is the number of recent turns left alone (default **4**). The confidence floor (**0.7**) is set on `compress.Guarded`, not on `Compression`: `NewCompression` wraps the decider with `NewGuarded`. To change it, build a `compress.Guarded{...}` and pass it as `Compression{Decider: g}`.
-- Tool calls and tool results are never touched, so each tool-call id and the order of pairs survive.
+- Tool calls are never touched. Tool results change only by the TOON rule above, so each tool-call id and the order of pairs survive.
 - Only the per-call copy changes. Stored state and checkpoints keep the original text.
 - The reply directive is placed after the last user message, not in the system prompt, so byte-stable prefixes (`cag`) keep their cache.
 - `Summarization` stays a separate `BeforeModel` middleware, not a step inside Compression (the hook order makes "only if still over after Caveman" impossible). Set its `MaxTokens` above the decider's threshold so it acts as a **backstop** for histories that Caveman cannot shrink enough.
@@ -122,6 +160,8 @@ All run offline with a fake model unless a real service is configured. Each has 
 | `langgraph/compress_history_summary` | `Summary` of a history above 8k tokens, fits the 700-token budget |
 | `langgraph/compress_shell_rtk` | shell output through RTK when the decider says so |
 | `langgraph/compress_prompt_caveman` | prompt and reply compression with the middleware |
+| `langgraph/compress_toon` | a 20-row JSON tool result, its TOON form, sizes before and after, and the `TOONShorter` fallback for a tiny object |
+| `langgraph/compress_ponytail` | the Ponytail note the model receives at each level, and proof that the system prompt is untouched |
 | `langgraph/decider_laya_http` | `HTTPDecider` against `laya-serve` (fake server offline) |
 | `langgraph/decider_laya_native` | native laya-go, separate module, `laya_native` tag |
 | `langgraph/full_team` | the team of `independent_engineering_team` with call compression; fake decider and model by default. With `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, the shell tool offers only `ls`, `grep` and `echo` |

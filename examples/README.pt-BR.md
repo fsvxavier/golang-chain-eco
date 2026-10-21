@@ -51,6 +51,8 @@ Os grupos `langchain`, `langgraph` e `deepagents` foram portados dos repositóri
 | `langgraph/compress_history_summary` | `Summary` de um histórico acima de 8k tokens, cabendo no orçamento de 700 tokens | próprio |
 | `langgraph/compress_shell_rtk` | saída de shell pelo RTK quando o decider decide | próprio |
 | `langgraph/compress_prompt_caveman` | compressão de prompt e de resposta (Caveman e a diretiva de resposta concisa) | próprio |
+| `langgraph/compress_toon` | resultado JSON de ferramenta em TOON, tamanhos antes e depois, fallback `TOONShorter` | próprio |
+| `langgraph/compress_ponytail` | nota Ponytail por nível como o modelo a recebe; system prompt intacto | próprio |
 | `langgraph/decider_laya_http` | `HTTPDecider` contra o `laya-serve` (servidor falso offline) | próprio |
 | `langgraph/decider_laya_native` | decider laya-go nativo, módulo separado, tag `laya_native` | próprio |
 | `langgraph/full_team` | o time independente com compressão de chamadas; decider e modelo falsos por padrão | próprio |
