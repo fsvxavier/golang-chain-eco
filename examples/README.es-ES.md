@@ -47,6 +47,13 @@ Los grupos `langchain`, `langgraph` y `deepagents` se portaron de los repositori
 | `langgraph/typed_state` | estado tipado con struct (`NewTyped`, tags de reducer, `Validate`) | propio |
 | `langgraph/engineering_team` | equipo de ingeniería (gerente, PO, arquitecto, líder, 4 devs, 2 revisores, 2 QA) con handoff por `Send`/`Command`, registro de disponibilidad con reserva atómica y skills por agente en `skills/` | propio |
 | `langgraph/independent_engineering_team` | el mismo equipo como servicios separados: hub (reserva atómica con leases, cola de jobs, RAG/CAG/KAG y memoria del equipo vía MCP), gerente en `remote/server`, workers en Agent Protocol; modelo por agente vía env; Docker compose | propio |
+| `langgraph/decider_fallback` | `Decider`, `RuleDecider` y el fallback `Guarded`, sin modelo | propio |
+| `langgraph/compress_history_summary` | `Summary` de un historial por encima de 8k tokens, que cabe en el presupuesto de 700 tokens | propio |
+| `langgraph/compress_shell_rtk` | salida de shell por RTK cuando el decider lo decide | propio |
+| `langgraph/compress_prompt_caveman` | compresión de prompt y de respuesta (Caveman y la directiva de respuesta breve) | propio |
+| `langgraph/decider_laya_http` | `HTTPDecider` contra `laya-serve` (servidor falso offline) | propio |
+| `langgraph/decider_laya_native` | decider laya-go nativo, módulo separado, tag `laya_native` | propio |
+| `langgraph/independent_engineering_team/full_team` | el equipo independiente con compresión de llamadas; decider y modelo falsos por defecto | propio |
 
 ## deepagents
 

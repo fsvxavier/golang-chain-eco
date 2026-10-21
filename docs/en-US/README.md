@@ -24,6 +24,7 @@ The [manual index](manual/README.md) has the 20 chapters, from installation to R
 | Document | Packages | Subject |
 |---|---|---|
 | [KNOWLEDGE.md](KNOWLEDGE.md) | `knowledge`, `rag`, `cag`, `kag`, `integrations/graphstore`, `cmd/knowledge` | RAG, CAG and KAG over a common contract, router, tools and MCP, graph on Neo4j and Memgraph |
+| [COMPRESSION.md](COMPRESSION.md) | `compress`, `middleware.Compression`, `LocalShell.Rewrite` | Call compression: RTK for shell output, Caveman for old turns, a decider (rules or Laya) that says when |
 | [LANGMEM.md](LANGMEM.md) | `langmem` | Long-term memory (semantic, episodic, procedural) and differences from Python LangMem |
 | [AGENT-PROTOCOL.md](AGENT-PROTOCOL.md) | `agentprotocol` | Agent Protocol server and client, typed streaming |
 | [CIAM.md](CIAM.md) | `ciam`, `cmd/ciam` | Project context for AI assistants: index, hybrid search, ADR/PRD/plans, MCP |

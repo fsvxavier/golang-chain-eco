@@ -1,0 +1,127 @@
+# Compresión de llamadas: RTK, Caveman y un pequeño modelo de decisión
+
+[English](../en-US/COMPRESSION.md) | [Português](../pt-BR/COMPRESSION.md) | **Español**
+
+Referencia del paquete `compress`, del middleware `Compression` en `agents/middleware` y del hook `backends.LocalShell.Rewrite`.
+El código de la biblioteca usa solo la biblioteca estándar. El decider nativo de Laya es un módulo Go separado.
+
+## La idea
+
+Los agents gastan la mayor parte de los tokens en dos cosas: historiales largos de conversación y salida ruidosa de shell. La compresión se decide por llamada, a partir de un resumen pequeño, por un decider:
+
+- **Caveman** acorta el texto de los turnos antiguos y pide una respuesta breve.
+- **RTK** (la CLI `rtk`, opcional) acorta la salida de comandos de shell simples.
+- **Un decider** responde preguntas tipadas sobre el estado actual. Puede ser un conjunto de reglas (`RuleDecider`) o un modelo System 1: Laya (`HTTPDecider` o el módulo nativo) o, más adelante, TypeSafe JEV.
+
+Un modelo nunca lee el historial completo. Lee un `Summary` (conteos, tamaños, proporción de salida de herramientas, idioma, una cola corta) que cabe en su ventana. La compresión nunca reescribe el estado guardado ni los checkpoints: cambia solo la copia por llamada enviada al modelo, así que un thread reanudado ve el texto original.
+
+## Las cuatro preguntas
+
+| Id | Dónde | Tipo | Efecto con "sí" (o el nivel elegido) |
+|---|---|---|---|
+| `compress_history` | antes de una llamada al modelo | Noul | comprime los turnos antiguos con Caveman |
+| `level` | antes de una llamada al modelo (se pregunta cuando historial o respuesta están activos) | Choice: `lite`, `full`, `ultra` | nivel de Caveman, compartido por historial y respuesta |
+| `compress_reply` | antes de una llamada al modelo | Noul | añade la directiva de respuesta breve tras el último mensaje del usuario |
+| `route_rtk` | antes de un comando de shell | Noul | antepone `rtk ` al comando |
+
+Los ids de pregunta y respuesta son cadenas exactas (`compress.QCompressHistory`, `QLevel`, `QCompressReply`, `QRouteRTK`). Las respuestas se emparejan por id. Las respuestas Noul traen un valor booleano y una probabilidad; las respuestas Choice traen una elección y una distribución.
+
+## Presupuesto del Summary
+
+`compress.Summarize(messages, SummaryOptions{})` construye un `Summary`: conteo de mensajes y turnos, tokens estimados, proporción de salida de herramientas, tamaño del mayor resultado de herramienta, idioma dominante (inglés, portugués, español u otro, por conteo de stopwords) y los últimos mensajes, truncados. Los tokens se estiman como bytes / 4.
+
+El estado codificado (`Summary.State()` como JSON) se recorta a un presupuesto de **700 tokens**, para que las preguntas quepan en una ventana de 1024 tokens del decider. Un mensaje enorme, texto con unicode y un historial vacío quedan todos por debajo del presupuesto (probado).
+
+## Decider y fallback
+
+`compress.Decider` tiene un método: `Decide(ctx, State, []Question) ([]Answer, error)`.
+
+`RuleDecider` no necesita modelo. Sus valores por defecto:
+
+- `compress_history`: sí cuando el historial supera **4000** tokens estimados.
+- `level`: `full`.
+- `route_rtk`: sí cuando la primera palabra es una de `git go ls grep find docker kubectl npm cargo pytest` y la salida anterior de ese comando superó **2048** bytes o es desconocida.
+
+`compress.NewGuarded(inner)` envuelve un decider con estos valores: fallback `RuleDecider{}`, **umbral de confianza 0.7**, **timeout del decider 2s**. Pregunta por pregunta, la respuesta del interno solo se usa cuando existe, tiene el id y el tipo correctos y es confiable. La confianza es la probabilidad de la clase superior en Choice y `max(P, 1-P)` en Noul. Cualquier otra respuesta, error del interno, timeout o panic envía esa pregunta al fallback. La cancelación del contexto de quien llama se devuelve como error. Un decider nunca hace fallar una ejecución.
+
+Las probabilidades de un modelo no están calibradas. El umbral es un ajuste que hay que afinar con datos reales.
+
+## Caveman (compresión de texto)
+
+`compress.Compress(text, lvl)` trabaja sobre la prosa de los turnos antiguos. Los tramos protegidos salen byte a byte iguales: bloques de código delimitados, código en línea, URLs, rutas, cadenas entre comillas, líneas con forma de JSON y código con sangría.
+
+- **Reglas mecánicas, cualquier idioma, todo nivel:** normaliza CRLF a LF, colapsa secuencias de espacios y líneas en blanco, quita espacios al final de línea, elimina líneas duplicadas consecutivas, colapsa `!` y `?` repetidos.
+- **Tablas de palabras** (`Lexicon`) para `en`, `pt`, `es`, `fr`, `de` e `it`: `lite` además quita muletillas; `full` además quita artículos y atenuantes; `ultra` además quita conectores iniciales de frase.
+- **Detección de idioma** por llamada, contando stopwords en las tablas registradas. Sin ganador claro, o texto de menos de 5 palabras, solo se aplican las reglas mecánicas. Un idioma sin tabla (por ejemplo japonés o árabe) recibe solo compresión de espacios y repeticiones.
+- **`compress.RegisterLexicon(l)`** añade o reemplaza una tabla (seguro para uso concurrente).
+- La salida nunca es más larga que la entrada, nunca queda vacía, y la compresión es idempotente.
+
+`compress.ReplyDirective` es la nota de una línea para respuesta breve: `Reply tersely: no filler, no pleasantries, keep code and numbers exact.`
+
+Caveman nunca toca resultados de herramientas, argumentos de llamadas a herramientas, prompts de sistema, JSON, código, rutas, URLs, números ni errores entre comillas.
+
+## RTK (salida de shell)
+
+`compress.NewRTK(decider)` decide antes de ejecutar, a partir del texto del comando y del tamaño de la salida anterior del mismo comando. Nunca ejecuta un comando dos veces para medirlo.
+
+- Solo los comandos **simples** son candidatos. Cualquier comando con pipe, `&&`, `||`, `;`, redirección, `$(...)`, comillas invertidas, salto de línea o `VAR=` al inicio se deja tal cual.
+- `rtk` se busca con el `LookPath` sensible al entorno. `rtk` ausente significa pasar sin cambios.
+- La lista `AllowedCommands` de `LocalShell` se comprueba sobre el comando **original**, antes de cualquier reescritura.
+- `LocalShell.Rewrite` se aplica después de esa comprobación, al comando que se ejecuta. Nil mantiene el comportamiento anterior.
+- RTK conserva el código de salida, y las líneas de error de `go test` y `go build` sobreviven (probado).
+
+## Middleware de compresión
+
+`middleware.NewCompression(decider)` (en `agents/middleware`) es una transformación `WrapModelCall`:
+
+- Construye el `Summary`, pregunta al decider protegido por guard, y aplica Caveman a los turnos antiguos de Human y AI, y la directiva de respuesta tras el último mensaje Human.
+- `Keep` es el número de turnos recientes que no se tocan (por defecto **4**). `Floor` es el umbral de confianza (por defecto **0.7**).
+- Las llamadas y resultados de herramientas nunca se tocan, así que cada id de llamada y el orden de los pares se mantienen.
+- Solo cambia la copia por llamada. El estado guardado y los checkpoints conservan el texto original.
+- La directiva de respuesta va tras el último mensaje del usuario, no en el prompt de sistema, para que los prefijos estables en bytes (`cag`) mantengan su caché.
+- `Summarization` sigue siendo un middleware `BeforeModel` separado, no un paso dentro de Compression (el orden de los hooks hace imposible "solo si sigue por encima tras Caveman"). Fije su `MaxTokens` por encima del umbral del decider para que actúe como **respaldo** en historiales que Caveman no reduce lo suficiente.
+
+## HTTPDecider: servidor Laya
+
+`compress.HTTPDecider{URL, APIKey, Model, Client}` consulta un servidor Laya por HTTP con `net/http`, sin código de terceros. URL por defecto: `http://localhost:8000/v1/systemone`.
+
+El servidor oficial es `laya-serve`, un paquete de Python:
+
+```bash
+pip install "laya[serve]"
+LAYA_MODELS=... LAYA_DEVICE=cpu LAYA_HOST=127.0.0.1 LAYA_PORT=8000 LAYA_API_KEY=... laya-serve
+```
+
+Variables de entorno: `LAYA_MODELS` (modelos a cargar), `LAYA_DEVICE`, `LAYA_HOST`, `LAYA_PORT`, `LAYA_API_KEY` (se envía como clave bearer). La forma `laya serve --model` no aparece en la documentación pública y no se usa aquí.
+
+El contrato es `POST /v1/systemone`: un cuerpo JSON con el estado y las preguntas tipadas, y una respuesta JSON con las respuestas tipadas. Es el mismo protocolo que el de TypeSafe JEV, así que un endpoint JEV debería funcionar con URL y clave. **Eso no está probado.**
+
+**Punto abierto:** la forma de la respuesta Noul de `laya-serve` (booleano con o sin probabilidad) no está documentada aquí. Un booleano sin confianza cae en las reglas a través del guard. Revise una respuesta real antes de depender de las probabilidades de Laya.
+
+El ejemplo `decider_laya_http` funciona offline contra un servidor falso en proceso. Con `LAYA_URL` (y `LAYA_API_KEY`, `LAYA_MODEL`) usa un servidor real.
+
+## Laya nativo (laya-go)
+
+`github.com/metalagman/laya-go` v0.1.0 ejecuta el modelo en proceso. Necesita cgo y ONNX Runtime, así que vive en **su propio módulo Go**, no en el módulo principal, y se compila con la build tag `laya_native`. Calificación: **linux/amd64, solo FP32**. Una entrada más larga que la ventana del modelo devuelve `ErrInputTooLong`, salvo que el truncamiento esté activado.
+
+Ejemplo: `examples/langgraph/decider_laya_native` (con `go.mod` propio y `replace` a la raíz del repositorio). Sin la tag o sin `LAYA_BUNDLE_DIR`, muestra el motivo y usa `RuleDecider`. El módulo principal nunca importa laya-go, y `go build ./...` no necesita cgo.
+
+## JEV (planificado)
+
+TypeSafe JEV es el segundo modelo System 1. Aquí figura como planificado y **no construido**: no hay carpeta `decider_jev` ni código. La página pública de JEV no declara API, soporte para Go ni tamaño de ventana. El cliente HTTP de arriba es el camino a probar primero.
+
+## Ejemplos
+
+Todos se ejecutan offline con un modelo falso, salvo que se configure un servicio real. Cada uno tiene `README.md`, `README.pt-BR.md` y `README.es-ES.md`.
+
+| Ejemplo | Muestra |
+|---|---|
+| `langgraph/decider_fallback` | la interfaz `Decider`, `RuleDecider` y `Guarded`, sin modelo |
+| `langgraph/compress_history_summary` | `Summary` de un historial por encima de 8k tokens, cabe en el presupuesto de 700 tokens |
+| `langgraph/compress_shell_rtk` | salida de shell por RTK cuando el decider lo decide |
+| `langgraph/compress_prompt_caveman` | compresión de prompt y de respuesta con el middleware |
+| `langgraph/decider_laya_http` | `HTTPDecider` contra `laya-serve` (servidor falso offline) |
+| `langgraph/decider_laya_native` | laya-go nativo, módulo separado, tag `laya_native` |
+| `langgraph/independent_engineering_team/full_team` | el equipo de `independent_engineering_team` con compresión de llamadas; decider y modelo falsos por defecto |
+
+Prueba en modo producción: configure la URL real del decider o el bundle nativo, y ejecute `go test -race -count=1` en el módulo del ejemplo.

@@ -47,6 +47,13 @@ The `langchain`, `langgraph` and `deepagents` groups were ported from the reposi
 | `langgraph/typed_state` | typed state with a struct (`NewTyped`, reducer tags, `Validate`) | own |
 | `langgraph/engineering_team` | engineering team (manager, PO, architect, leader, 4 devs, 2 reviewers, 2 QA) with `Send`/`Command` handoff, availability registry with atomic reservation and per-agent skills in `skills/` | own |
 | `langgraph/independent_engineering_team` | the same team as separate services: hub (atomic reservation with leases, job queue, RAG/CAG/KAG and team memory over MCP), manager on `remote/server`, workers on Agent Protocol; model per agent by env; Docker compose | own |
+| `langgraph/decider_fallback` | `Decider`, `RuleDecider` and the `Guarded` fallback, no model | own |
+| `langgraph/compress_history_summary` | `Summary` of a history above 8k tokens, fitting the 700-token budget | own |
+| `langgraph/compress_shell_rtk` | shell output through RTK when the decider says so | own |
+| `langgraph/compress_prompt_caveman` | prompt and reply compression (Caveman and the terse-reply directive) | own |
+| `langgraph/decider_laya_http` | `HTTPDecider` against `laya-serve` (fake server offline) | own |
+| `langgraph/decider_laya_native` | native laya-go decider, separate module, `laya_native` tag | own |
+| `langgraph/independent_engineering_team/full_team` | the independent team with call compression; fake decider and model by default | own |
 
 ## deepagents
 

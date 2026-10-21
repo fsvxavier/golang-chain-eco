@@ -104,6 +104,7 @@ go test -race ./...
 | `langgraph/functional` | `Entrypoint` e `Task` | `@entrypoint` / `@task` |
 | `agents`, `agents/middleware` | `agents.Create` + middlewares prontos | `create_agent` |
 | `deepagents` (+ `backends`, `middleware`) | Agent com planejamento, filesystem virtual, subagents | `deepagents` |
+| `compress` | Compressão de chamadas: `Summary`, `RuleDecider`, fallback `Guarded`, `HTTPDecider` (servidor Laya), compressor de texto Caveman e roteamento de shell pelo RTK; `middleware.Compression` em `agents/middleware`; laya-go nativo em módulo próprio ([docs/pt-BR/COMPRESSION.md](docs/pt-BR/COMPRESSION.md)) | — |
 | `mcp` | Cliente MCP (stdio e HTTP) | `langchain-mcp-adapters` |
 | `remote` | Cliente do Agent Server e `RemoteGraph` | `langgraph_sdk` |
 | `tracing/{langsmith,langfuse,otlp}` | Envio de runs ao LangSmith, Langfuse e OpenTelemetry | tracers |
@@ -768,7 +769,7 @@ Nunca coloque chaves no código nem em repositórios; use variáveis de ambiente
 
 ## Exemplos executáveis
 
-64 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 2 próprios do LangGraph, 1 de evals, 6 de integrações, 6 de RAG/CAG/KAG, 5 do LangMem, 2 do Agent Protocol, 2 do ciam e 4 do Open SWE) (índice em [examples/README.pt-BR.md](examples/README.pt-BR.md)). Sem chave de API usam um modelo fake. Cada pasta de exemplo tem um README em inglês, português e espanhol.
+71 exemplos em [`examples/`](examples/) (36 portados dos projetos base, 2 próprios do LangGraph, 1 de evals, 6 de integrações, 6 de RAG/CAG/KAG, 5 do LangMem, 2 do Agent Protocol, 2 do ciam, 4 do Open SWE e 7 de compressão de chamadas) (índice em [examples/README.pt-BR.md](examples/README.pt-BR.md)). Sem chave de API usam um modelo fake. Cada pasta de exemplo tem um README em inglês, português e espanhol.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | modelo | parser
