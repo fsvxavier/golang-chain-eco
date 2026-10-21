@@ -102,6 +102,7 @@ TOON (Token-Oriented Object Notation) is a compact, indentation-based encoding o
 - Arrays: primitive arrays inline (`tags[3]: admin,ops,dev`); arrays of objects with the same keys and only primitive values as a **tabular** block (`users[2]{id,name,role}:` with one row per object); mixed or non-uniform arrays in list form with `- ` items; empty arrays as `key: []`. An array whose columns are nested objects (for example `{"a":{"z":1}}`) uses list form, not the tabular block.
 - **Not implemented:** there is **no decoder** (TOON back to JSON), no **keyed tabular** form, and no **key folding**. Nested objects are written as nested indentation instead. Losslessness rests on the golden tests in `compress/toon_test.go`, which use the spec's examples, not on a round trip.
 
+- **Duplicate keys** follow `encoding/json`: the last value wins, at the position of the first occurrence, so `{"a":1,"b":2,"a":3}` gives `a: 3` then `b: 2`. A strict TOON decoder rejects a repeated sibling key, so none is written.
 - **Numbers.** Integers above 2^53 are written with all their digits, so a JavaScript decoder may round them. Numbers beyond the float range, such as `1e400`, become `null`.
 
 **In the middleware.** The `toon_tool_results` question is yes when `JSONToolBytes >= 2048`. Then each tool message whose content parses as a JSON object or array, and that has no `Parts`, is replaced in the per-call copy by its TOON form, but only when that form is strictly shorter. Tool-call ids and the order of messages never change. Non-JSON tool output and messages with `Parts` are left untouched. Stored state is not rewritten.
@@ -139,6 +140,10 @@ Environment variables: `LAYA_MODELS` (models to load), `LAYA_DEVICE`, `LAYA_HOST
 The wire contract is `POST /v1/systemone`: a JSON body with the state and the typed questions, and a JSON reply with typed answers. The protocol is the same as TypeSafe JEV's, so a JEV endpoint should work by URL and key. **That is untested.**
 
 **Open point:** the Noul response shape of `laya-serve` (boolean with or without a probability) is not documented here. A boolean with no confidence falls back to the rules through the guard. Check a real response before relying on Laya's probabilities.
+
+**Question ids and batch size.** Question ids are the keys of the request's `questions` map, and the answers come back under the same keys. The `laya-serve` source was not in this environment, so it could not be checked. The claims that it applies no restriction on ids and caps a request at 64 questions are **not verified**. The installed `laya` library's `system_one` treats question ids as plain dictionary keys and shows no cap in the code read; that is the library, not the server. This package sends 5 questions per call. Confirm both against the server's source before relying on them.
+
+**Omitted answers.** A server that leaves out the answer for some question makes only that question fall back to the rules, through `NewGuarded`. The call fails only when none of the requested ids is answered, on a non-200 status, or on bad JSON.
 
 The example `decider_laya_http` runs offline against an in-process fake server. With `LAYA_URL` (and `LAYA_API_KEY`, `LAYA_MODEL`) it uses a real server.
 

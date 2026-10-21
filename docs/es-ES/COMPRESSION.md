@@ -102,6 +102,7 @@ TOON (Token-Oriented Object Notation) es una codificación compacta, basada en s
 - Arrays: arrays de primitivos en línea (`tags[3]: admin,ops,dev`); arrays de objetos con las mismas claves y solo valores primitivos como bloque **tabular** (`users[2]{id,name,role}:` con una fila por objeto); arrays mixtos o no uniformes en forma de lista, con elementos `- `; arrays vacíos como `key: []`. Un array cuyas columnas son objetos anidados (por ejemplo `{"a":{"z":1}}`) usa la forma de lista, no el bloque tabular.
 - **No implementado:** no hay **decodificador** (TOON de vuelta a JSON), ni la forma **tabular con claves**, ni **key folding**. Los objetos anidados se escriben como sangría anidada. La pérdida cero depende de los tests golden en `compress/toon_test.go`, que usan los ejemplos de la especificación, no un ida y vuelta.
 
+- **Claves duplicadas** siguen a `encoding/json`: gana el último valor, en la posición de la primera aparición, así que `{"a":1,"b":2,"a":3}` da `a: 3` y luego `b: 2`. Un decodificador TOON estricto rechaza una clave hermana repetida, así que no se escribe ninguna.
 - **Números.** Los enteros por encima de 2^53 se escriben con todos sus dígitos, así que un decodificador de JavaScript puede redondearlos. Los números fuera del rango de float, como `1e400`, se convierten en `null`.
 
 **En el middleware.** La pregunta `toon_tool_results` es sí cuando `JSONToolBytes >= 2048`. Entonces cada mensaje de herramienta cuyo contenido es un objeto o array JSON, y que no tiene `Parts`, se sustituye en la copia por llamada por su forma TOON, pero solo cuando esa forma es estrictamente más corta. Los ids de las llamadas a herramientas y el orden de los mensajes nunca cambian. La salida de herramientas que no es JSON y los mensajes con `Parts` quedan intactos. El estado guardado no se reescribe.
@@ -139,6 +140,10 @@ Variables de entorno: `LAYA_MODELS` (modelos a cargar), `LAYA_DEVICE`, `LAYA_HOS
 El contrato es `POST /v1/systemone`: un cuerpo JSON con el estado y las preguntas tipadas, y una respuesta JSON con las respuestas tipadas. Es el mismo protocolo que el de TypeSafe JEV, así que un endpoint JEV debería funcionar con URL y clave. **Eso no está probado.**
 
 **Punto abierto:** la forma de la respuesta Noul de `laya-serve` (booleano con o sin probabilidad) no está documentada aquí. Un booleano sin confianza cae en las reglas a través del guard. Revise una respuesta real antes de depender de las probabilidades de Laya.
+
+**Ids de las preguntas y tamaño del lote.** Los ids de las preguntas son las claves del mapa `questions` de la petición, y las respuestas vuelven con las mismas claves. El código fuente de `laya-serve` no estaba en este entorno, así que no pudo revisarse. Las afirmaciones de que no restringe los ids y limita una petición a 64 preguntas son **no verificadas**. La biblioteca `laya` instalada trata los ids como claves simples de diccionario y no muestra límite en el código leído; eso es la biblioteca, no el servidor. Este paquete envía 5 preguntas por llamada. Confirme ambas cosas en el código del servidor antes de depender de ellas.
+
+**Respuestas omitidas.** Un servidor que deja fuera la respuesta de algunas preguntas hace que solo esas preguntas caigan en las reglas, a través de `NewGuarded`. La llamada falla solo cuando no se responde ninguno de los ids pedidos, con un estado distinto de 200, o con JSON inválido.
 
 El ejemplo `decider_laya_http` funciona offline contra un servidor falso en proceso. Con `LAYA_URL` (y `LAYA_API_KEY`, `LAYA_MODEL`) usa un servidor real.
 
