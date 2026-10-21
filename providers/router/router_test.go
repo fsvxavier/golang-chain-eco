@@ -72,6 +72,13 @@ type stub struct {
 	reply string
 	block bool // wait for ctx to end instead of answering
 
+	// Stream script: text chunks, then an optional tool-call chunk. The
+	// stream fails with streamErr before item streamErrAfter (-1 = never).
+	chunks         []string
+	toolCall       bool
+	streamErrAfter int
+	streamErr      error
+
 	calls atomic.Int32
 	mu    sync.Mutex // guards msgs and opts when called concurrently
 	msgs  []messages.Message
@@ -98,9 +105,45 @@ func (s *stub) Generate(ctx context.Context, msgs []messages.Message, opts ...mo
 
 func (s *stub) Stream(ctx context.Context, msgs []messages.Message, opts ...models.Option) iter.Seq2[messages.Message, error] {
 	return func(yield func(messages.Message, error) bool) {
-		out, err := s.Generate(ctx, msgs, opts...)
-		yield(out, err)
+		s.calls.Add(1)
+		s.mu.Lock()
+		s.msgs = msgs
+		s.opts = models.Apply(opts...)
+		s.mu.Unlock()
+		if s.block {
+			<-ctx.Done()
+			yield(messages.Message{}, ctx.Err())
+			return
+		}
+		items := make([]messages.Message, 0, len(s.chunks)+1)
+		for _, c := range s.chunks {
+			items = append(items, messages.AI(c))
+		}
+		if s.toolCall {
+			items = append(items, messages.Message{Role: messages.RoleAI, ToolCallChunks: []messages.ToolCallChunk{{ID: "call_1", Name: "search", Args: `{"q":"go"}`}}})
+		}
+		for i := 0; i <= len(items); i++ {
+			if i == s.streamErrAfter {
+				yield(messages.Message{}, s.streamErr)
+				return
+			}
+			if i == len(items) || !yield(items[i], nil) {
+				return
+			}
+		}
 	}
+}
+
+// drain collects the content of every chunk until the stream ends or errors.
+func drain(seq iter.Seq2[messages.Message, error]) ([]string, error) {
+	var texts []string
+	for m, err := range seq {
+		if err != nil {
+			return texts, err
+		}
+		texts = append(texts, m.Content)
+	}
+	return texts, nil
 }
 
 func status(code int) error { return &httpx.StatusError{Code: code, Body: "boom"} }
@@ -454,5 +497,120 @@ func TestNewRejectsBadTarget(t *testing.T) {
 				t.Errorf("error %q does not contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestStreamFailsOverBeforeFirstChunk(t *testing.T) {
+	a := &stub{name: "a", streamErrAfter: 0, streamErr: status(503)}
+	b := &stub{name: "b", chunks: []string{"x", "y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	texts, err := drain(r.Stream(context.Background(), []messages.Message{messages.Human("hi")}))
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+	if !reflect.DeepEqual(texts, []string{"x", "y"}) {
+		t.Errorf("chunks = %q, want [x y]", texts)
+	}
+}
+
+func TestStreamContinuesAfterText(t *testing.T) {
+	history := []messages.Message{messages.Human("hi")}
+	opts := []models.Option{models.WithTemperature(0.2), models.WithMaxTokens(64)}
+	a := &stub{name: "a", chunks: []string{"x"}, streamErrAfter: 1, streamErr: status(503)}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	texts, err := drain(r.Stream(context.Background(), history, opts...))
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+	if !reflect.DeepEqual(texts, []string{"x", "y"}) {
+		t.Errorf("chunks = %q, want [x y]", texts)
+	}
+	want := append(append([]messages.Message{}, history...), messages.AI("x"), messages.Human(continuePrompt))
+	if !reflect.DeepEqual(b.msgs, want) {
+		t.Errorf("b msgs = %v, want %v", b.msgs, want)
+	}
+	if !reflect.DeepEqual(a.opts, b.opts) {
+		t.Errorf("options differ: a=%+v b=%+v", a.opts, b.opts)
+	}
+}
+
+func TestStreamPartialToolCallNotContinued(t *testing.T) {
+	a := &stub{name: "a", toolCall: true, streamErrAfter: 1, streamErr: status(503)}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	_, err := drain(r.Stream(context.Background(), nil))
+	var se *httpx.StatusError
+	if !errors.As(err, &se) || se.Code != 503 {
+		t.Fatalf("err = %v, want StatusError 503", err)
+	}
+	if b.calls.Load() != 0 {
+		t.Errorf("b called %d times, want 0", b.calls.Load())
+	}
+}
+
+func TestStreamTwoSwitches(t *testing.T) {
+	a := &stub{name: "a", chunks: []string{"x"}, streamErrAfter: 1, streamErr: status(503)}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: 1, streamErr: status(503)}
+	c := &stub{name: "c", chunks: []string{"z"}, streamErrAfter: -1}
+	r, _ := New(threeTargets(a, b, c), Config{})
+	texts, err := drain(r.Stream(context.Background(), nil))
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+	if !reflect.DeepEqual(texts, []string{"x", "y", "z"}) {
+		t.Errorf("chunks = %q, want [x y z]", texts)
+	}
+	last := c.msgs[len(c.msgs)-2:]
+	if !reflect.DeepEqual(last, []messages.Message{messages.AI("xy"), messages.Human(continuePrompt)}) {
+		t.Errorf("c continuation = %v, want assistant xy then continue prompt", last)
+	}
+}
+
+func TestStreamAuthErrorAfterTextFinal(t *testing.T) {
+	a := &stub{name: "a", chunks: []string{"x"}, streamErrAfter: 1, streamErr: status(401)}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	texts, err := drain(r.Stream(context.Background(), nil))
+	var se *httpx.StatusError
+	if !errors.As(err, &se) || se.Code != 401 {
+		t.Fatalf("err = %v, want StatusError 401", err)
+	}
+	if !reflect.DeepEqual(texts, []string{"x"}) {
+		t.Errorf("chunks = %q, want [x]", texts)
+	}
+	if b.calls.Load() != 0 {
+		t.Errorf("b called %d times, want 0", b.calls.Load())
+	}
+}
+
+func TestStreamAuthErrorFinal(t *testing.T) {
+	a := &stub{name: "a", streamErrAfter: 0, streamErr: status(401)}
+	b := &stub{name: "b", chunks: []string{"y"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	_, err := drain(r.Stream(context.Background(), nil))
+	var se *httpx.StatusError
+	if !errors.As(err, &se) || se.Code != 401 {
+		t.Fatalf("err = %v, want StatusError 401", err)
+	}
+	if b.calls.Load() != 0 {
+		t.Errorf("b called %d times, want 0", b.calls.Load())
+	}
+}
+
+func TestStreamEarlyBreak(t *testing.T) {
+	a := &stub{name: "a", chunks: []string{"x", "y"}, streamErrAfter: 2, streamErr: status(503)}
+	b := &stub{name: "b", chunks: []string{"z"}, streamErrAfter: -1}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{})
+	n := 0
+	for range r.Stream(context.Background(), nil) {
+		n++
+		break
+	}
+	if n != 1 {
+		t.Errorf("consumer saw %d chunks, want 1", n)
+	}
+	if b.calls.Load() != 0 {
+		t.Errorf("b called %d times, want 0", b.calls.Load())
 	}
 }

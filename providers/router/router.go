@@ -31,6 +31,9 @@ const (
 	ModeWeighted   Mode = "weighted"
 )
 
+// continuePrompt asks a target to pick up a partial answer from another target.
+const continuePrompt = "Continue exactly from where you stopped. Do not repeat what you already wrote."
+
 // Config tunes a Router. The zero value is failover with no timeout.
 type Config struct {
 	Model   string             // label for ModelID: "router:"+Model
@@ -124,10 +127,79 @@ func (r *Router) Generate(ctx context.Context, msgs []messages.Message, opts ...
 	return messages.Message{}, &allFailedError{failed}
 }
 
-// Stream implements models.ChatModel.
-// TODO(task 4): fail over mid-stream; for now it streams from the first target only.
+// Stream implements models.ChatModel. Chunks reach the caller as they arrive.
+// A retryable failure before any tool call was emitted moves on to the next
+// target; when text was already emitted, the next target is asked to continue
+// it (see withContinuation).
 func (r *Router) Stream(ctx context.Context, msgs []messages.Message, opts ...models.Option) iter.Seq2[messages.Message, error] {
-	return r.targets[r.order()[0]].Model.Stream(ctx, msgs, opts...)
+	return func(yield func(messages.Message, error) bool) {
+		var text strings.Builder
+		var failed []error
+		order := r.order()
+		for n, i := range order {
+			if err := ctx.Err(); err != nil {
+				yield(messages.Message{}, err)
+				return
+			}
+			in := msgs
+			if text.Len() > 0 {
+				in = withContinuation(msgs, text.String())
+			}
+			toolSeen, stopped, err := r.streamAttempt(ctx, r.targets[i].Model, in, opts, &text, yield)
+			if stopped || err == nil {
+				return
+			}
+			if !retryable(ctx, err) || toolSeen {
+				if cerr := ctx.Err(); cerr != nil {
+					err = cerr
+				}
+				yield(messages.Message{}, err)
+				return
+			}
+			if len(order) == 1 {
+				yield(messages.Message{}, err)
+				return
+			}
+			failed = append(failed, fmt.Errorf("%s: %w", r.targets[i].Name, err))
+			if n == len(order)-1 {
+				yield(messages.Message{}, &allFailedError{failed})
+				return
+			}
+		}
+	}
+}
+
+// streamAttempt streams one target, forwarding its chunks and accumulating
+// their text. It reports whether a tool-call chunk was seen, whether the
+// consumer stopped (yield returned false), and the error that ended the stream.
+// Config.Timeout bounds the whole stream, consumer pauses included.
+func (r *Router) streamAttempt(ctx context.Context, m models.ChatModel, msgs []messages.Message, opts []models.Option, text *strings.Builder, yield func(messages.Message, error) bool) (toolSeen, stopped bool, err error) {
+	if r.cfg.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.cfg.Timeout)
+		defer cancel()
+	}
+	for chunk, cerr := range m.Stream(ctx, msgs, opts...) {
+		if cerr != nil {
+			return toolSeen, false, cerr
+		}
+		if len(chunk.ToolCallChunks) > 0 || len(chunk.ToolCalls) > 0 {
+			toolSeen = true
+		}
+		text.WriteString(chunk.Content)
+		if !yield(chunk, nil) {
+			return toolSeen, true, nil
+		}
+	}
+	return toolSeen, false, nil
+}
+
+// withContinuation returns the original messages plus the partial answer and
+// a prompt asking the next target to carry on from it.
+func withContinuation(msgs []messages.Message, partial string) []messages.Message {
+	out := make([]messages.Message, 0, len(msgs)+2)
+	out = append(out, msgs...)
+	return append(out, messages.AI(partial), messages.Human(continuePrompt))
 }
 
 // order returns the target indexes to try, in attempt order. The mode picks
