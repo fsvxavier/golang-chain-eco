@@ -5,7 +5,7 @@ go 1.27
 require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/metalagman/laya-go v0.1.0
+	github.com/metalagman/laya-go v0.2.6
 	github.com/sijms/go-ora/v2 v2.9.0
 	modernc.org/sqlite v1.60.1
 )

@@ -104,7 +104,7 @@ El ejemplo `decider_laya_http` funciona offline contra un servidor falso en proc
 
 ## Laya nativo (laya-go)
 
-`github.com/metalagman/laya-go` v0.1.0 ejecuta el modelo en proceso. Necesita cgo y ONNX Runtime. El `go.mod` raíz lo requiere, pero solo se compila con la build tag `laya_native`, en `examples/langgraph/full_team/native`, un paquete del módulo raíz. Calificación: **linux/amd64, solo FP32**. Una entrada más larga que la ventana del modelo devuelve `ErrInputTooLong`, salvo que el truncamiento esté activado.
+`github.com/metalagman/laya-go` v0.2.6 ejecuta el modelo en proceso. Necesita cgo y ONNX Runtime. El `go.mod` raíz lo requiere, pero solo se compila con la build tag `laya_native`, en `examples/langgraph/full_team/native`, un paquete del módulo raíz. Calificación: **linux/amd64, solo FP32**. Una entrada más larga que la ventana del modelo devuelve `ErrInputTooLong`, salvo que el truncamiento esté activado.
 
 Ejemplo: `examples/langgraph/decider_laya_native` es un módulo Go separado (con `go.mod` propio y `replace` a la raíz del repositorio). Sin la tag o sin `LAYA_BUNDLE_DIR`, muestra el motivo y usa `RuleDecider`. Sin la tag, `go build ./...` no compila laya-go y no necesita cgo.
 

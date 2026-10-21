@@ -16,7 +16,7 @@ Este é um módulo Go próprio (`replace github.com/fsvxavier/golang-chain-eco =
 ## Requisitos
 
 - Linux em amd64 (`linux/amd64`), somente modelos FP32.
-- `laya-go` v0.1.0, versão pré-v1: a API pode mudar antes da v1.
+- `laya-go` v0.2.6, versão pré-v1: a API pode mudar antes da v1.
 - Para o build nativo: cgo, a biblioteca compartilhada do ONNX Runtime e a biblioteca de tokenizers, ambas fornecidas pelo chamador e fixadas em versão, e um bundle Laya completo e local.
 
 Variáveis de ambiente para o build nativo:
