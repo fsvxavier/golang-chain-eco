@@ -1,5 +1,3 @@
-// Package router is a chat model that fans requests out over several
-// providers, failing over to the next target on retryable errors.
 package router
 
 import (
@@ -17,6 +15,7 @@ func retryable(ctx context.Context, err error) bool {
 	if ctx.Err() != nil {
 		return false
 	}
+	// httpx.StatusError.Retryable() is not reused: its rule differs (it excludes 408 and 425).
 	var se *httpx.StatusError
 	if errors.As(err, &se) {
 		switch {
