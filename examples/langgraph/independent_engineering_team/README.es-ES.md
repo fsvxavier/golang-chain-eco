@@ -123,10 +123,20 @@ Usa un binario en lugar de `go run`: arranca al instante y no imprime nada más 
 | `MANAGER_URL` | `http://localhost:8080` | manager (Agent Server API) |
 | `MANAGER_API_KEY` | vacío | clave, cuando el manager define una |
 | `HUB_URL` | `http://localhost:8000` | hub (cola, `GET /state`, memoria del equipo) |
+| `BRIDGE_CIAM_CMD` | vacío | comando del servidor de contexto del proyecto, p. ej. `/abs/ruta/ciam mcp` |
+| `BRIDGE_KNOWLEDGE_CMD` | vacío | comando del servidor de conocimiento, p. ej. `/abs/ruta/knowledge mcp --dir /abs/.knowledge` |
 
 ### 3. Herramientas
 
 `team_submit` envía una demanda y devuelve el `thread_id` al instante; `team_status` muestra estados de las tareas, informe e historial; `team_queue` lista workers y cola; `team_ask_worker` pregunta a un worker vía Agent Protocol; `team_memory` lee la memoria del equipo.
+
+Además del equipo, el mismo servidor ofrece:
+
+- `graph_run`, `graph_state`, `graph_resume`: ejecutar cualquier grafo en cualquier Agent Server (`assistant_id`, `url` opcional, `wait`), leer estado e interrupciones de un thread y responder a una interrupción.
+- las herramientas `ciam_*` (búsqueda en el proyecto, ADR/PRD/planes, memoria), cuando `BRIDGE_CIAM_CMD` está definido.
+- las herramientas `knowledge_*` (RAG, CAG, KAG), cuando `BRIDGE_KNOWLEDGE_CMD` está definido. Ejecuta antes `knowledge index <path> --kind both`; sin índice ese servidor no arranca y el puente registra el error y sigue sin él.
+
+Pon estas dos variables en el `env` del registro de abajo, con rutas absolutas (`go build -o bin/ciam ./cmd/ciam`, `go build -o bin/knowledge ./cmd/knowledge`).
 
 ### 4. Regístralo en cada aplicación
 
@@ -148,6 +158,8 @@ Requiere VS Code con Copilot Chat en modo Agent. Crea `.vscode/mcp.json` en el w
       "env": {
         "MANAGER_URL": "http://localhost:8080",
         "HUB_URL": "http://localhost:8000",
+        "BRIDGE_CIAM_CMD": "/ruta/abs/a/ciam mcp",
+        "BRIDGE_KNOWLEDGE_CMD": "/ruta/abs/a/knowledge mcp --dir /ruta/abs/a/.knowledge",
         "MANAGER_API_KEY": "${input:manager-key}"
       }
     }
@@ -164,6 +176,8 @@ Línea de comandos (`--scope local` es el valor por defecto; `project` escribe `
 ```bash
 claude mcp add --transport stdio --scope project \
   --env MANAGER_URL=http://localhost:8080 --env HUB_URL=http://localhost:8000 \
+  --env BRIDGE_CIAM_CMD="/ruta/abs/a/ciam mcp" \
+  --env BRIDGE_KNOWLEDGE_CMD="/ruta/abs/a/knowledge mcp --dir /ruta/abs/a/.knowledge" \
   team-bridge -- /ruta/abs/a/bridge
 ```
 
@@ -175,7 +189,12 @@ O escribe `.mcp.json` en la raíz del proyecto a mano:
     "team-bridge": {
       "command": "/ruta/abs/a/bridge",
       "args": [],
-      "env": { "MANAGER_URL": "http://localhost:8080", "HUB_URL": "http://localhost:8000" }
+      "env": {
+        "MANAGER_URL": "http://localhost:8080",
+        "HUB_URL": "http://localhost:8000",
+        "BRIDGE_CIAM_CMD": "/ruta/abs/a/ciam mcp",
+        "BRIDGE_KNOWLEDGE_CMD": "/ruta/abs/a/knowledge mcp --dir /ruta/abs/a/.knowledge"
+      }
     }
   }
 }
@@ -193,7 +212,12 @@ Crea `.cursor/mcp.json` en el proyecto (o `~/.cursor/mcp.json` para todos los pr
     "team-bridge": {
       "command": "/ruta/abs/a/bridge",
       "args": [],
-      "env": { "MANAGER_URL": "http://localhost:8080", "HUB_URL": "http://localhost:8000" }
+      "env": {
+        "MANAGER_URL": "http://localhost:8080",
+        "HUB_URL": "http://localhost:8000",
+        "BRIDGE_CIAM_CMD": "/ruta/abs/a/ciam mcp",
+        "BRIDGE_KNOWLEDGE_CMD": "/ruta/abs/a/knowledge mcp --dir /ruta/abs/a/.knowledge"
+      }
     }
   }
 }
@@ -211,7 +235,12 @@ Kilo Code lee `mcpServers` de `.kilocode/mcp.json` en el proyecto (configuració
     "team-bridge": {
       "command": "/ruta/abs/a/bridge",
       "args": [],
-      "env": { "MANAGER_URL": "http://localhost:8080", "HUB_URL": "http://localhost:8000" },
+      "env": {
+        "MANAGER_URL": "http://localhost:8080",
+        "HUB_URL": "http://localhost:8000",
+        "BRIDGE_CIAM_CMD": "/ruta/abs/a/ciam mcp",
+        "BRIDGE_KNOWLEDGE_CMD": "/ruta/abs/a/knowledge mcp --dir /ruta/abs/a/.knowledge"
+      },
       "alwaysAllow": ["team_status", "team_queue", "team_memory"],
       "disabled": false
     }
@@ -232,7 +261,12 @@ Crea `opencode.json` en el proyecto (o `~/.config/opencode/opencode.json` para t
     "team-bridge": {
       "type": "local",
       "command": ["/ruta/abs/a/bridge"],
-      "environment": { "MANAGER_URL": "http://localhost:8080", "HUB_URL": "http://localhost:8000" },
+      "environment": {
+        "MANAGER_URL": "http://localhost:8080",
+        "HUB_URL": "http://localhost:8000",
+        "BRIDGE_CIAM_CMD": "/ruta/abs/a/ciam mcp",
+        "BRIDGE_KNOWLEDGE_CMD": "/ruta/abs/a/knowledge mcp --dir /ruta/abs/a/.knowledge"
+      },
       "enabled": true
     }
   }

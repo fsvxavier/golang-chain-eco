@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/mcp"
+	"github.com/fsvxavier/golang-chain-eco/remote"
 )
 
 func ctx(t *testing.T) context.Context {
@@ -204,5 +205,24 @@ func TestBridgeQueueAndAskUnknown(t *testing.T) {
 	}
 	if _, err := call("team_ask_worker", map[string]any{"worker": "nope", "question": "hi"}); err == nil {
 		t.Fatal("want unknown worker error")
+	}
+}
+
+func TestBridgeToolSetAndProxy(t *testing.T) {
+	b := &Bridge{Manager: remote.NewClient("http://127.0.0.1:1")}
+	names := map[string]bool{}
+	for _, tl := range append(b.Tools(), b.GraphTools()...) {
+		names[tl.Name()] = true
+	}
+	for _, n := range []string{"team_submit", "graph_run", "graph_state", "graph_resume"} {
+		if !names[n] {
+			t.Errorf("missing tool %s", n)
+		}
+	}
+	if ts, err := Proxy(ctx(t), ""); ts != nil || err != nil {
+		t.Fatalf("empty proxy: %v %v", ts, err)
+	}
+	if _, err := Proxy(ctx(t), "/nonexistent-mcp-binary"); err == nil {
+		t.Fatal("want error for missing binary")
 	}
 }
