@@ -18,7 +18,7 @@ Each gateway is an OpenAI-compatible HTTP endpoint, so the router treats it as a
 | Anthropic (native) | built in | `ANTHROPIC_API_KEY` | - |
 | OpenAI (native) | built in | `OPENAI_API_KEY` | - |
 
-Ports are the defaults those projects document; if you changed them, use yours. The router appends the OpenAI paths to the base URL, so keep the `/v1`.
+Ports are the defaults stated in the cited sources, not guaranteed for your install: confirm them for yours (and use yours if you changed them). The router appends the OpenAI paths to the base URL, so keep the `/v1`.
 
 Model names differ per gateway (`auto` on freellmapi, `provider/model` on bifrost). That is what `ROUTER_MODEL_<NAME>` is for.
 

@@ -13,7 +13,7 @@ Permit, Salesforce, AWS Kendra/Knowledge Bases/Lambda, SMS Plivo/Telnyx, búsque
 documentación pública; pueden divergir del servicio real. Ninguna prueba de la suite estándar llama a la red: las de servicio real se omiten solas.
 
 Véase también el uso en el [README](../../README.es-ES.md).
-Manuales del router con varios gateways y de clientes MCP (VS Code, Claude Code, Kilo Code, Copilot CLI, Opencode, Cursor): [docs/integrations](../../integrations/es-ES/README.md).
+Manuales del router con varios gateways y de clientes MCP (VS Code, Claude Code, Kilo Code, Copilot CLI, Opencode, Cursor): [docs/integrations](../integrations/es-ES/README.md).
 
 ## Chat models y embeddings (`chatmodels`, `providers/*`)
 

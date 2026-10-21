@@ -42,7 +42,7 @@ ciam init --editor vscode --print   # preview
 ciam init --editor claude           # write .mcp.json
 ```
 
-It writes the path of the running executable as `command`, which is why you build first (a `go run` binary lives in a temporary directory). It only registers `ciam`; add `knowledge` by hand with the entries below. The Cursor entry it writes has no `"type"`, while Cursor's docs list `type` as required for stdio servers: if Cursor does not load the entry, add `"type": "stdio"`.
+It writes the path of the running executable as `command`, which is why you build first (a `go run` binary lives in a temporary directory). It only registers `ciam`; add `knowledge` by hand with the entries below. The Cursor entry it writes has no `"type"`, while Cursor's docs (https://cursor.com/docs/mcp) list `type` as required for stdio servers: if Cursor does not load the entry, add `"type": "stdio"`.
 
 ## 3. Clients
 
@@ -72,7 +72,7 @@ File `.vscode/mcp.json` (workspace) or the user file opened with the command **M
 }
 ```
 
-GitHub's page says a Start button appears above the entry and that MCP tools are used in Copilot Chat in Agent mode. Organization policy can restrict MCP and bring-your-own-model use: check the Copilot docs for your plan.
+GitHub's page (https://docs.github.com/en/copilot/customizing-copilot/extending-copilot-chat-with-mcp) says a "Start" button appears at the top of the server list in `.vscode/mcp.json`, and its steps tell you to select Agent in the Copilot Chat box before using the tools. Organization policy can restrict MCP and bring-your-own-model use: check the Copilot docs for your plan.
 
 ### Claude Code (VS Code extension and console)
 
@@ -212,7 +212,7 @@ This is the client's own setting, separate from MCP. The router is not involved:
 | VS Code Copilot Chat | provider `Custom Endpoint` (`vendor: customendpoint`) with API type Chat Completions, Responses or Messages; the URL may include the API path, otherwise VS Code appends it and inserts `/v1` (https://code.visualstudio.com/docs/copilot/customization/language-models) | Models must support tool calling to appear for agent use. Business and Enterprise administrators can disable BYOK. |
 | Copilot CLI | `COPILOT_PROVIDER_BASE_URL`, `COPILOT_MODEL`, optional `COPILOT_PROVIDER_TYPE` (`openai` default, `azure`, `anthropic`), `COPILOT_PROVIDER_API_KEY` (https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models) | Model must support tool calling and streaming. Example: `COPILOT_PROVIDER_BASE_URL=http://localhost:PORT/v1 COPILOT_MODEL=auto copilot`. Whether a gateway wants the `/v1` suffix here: check the gateway docs. |
 | Opencode | `provider` entry with `npm: "@ai-sdk/openai-compatible"`, `options.baseURL`, `options.apiKey` (`{env:VAR}`), and a `models` map (https://opencode.ai/docs/providers) | Model ids are the ones the gateway expects. |
-| Kilo Code | API provider "OpenAI Compatible": Base URL, API Key, Model ID (https://kilo.ai/docs/providers/openai-compatible) | Newer builds may show Settings, Providers, Add custom provider instead; same three values. |
+| Kilo Code | Settings, Providers, Custom provider: Provider ID, Display name, Provider API "OpenAI Compatible", Base URL (a base or a full endpoint URL), API key (marked optional), Models (https://kilo.ai/docs/providers/openai-compatible) | Older versions of Kilo show an "OpenAI Compatible" API provider with Base URL, API Key and Model ID; check Kilo docs for the one your version has. |
 | Cursor | Third-party gateway guides describe Settings, Models, "Override OpenAI Base URL" with an OpenAI key and custom model names (for example https://docs.litellm.ai/docs/tutorials/cursor_integration). Cursor's own docs were not found for this: check Cursor docs | Those guides say only some Cursor features use the override and that a paid plan may be needed; not verified here. |
 
 Opencode example for omniroute (key in the environment):

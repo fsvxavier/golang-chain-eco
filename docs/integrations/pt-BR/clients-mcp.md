@@ -42,7 +42,7 @@ ciam init --editor vscode --print   # preview
 ciam init --editor claude           # write .mcp.json
 ```
 
-Ele grava o caminho do executável em execução como `command`, por isso você compila antes (um binário de `go run` fica num diretório temporário). Registra só o `ciam`; adicione o `knowledge` à mão com as entradas abaixo. A entrada do Cursor que ele grava não tem `"type"`, enquanto a doc do Cursor lista `type` como obrigatório para servidores stdio: se o Cursor não carregar a entrada, adicione `"type": "stdio"`.
+Ele grava o caminho do executável em execução como `command`, por isso você compila antes (um binário de `go run` fica num diretório temporário). Registra só o `ciam`; adicione o `knowledge` à mão com as entradas abaixo. A entrada do Cursor que ele grava não tem `"type"`, enquanto a doc do Cursor (https://cursor.com/docs/mcp) lista `type` como obrigatório para servidores stdio: se o Cursor não carregar a entrada, adicione `"type": "stdio"`.
 
 ## 3. Clientes
 
@@ -72,7 +72,7 @@ Arquivo `.vscode/mcp.json` (workspace) ou o arquivo de usuário aberto pelo coma
 }
 ```
 
-A página do GitHub diz que um botão Start aparece acima da entrada e que as ferramentas MCP são usadas no Copilot Chat em modo Agent. A política da organização pode restringir MCP e o uso de modelo próprio (bring your own model): confira as docs do Copilot para o seu plano.
+A página do GitHub (https://docs.github.com/en/copilot/customizing-copilot/extending-copilot-chat-with-mcp) diz que um botão "Start" aparece no topo da lista de servidores em `.vscode/mcp.json`, e seus passos mandam selecionar Agent na caixa do Copilot Chat antes de usar as ferramentas. A política da organização pode restringir MCP e o uso de modelo próprio (bring your own model): confira as docs do Copilot para o seu plano.
 
 ### Claude Code (extensão do VS Code e console)
 
@@ -212,7 +212,7 @@ Esta é uma configuração do próprio cliente, separada do MCP. O router não p
 | VS Code Copilot Chat | provedor `Custom Endpoint` (`vendor: customendpoint`) com tipo de API Chat Completions, Responses ou Messages; a URL pode incluir o caminho da API, senão o VS Code o acrescenta e insere `/v1` (https://code.visualstudio.com/docs/copilot/customization/language-models) | Os modelos precisam suportar tool calling para aparecer no uso com agente. Administradores Business e Enterprise podem desativar o BYOK. |
 | Copilot CLI | `COPILOT_PROVIDER_BASE_URL`, `COPILOT_MODEL`, opcionais `COPILOT_PROVIDER_TYPE` (`openai` padrão, `azure`, `anthropic`), `COPILOT_PROVIDER_API_KEY` (https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models) | O modelo precisa suportar tool calling e streaming. Exemplo: `COPILOT_PROVIDER_BASE_URL=http://localhost:PORT/v1 COPILOT_MODEL=auto copilot`. Se um gateway quer o sufixo `/v1` aqui: check the gateway docs. |
 | Opencode | entrada `provider` com `npm: "@ai-sdk/openai-compatible"`, `options.baseURL`, `options.apiKey` (`{env:VAR}`) e um mapa `models` (https://opencode.ai/docs/providers) | Os ids de modelo são os que o gateway espera. |
-| Kilo Code | provedor de API "OpenAI Compatible": Base URL, API Key, Model ID (https://kilo.ai/docs/providers/openai-compatible) | Versões novas podem mostrar Settings, Providers, Add custom provider; os mesmos três valores. |
+| Kilo Code | Settings, Providers, Custom provider: Provider ID, Display name, Provider API "OpenAI Compatible", Base URL (uma base ou uma URL de endpoint completa), API key (marcada como opcional), Models (https://kilo.ai/docs/providers/openai-compatible) | Versões mais antigas do Kilo mostram um provedor de API "OpenAI Compatible" com Base URL, API Key e Model ID; check Kilo docs para o da sua versão. |
 | Cursor | Guias de gateways de terceiros descrevem Settings, Models, "Override OpenAI Base URL" com uma chave OpenAI e nomes de modelo próprios (por exemplo https://docs.litellm.ai/docs/tutorials/cursor_integration). As docs do próprio Cursor não foram encontradas para isso: check Cursor docs | Esses guias dizem que só alguns recursos do Cursor usam o override e que pode ser preciso um plano pago; não verificado aqui. |
 
 Exemplo de Opencode para o omniroute (chave no ambiente):
