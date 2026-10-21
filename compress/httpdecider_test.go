@@ -3,11 +3,13 @@ package compress
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -189,12 +191,15 @@ func TestHTTPDeciderBadJSON(t *testing.T) {
 	}
 }
 
+// The server answers only an id that was not requested, so no requested id has
+// an answer: that is an error. A single omitted id among answered ones is not
+// (see TestHTTPDeciderPartialAnswers).
 func TestHTTPDeciderMissingAnswer(t *testing.T) {
 	srv := serveJSON(t, 200, `{"answers":{"level":{"type":"choice","choice":"full","probabilities":{"full":1}}}}`, nil, nil)
 	defer srv.Close()
 	_, err := HTTPDecider{URL: srv.URL}.Decide(context.Background(), State{}, HistoryQuestions()[:1])
 	if err == nil {
-		t.Fatal("want error when an answer id is absent")
+		t.Fatal("want error when no requested id has an answer")
 	}
 }
 
@@ -285,5 +290,59 @@ func TestHTTPDeciderNoulTrueMatchesP(t *testing.T) {
 		if got[0].True != c.want || math.Abs(got[0].P-c.p) > 1e-9 {
 			t.Errorf("%s: got P=%v True=%v, want P=%v True=%v", c.body, got[0].P, got[0].True, c.p, c.want)
 		}
+	}
+}
+
+// A server that answers only some of the requested ids is not an error: the
+// answers that came back are returned, in question order.
+func TestHTTPDeciderPartialAnswers(t *testing.T) {
+	body := fmt.Sprintf(`{"answers":{%q:{"type":"noul","noul":0.9},%q:{"type":"choice","choice":"full","probabilities":{"full":1}},%q:{"type":"noul","noul":0.1}}}`,
+		QCompressHistory, QLevel, QPonytail)
+	srv := serveJSON(t, 200, body, nil, nil)
+	defer srv.Close()
+	got, err := HTTPDecider{URL: srv.URL}.Decide(context.Background(), State{}, HistoryQuestions())
+	if err != nil {
+		t.Fatalf("partial answers: unexpected error %v", err)
+	}
+	ids := make([]string, len(got))
+	for i, a := range got {
+		ids[i] = a.ID
+	}
+	if want := []string{QCompressHistory, QLevel, QPonytail}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("answer ids = %v, want %v", ids, want)
+	}
+}
+
+// Guarded falls back per question: the two ids the server omits get the rule
+// answer, and the three it answers keep the server's values.
+func TestGuardedPartialHTTPFallsBackPerQuestion(t *testing.T) {
+	body := fmt.Sprintf(`{"answers":{%q:{"type":"noul","noul":0.9},%q:{"type":"choice","choice":"full","probabilities":{"full":1}},%q:{"type":"noul","noul":0.1}}}`,
+		QCompressHistory, QLevel, QPonytail)
+	srv := serveJSON(t, 200, body, nil, nil)
+	defer srv.Close()
+	qs := HistoryQuestions()
+	st := State{"tokens": 5000.0, "code_share": 0.5, "json_tool_bytes": 4096.0}
+	got, err := NewGuarded(HTTPDecider{URL: srv.URL}).Decide(context.Background(), st, qs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := RuleDecider{}.Decide(context.Background(), st, qs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(qs) {
+		t.Fatalf("got %d answers, want %d", len(got), len(qs))
+	}
+	for i, q := range qs {
+		if q.ID == QCompressReply || q.ID == QTOON {
+			if got[i].True != want[i].True || got[i].ID != want[i].ID {
+				t.Errorf("%s = %+v, want rule answer %+v", q.ID, got[i], want[i])
+			}
+		}
+	}
+	// HistoryQuestions order: history, level, reply, ponytail, toon. The server
+	// answers history, level and ponytail; reply and toon are omitted.
+	if got[0].P != 0.9 || got[3].P != 0.1 {
+		t.Errorf("server answers lost: history P=%v ponytail P=%v", got[0].P, got[3].P)
 	}
 }

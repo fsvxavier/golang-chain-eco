@@ -259,3 +259,19 @@ func TestTOONShorterEmptyOutputStaysJSON(t *testing.T) {
 		}
 	}
 }
+
+// Duplicate JSON keys follow encoding/json: the last value wins, at the
+// position of the first occurrence. A TOON strict decoder rejects a repeated
+// sibling key, so the encoder must never emit one.
+func TestTOONDuplicateKeysLastWinsFirstPosition(t *testing.T) {
+	toonGolden(t, `{"a":1,"b":2,"a":3}`, "a: 3\nb: 2")
+	toonGolden(t, `{"o":{"x":1,"y":3,"x":2}}`, "o:\n  x: 2\n  y: 3")
+}
+
+func TestTOONDuplicateKeysInTabularRows(t *testing.T) {
+	// the first row has a duplicate: after de-duplication it has keys a,b and the
+	// array is still uniform, so it is tabular with a=3 for that row
+	toonGolden(t, `{"l":[{"a":1,"b":2,"a":3},{"a":4,"b":5}]}`, "l[2]{a,b}:\n  3,2\n  4,5")
+	// de-duplicated to one key each, so the rows are uniform too
+	toonGolden(t, `{"l":[{"a":1,"a":2},{"a":3}]}`, "l[2]{a}:\n  2\n  3")
+}

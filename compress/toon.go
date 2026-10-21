@@ -106,6 +106,10 @@ func toonParseTok(dec *json.Decoder, tok json.Token) (any, error) {
 	switch d {
 	case '{':
 		obj := &toonObject{}
+		// Duplicate keys follow encoding/json: the last value wins, at the
+		// position of the first occurrence. A TOON strict decoder rejects a
+		// repeated sibling key, so the encoder never emits one.
+		pos := make(map[string]int)
 		for dec.More() {
 			kt, err := dec.Token()
 			if err != nil {
@@ -119,6 +123,11 @@ func toonParseTok(dec *json.Decoder, tok json.Token) (any, error) {
 			if err != nil {
 				return nil, err
 			}
+			if i, dup := pos[key]; dup {
+				obj.vals[i] = v
+				continue
+			}
+			pos[key] = len(obj.keys)
 			obj.keys = append(obj.keys, key)
 			obj.vals = append(obj.vals, v)
 		}
@@ -286,9 +295,6 @@ func toonTabular(arr []any) ([]string, [][]any, bool) {
 		byKey := make(map[string]any, len(obj.keys))
 		for i, k := range obj.keys {
 			byKey[k] = obj.vals[i]
-		}
-		if len(byKey) != len(obj.keys) {
-			return nil, nil, false // duplicate keys
 		}
 		row := make([]any, len(fields))
 		for i, f := range fields {

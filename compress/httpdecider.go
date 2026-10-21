@@ -113,17 +113,23 @@ func (d HTTPDecider) Decide(ctx context.Context, st State, qs []Question) ([]Ans
 		return nil, fmt.Errorf("compress: decider response: %w", err)
 	}
 
+	// An omitted id is not an error: it simply has no answer here, and Guarded
+	// falls back to the rules for it. Only a response with no requested id
+	// answered is an error.
 	answers := make([]Answer, 0, len(qs))
 	for _, q := range qs {
 		ha, ok := out.Answers[q.ID]
 		if !ok {
-			return nil, fmt.Errorf("compress: decider gave no answer for %q", q.ID)
+			continue
 		}
 		a, err := toAnswer(q, ha)
 		if err != nil {
 			return nil, err
 		}
 		answers = append(answers, a)
+	}
+	if len(answers) == 0 {
+		return nil, fmt.Errorf("compress: decider answered none of the %d questions", len(qs))
 	}
 	return answers, nil
 }
