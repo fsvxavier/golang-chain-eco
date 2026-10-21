@@ -12,7 +12,7 @@ Acrescenta a diretiva Ponytail, um incentivo a escrever menos código, à últim
 - Um middleware `sniff`, posto depois da compressão, registra a requisição que o modelo recebe. Um modelo fake responde offline.
 - O exemplo imprime o tamanho da nota e a primeira linha de cada nível, e falha se a nota não for o texto da diretiva, se aparecer duas vezes, ou se chegar ao prompt de sistema ou ao histórico armazenado.
 
-A ideia da diretiva vem de [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) (MIT). O texto em `compress/ponytail.go` é uma reescrita original e mais curta.
+A diretiva é adaptada do Ponytail (https://github.com/DietrichGebert/ponytail, licença MIT, de Dietrich Gebert); veja esse repositório para o texto da licença.
 
 ## Como aplicar
 

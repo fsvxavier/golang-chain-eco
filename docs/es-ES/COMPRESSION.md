@@ -22,7 +22,7 @@ Un modelo nunca lee el historial completo. Lee un `Summary` (conteos, tamaños, 
 | Id | Dónde | Tipo | Efecto con "sí" (o el nivel elegido) |
 |---|---|---|---|
 | `compress_history` | antes de una llamada al modelo | Noul | comprime los turnos antiguos con Caveman |
-| `level` | antes de una llamada al modelo (se pregunta cuando historial, respuesta o Ponytail están activos) | Choice: `lite`, `full`, `ultra` | nivel de Caveman y de la directiva Ponytail, compartido por historial y respuesta |
+| `level` | antes de una llamada al modelo (siempre se pregunta, en el mismo lote de llamadas al decider; se aplica solo cuando historial, respuesta o Ponytail están activos) | Choice: `lite`, `full`, `ultra` | nivel de Caveman y de la directiva Ponytail, compartido por historial y respuesta |
 | `compress_reply` | antes de una llamada al modelo | Noul | añade la directiva de respuesta breve tras el último mensaje del usuario |
 | `ponytail` | antes de una llamada al modelo | Noul | añade la directiva Ponytail tras el último mensaje del usuario |
 | `toon_tool_results` | antes de una llamada al modelo | Noul | reescribe los resultados JSON de herramientas en TOON cuando son estrictamente más cortos |
@@ -80,7 +80,7 @@ Caveman nunca toca resultados de herramientas, argumentos de llamadas a herramie
 
 ## Ponytail (menos código escrito)
 
-`compress.PonytailDirective(lvl)` devuelve un texto de reglas para un agente de código. La idea viene del proyecto Ponytail (`github.com/DietrichGebert/ponytail`, MIT). La redacción aquí es una reescritura original y más corta, no una copia.
+`compress.PonytailDirective(lvl)` devuelve un texto de reglas para un agente de código. La directiva está adaptada de Ponytail (https://github.com/DietrichGebert/ponytail, con licencia MIT, de Dietrich Gebert); consulta ese repositorio para ver el texto de su licencia.
 
 - **Niveles.** `Lite` son dos frases. `Full` (el por defecto) es una escalera de siete peldaños: ¿necesita existir?, ¿ya lo tiene el código?, ¿lo resuelve la biblioteca estándar?, ¿lo cubre una función nativa de la plataforma?, ¿lo resuelve una dependencia instalada?, ¿cabe en una línea?, y solo entonces el código mínimo. `Ultra` es el conjunto más largo y añade "preguntar si debe existir en absoluto". Cada texto ocupa menos de 1200 bytes y termina con una línea `Ponytail:`.
 - **La regla que mantiene la seguridad.** El texto dice "perezoso con la solución, nunca con la lectura": el agente debe leer el código afectado de principio a fin antes de elegir un peldaño. Nunca indica al modelo que salte la validación de entrada en fronteras de confianza, el tratamiento de errores que evita pérdida de datos, las comprobaciones de seguridad, lo básico de accesibilidad, o el único test que protege una lógica arriesgada.
@@ -89,7 +89,7 @@ Caveman nunca toca resultados de herramientas, argumentos de llamadas a herramie
 
 Qué se sabe y qué no:
 
-- El proveedor informa **código -53% y tokens -45%** en su propia prueba de 39 tareas. Esos son los números del proveedor. No se reproducen aquí, y este proyecto no los ha medido.
+- El proveedor informa **código -53% y tokens -45%** en su propia prueba de 39 tareas. Son las cifras de benchmark propias del proveedor, publicadas en https://github.com/DietrichGebert/ponytail. No se reproducen aquí, y este proyecto no los ha medido.
 - La directiva es un empujón. Que un modelo escriba menos código depende del modelo y de la tarea. Mídalo con un modelo real (vea el ejemplo más abajo); el ejemplo offline muestra solo lo que recibe el modelo.
 
 ## TOON (resultados JSON de herramientas)
@@ -99,8 +99,10 @@ TOON (Token-Oriented Object Notation) es una codificación compacta, basada en s
 - `compress.TOONFromJSON(text, compress.TOONOptions{Delimiter})` codifica texto JSON. El delimitador es `","` (por defecto), `"\t"` o `"|"`; cualquier otro valor es error. JSON inválido es error.
 - `compress.TOONShorter(text)` devuelve el texto TOON y `true` solo cuando `text` es un objeto o array JSON **y** el TOON es estrictamente más corto. Si no, devuelve la entrada y `false`. Úselo cuando la salida nunca debe ser más larga que la entrada.
 - Implementado: sangría de 2 espacios, LF, sin salto de línea final; claves sin comillas solo cuando cumplen `^[A-Za-z_][A-Za-z0-9_.]*$`; cadenas entre comillas cuando están vacías, parecen número, son `true`/`false`/`null`, tienen espacios en los extremos, contienen `: " \ [ ] { }`, un carácter de control o el delimitador activo, o empiezan por `-` o `#`; orden de las claves conservado como en el texto JSON; números en decimal simple con los dígitos más cortos que hacen el viaje de ida y vuelta (forma exponencial fuera de `1e-6 <= |n| < 1e21`), `-0` como `0`, NaN e Inf como `null`, enteros grandes conservados dígito a dígito.
-- Arrays: arrays de primitivos en línea (`tags[3]: admin,ops,dev`); arrays de objetos con las mismas claves y solo valores primitivos como bloque **tabular** (`users[2]{id,name,role}:` con una fila por objeto); arrays mixtos o no uniformes en forma de lista, con elementos `- `; arrays vacíos como `key: []`.
+- Arrays: arrays de primitivos en línea (`tags[3]: admin,ops,dev`); arrays de objetos con las mismas claves y solo valores primitivos como bloque **tabular** (`users[2]{id,name,role}:` con una fila por objeto); arrays mixtos o no uniformes en forma de lista, con elementos `- `; arrays vacíos como `key: []`. Un array cuyas columnas son objetos anidados (por ejemplo `{"a":{"z":1}}`) usa la forma de lista, no el bloque tabular.
 - **No implementado:** no hay **decodificador** (TOON de vuelta a JSON), ni la forma **tabular con claves**, ni **key folding**. Los objetos anidados se escriben como sangría anidada. La pérdida cero depende de los tests golden en `compress/toon_test.go`, que usan los ejemplos de la especificación, no un ida y vuelta.
+
+- **Números.** Los enteros por encima de 2^53 se escriben con todos sus dígitos, así que un decodificador de JavaScript puede redondearlos. Los números fuera del rango de float, como `1e400`, se convierten en `null`.
 
 **En el middleware.** La pregunta `toon_tool_results` es sí cuando `JSONToolBytes >= 2048`. Entonces cada mensaje de herramienta cuyo contenido es un objeto o array JSON, y que no tiene `Parts`, se sustituye en la copia por llamada por su forma TOON, pero solo cuando esa forma es estrictamente más corta. Los ids de las llamadas a herramientas y el orden de los mensajes nunca cambian. La salida de herramientas que no es JSON y los mensajes con `Parts` quedan intactos. El estado guardado no se reescribe.
 

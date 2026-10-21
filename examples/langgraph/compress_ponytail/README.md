@@ -12,7 +12,7 @@ Appends the Ponytail directive, a nudge toward writing less code, to the last Hu
 - A `sniff` middleware placed after compression records the request the model receives. A fake model answers offline.
 - The example prints the note length and its first line for each level, and fails if the note is not the directive text, appears twice, or reaches the system prompt or the stored history.
 
-The directive idea comes from [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) (MIT). The wording in `compress/ponytail.go` is an original, shorter rewrite.
+The directive is adapted from Ponytail (https://github.com/DietrichGebert/ponytail, MIT licensed, by Dietrich Gebert); see that repository for its license text.
 
 ## How to apply it
 

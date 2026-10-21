@@ -1,7 +1,8 @@
 package compress
 
-// Ponytail directives. The idea comes from the Ponytail project
-// (github.com/DietrichGebert/ponytail, MIT); the wording here is original.
+// Ponytail directives. The directive is adapted from Ponytail
+// (https://github.com/DietrichGebert/ponytail, MIT licensed, by Dietrich
+// Gebert); see that repository for its license text.
 // Each text ends with a line starting "Ponytail:". None of them lets the
 // model skip validation, error handling, security or accessibility.
 

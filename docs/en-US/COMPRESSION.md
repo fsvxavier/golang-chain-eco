@@ -22,7 +22,7 @@ A model never reads the whole history. It reads a `Summary` (counts, sizes, tool
 | Id | Site | Kind | Effect when "yes" (or the chosen level) |
 |---|---|---|---|
 | `compress_history` | before a model call | Noul | compress old turns with Caveman |
-| `level` | before a model call (asked when history or reply is on) | Choice: `lite`, `full`, `ultra` | Caveman level, shared by history, reply and Ponytail |
+| `level` | before a model call (always asked, in the same decider call as the others; applied only when history, reply or Ponytail is on) | Choice: `lite`, `full`, `ultra` | Caveman level, shared by history, reply and Ponytail |
 | `compress_reply` | before a model call | Noul | append the terse-reply directive after the last user message |
 | `ponytail` | before a model call | Noul | append the Ponytail directive after the last user message |
 | `toon_tool_results` | before a model call | Noul | rewrite JSON tool results as TOON when strictly shorter |
@@ -80,7 +80,7 @@ Caveman never touches tool results, tool-call arguments, system prompts, JSON, c
 
 ## Ponytail (less code written)
 
-`compress.PonytailDirective(lvl)` returns a rules text for a coding agent. Its idea comes from the Ponytail project (`github.com/DietrichGebert/ponytail`, MIT). The wording here is an original, shorter rewrite, not a copy.
+`compress.PonytailDirective(lvl)` returns a rules text for a coding agent. The directive is adapted from Ponytail (https://github.com/DietrichGebert/ponytail, MIT licensed, by Dietrich Gebert); see that repository for its license text.
 
 - **Levels.** `Lite` is two sentences. `Full` (the default) is a seven-rung ladder: does it need to exist, does the codebase already have it, does the standard library do it, does a native platform feature cover it, does an installed dependency solve it, can it be one line, and only then the minimum code. `Ultra` is the longest set and adds "ask whether it must exist at all". Each text is under 1200 bytes and ends with a `Ponytail:` line.
 - **The rule that keeps it safe.** The text says "Lazy about the solution, never about reading": the agent must read the affected code end to end before it picks a rung. It never tells the model to skip input validation at trust boundaries, error handling that prevents data loss, security checks, accessibility basics, or the one test that guards risky logic.
@@ -89,7 +89,7 @@ Caveman never touches tool results, tool-call arguments, system prompts, JSON, c
 
 What is known and what is not:
 
-- The vendor reports **code -53% and tokens -45%** over its own 39-task run. Those are the vendor's numbers. They are not reproduced here, and this project has not measured them.
+- The vendor reports **code -53% and tokens -45%** over its own 39-task run. These are the vendor's own benchmark figures, published at https://github.com/DietrichGebert/ponytail. They are not reproduced here, and this project has not measured them.
 - The directive is a nudge. Whether a model writes less code depends on the model and the task. Measure it with a real model (see the example below); the offline example shows only what the model receives.
 
 ## TOON (JSON tool results)
@@ -99,8 +99,10 @@ TOON (Token-Oriented Object Notation) is a compact, indentation-based encoding o
 - `compress.TOONFromJSON(text, compress.TOONOptions{Delimiter})` encodes JSON text. The delimiter is `","` (default), `"\t"` or `"|"`; any other value is an error. Invalid JSON is an error.
 - `compress.TOONShorter(text)` returns the TOON text and `true` only when `text` is a JSON object or array **and** the TOON is strictly shorter. Otherwise it returns the input and `false`. Use this when the output must never be longer than the input.
 - Implemented: 2-space indentation, LF, no trailing newline; keys unquoted only when they match `^[A-Za-z_][A-Za-z0-9_.]*$`; strings quoted when empty, numeric-like, `true`/`false`/`null`, padded with spaces, containing `: " \ [ ] { }`, a control character or the active delimiter, or starting with `-` or `#`; key order kept as in the JSON text; numbers in plain decimal with the shortest round-trip digits (exponent form outside `1e-6 <= |n| < 1e21`), `-0` as `0`, NaN and Inf as `null`, large integers kept digit for digit.
-- Arrays: primitive arrays inline (`tags[3]: admin,ops,dev`); arrays of objects with the same keys and only primitive values as a **tabular** block (`users[2]{id,name,role}:` with one row per object); mixed or non-uniform arrays in list form with `- ` items; empty arrays as `key: []`.
+- Arrays: primitive arrays inline (`tags[3]: admin,ops,dev`); arrays of objects with the same keys and only primitive values as a **tabular** block (`users[2]{id,name,role}:` with one row per object); mixed or non-uniform arrays in list form with `- ` items; empty arrays as `key: []`. An array whose columns are nested objects (for example `{"a":{"z":1}}`) uses list form, not the tabular block.
 - **Not implemented:** there is **no decoder** (TOON back to JSON), no **keyed tabular** form, and no **key folding**. Nested objects are written as nested indentation instead. Losslessness rests on the golden tests in `compress/toon_test.go`, which use the spec's examples, not on a round trip.
+
+- **Numbers.** Integers above 2^53 are written with all their digits, so a JavaScript decoder may round them. Numbers beyond the float range, such as `1e400`, become `null`.
 
 **In the middleware.** The `toon_tool_results` question is yes when `JSONToolBytes >= 2048`. Then each tool message whose content parses as a JSON object or array, and that has no `Parts`, is replaced in the per-call copy by its TOON form, but only when that form is strictly shorter. Tool-call ids and the order of messages never change. Non-JSON tool output and messages with `Parts` are left untouched. Stored state is not rewritten.
 

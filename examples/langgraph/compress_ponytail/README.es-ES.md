@@ -12,7 +12,7 @@ Añade la directiva Ponytail, un impulso a escribir menos código, al último me
 - Un middleware `sniff`, colocado después de la compresión, registra la petición que recibe el modelo. Un modelo fake responde sin conexión.
 - El ejemplo imprime el tamaño de la nota y la primera línea de cada nivel, y falla si la nota no es el texto de la directiva, aparece dos veces, o llega al prompt de sistema o al historial almacenado.
 
-La idea de la directiva viene de [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) (MIT). El texto en `compress/ponytail.go` es una reescritura original y más corta.
+La directiva está adaptada de Ponytail (https://github.com/DietrichGebert/ponytail, con licencia MIT, de Dietrich Gebert); consulta ese repositorio para ver el texto de su licencia.
 
 ## Cómo aplicarlo
 

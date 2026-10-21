@@ -3,8 +3,9 @@
 // caveman-compressed, optional terse-reply directive), and the workers get a
 // shell tool whose simple commands are routed through rtk when the decider says so.
 //
-// Offline a scripted decider answers every question, so the savings show
-// without a model. LAYA_URL points the decider at a real laya-serve endpoint.
+// Offline a scripted decider answers every question, so the effect of each
+// lever shows without a model (the numbers vary a little between runs).
+// LAYA_URL points the decider at a real laya-serve endpoint.
 //
 // Two more rewrites come from the same middleware: Ponytail (a note on the
 // last Human message, asking for less code) and TOON (JSON tool results
@@ -90,11 +91,12 @@ func decider() (compress.Decider, string) {
 }
 
 // scripted answers as a confident model would, whatever the state. Compression,
-// rtk routing, Ponytail and TOON are on (the default case answers yes to
-// ponytail and toon_tool_results); the reply directive is off. The thresholds
-// are the rules' own, but every turn qualifies, so the offline run shows the effect.
-// ponytail: no real judgement offline; the laya decider makes the real calls.
-func scripted(_ context.Context, _ compress.State, qs []compress.Question) ([]compress.Answer, error) {
+// rtk routing and TOON are on (the default case answers yes); the reply
+// directive is off. Ponytail is not a blanket yes: the rule decides it, so a
+// note appears only where a conversation has a real share of code. The rest of
+// the thresholds are the rules' own, but every turn qualifies, so the offline run
+// shows the effect.
+func scripted(ctx context.Context, st compress.State, qs []compress.Question) ([]compress.Answer, error) {
 	out := make([]compress.Answer, 0, len(qs))
 	for _, q := range qs {
 		switch q.ID {
@@ -102,6 +104,12 @@ func scripted(_ context.Context, _ compress.State, qs []compress.Question) ([]co
 			out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, Pick: string(compress.Full), Dist: map[string]float64{string(compress.Full): 0.95}})
 		case compress.QCompressReply:
 			out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, P: 0.05})
+		case compress.QPonytail:
+			ans, err := compress.RuleDecider{}.Decide(ctx, st, []compress.Question{q})
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ans...)
 		default:
 			out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, P: 0.95, True: true})
 		}

@@ -8,10 +8,13 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 )
 
-// Compression shrinks the per-call copy of the context: old Human and AI turns
-// are caveman-compressed and the last Human message can carry a terse-reply
-// directive. Tool calls and tool results are never touched, so every tool-call
-// id and order survives. Stored history is never rewritten.
+// Compression shrinks the per-call copy of the context. Old Human and AI turns
+// are caveman-compressed. The last Human message can carry two notes: the
+// Ponytail note (when the decider asks for it) and the terse-reply directive.
+// JSON tool results (messages with no Parts) are the one exception to "tool
+// results are never touched": each is rewritten as TOON, but only when the TOON
+// form is strictly shorter and the decider asks for it. Tool-call ids and order
+// always survive, and stored history is never rewritten.
 //
 // Keep is the number of recent turns left alone (default 4).
 //

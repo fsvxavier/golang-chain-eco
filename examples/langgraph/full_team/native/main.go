@@ -82,6 +82,9 @@ func scripted(_ context.Context, _ compress.State, qs []compress.Question) ([]co
 			out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, Pick: string(compress.Full), Dist: map[string]float64{string(compress.Full): 0.95}})
 		case compress.QCompressReply:
 			out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, P: 0.05})
+		case compress.QPonytail:
+			// off here: this fallback does not count Ponytail notes in its meter
+			out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, P: 0.05})
 		default:
 			out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, P: 0.95, True: true})
 		}
