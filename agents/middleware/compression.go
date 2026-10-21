@@ -61,19 +61,22 @@ func (c Compression) WrapModelCall(ctx context.Context, req *agents.ModelRequest
 
 	compressHistory := byID[compress.QCompressHistory].True
 	compressReply := byID[compress.QCompressReply].True
-	if !compressHistory && !compressReply {
+	ponytail := byID[compress.QPonytail].True
+	toonTools := byID[compress.QTOON].True
+	if !compressHistory && !compressReply && !ponytail && !toonTools {
 		return next(ctx, req)
+	}
+
+	level := compress.Full
+	switch p := compress.Level(byID[compress.QLevel].Pick); p {
+	case compress.Lite, compress.Full, compress.Ultra:
+		level = p
 	}
 
 	r := *req
 	r.Messages = append([]messages.Message(nil), req.Messages...)
 
 	if compressHistory {
-		level := compress.Full
-		switch p := compress.Level(byID[compress.QLevel].Pick); p {
-		case compress.Lite, compress.Full, compress.Ultra:
-			level = p
-		}
 		cut := oldTurnsEnd(r.Messages, keep)
 		for i := 0; i < cut; i++ {
 			m := &r.Messages[i]
@@ -93,23 +96,44 @@ func (c Compression) WrapModelCall(ctx context.Context, req *agents.ModelRequest
 		}
 	}
 
+	// the Ponytail note goes before the reply directive when both apply
+	if ponytail {
+		appendToLastHuman(r.Messages, "\n\n"+compress.PonytailDirective(level))
+	}
 	if compressReply {
-		for i := len(r.Messages) - 1; i >= 0; i-- {
-			if r.Messages[i].Role != messages.RoleHuman {
+		appendToLastHuman(r.Messages, "\n\n"+compress.ReplyDirective)
+	}
+
+	if toonTools {
+		for i := range r.Messages {
+			m := &r.Messages[i]
+			if m.Role != messages.RoleTool || len(m.Parts) > 0 {
 				continue
 			}
-			m := &r.Messages[i]
-			if len(m.Parts) > 0 && m.Content == "" {
-				// text lives in Parts; append the directive there
-				m.Parts = append(append([]messages.ContentPart(nil), m.Parts...), messages.ContentPart{Type: "text", Text: "\n\n" + compress.ReplyDirective})
-			} else {
-				m.Content = m.Content + "\n\n" + compress.ReplyDirective
+			if out, ok := compress.TOONShorter(m.Content); ok {
+				m.Content = out
 			}
-			break
 		}
 	}
 
 	return next(ctx, &r)
+}
+
+// appendToLastHuman adds text to the last Human message of msgs, in Parts when
+// that is where its text lives. msgs must be the per-call copy.
+func appendToLastHuman(msgs []messages.Message, text string) {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != messages.RoleHuman {
+			continue
+		}
+		m := &msgs[i]
+		if len(m.Parts) > 0 && m.Content == "" {
+			m.Parts = append(append([]messages.ContentPart(nil), m.Parts...), messages.ContentPart{Type: "text", Text: text})
+		} else {
+			m.Content = m.Content + text
+		}
+		return
+	}
 }
 
 // oldTurnsEnd returns the index where the last keep turns start. A turn starts

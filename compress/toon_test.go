@@ -248,3 +248,13 @@ func TestTOONShorterNeverLonger(t *testing.T) {
 		}
 	}
 }
+
+func TestTOONShorterEmptyOutputStaysJSON(t *testing.T) {
+	// a root empty object encodes to the empty document, which is not a rewrite
+	for _, in := range []string{`{}`, ` {} `} {
+		got, ok := TOONShorter(in)
+		if ok || got != in {
+			t.Fatalf("TOONShorter(%q) = %q, %v; want %q, false", in, got, ok, in)
+		}
+	}
+}

@@ -26,21 +26,30 @@ func turns(n int) []messages.Message {
 // answerDecider says yes to history compression, answers reply for
 // compress_reply, and picks level.
 func answerDecider(level string, reply bool) compress.Decider {
+	return decider(level, true, reply, false, false)
+}
+
+// decider answers each question by id: the level question picks level, the
+// yes/no questions take the given flags.
+func decider(level string, history, reply, ponytail, toon bool) compress.Decider {
+	yes := map[string]bool{
+		compress.QCompressHistory: history,
+		compress.QCompressReply:   reply,
+		compress.QPonytail:        ponytail,
+		compress.QTOON:            toon,
+	}
 	return compress.FuncDecider(func(_ context.Context, _ compress.State, qs []compress.Question) ([]compress.Answer, error) {
 		out := make([]compress.Answer, 0, len(qs))
 		for _, q := range qs {
-			switch q.ID {
-			case compress.QLevel:
+			if q.ID == compress.QLevel {
 				out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, Pick: level, Dist: map[string]float64{level: 1}})
-			case compress.QCompressReply:
-				p := 0.0
-				if reply {
-					p = 1
-				}
-				out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, True: reply, P: p})
-			default:
-				out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, True: true, P: 1})
+				continue
 			}
+			p := 0.0
+			if yes[q.ID] {
+				p = 1
+			}
+			out = append(out, compress.Answer{ID: q.ID, Kind: q.Kind, True: yes[q.ID], P: p})
 		}
 		return out, nil
 	})
@@ -190,5 +199,119 @@ func TestNewCompressionGuardsDecider(t *testing.T) {
 	c := NewCompression(answerDecider("ultra", false))
 	if _, ok := c.Decider.(compress.Guarded); !ok {
 		t.Fatalf("NewCompression decider = %T, want compress.Guarded", c.Decider)
+	}
+}
+
+const usersJSON = `{"users":[{"id":1,"name":"Ada","role":"admin"},{"id":2,"name":"Bob","role":"user"}]}`
+
+func TestCompressionPonytailNote(t *testing.T) {
+	in := turns(3)
+	in = append(in, messages.Human("question"))
+	req := &agents.ModelRequest{System: "be helpful", Messages: in}
+	levels := map[string]compress.Level{"lite": compress.Lite, "full": compress.Full, "ultra": compress.Ultra, "bogus": compress.Full}
+	for name, lvl := range levels {
+		c := Compression{Decider: decider(name, false, false, true, false), Keep: 4}
+		want := "question\n\n" + compress.PonytailDirective(lvl)
+		var got *agents.ModelRequest
+		for call := 0; call < 2; call++ { // repeated calls with the same request
+			if _, err := c.WrapModelCall(context.Background(), req, capture(&got)); err != nil {
+				t.Fatal(err)
+			}
+			last := len(got.Messages) - 1
+			if got.Messages[last].Text() != want {
+				t.Fatalf("level %s call %d: last human = %q, want %q", name, call, got.Messages[last].Text(), want)
+			}
+			if got.System != "be helpful" {
+				t.Fatalf("system prompt changed: %q", got.System)
+			}
+			for i := range in[:last] {
+				if !reflect.DeepEqual(got.Messages[i], in[i]) {
+					t.Fatalf("level %s: message %d changed", name, i)
+				}
+			}
+		}
+	}
+	if !reflect.DeepEqual(in[len(in)-1], messages.Human("question")) {
+		t.Fatal("input mutated with ponytail note")
+	}
+}
+
+func TestCompressionTOONToolResults(t *testing.T) {
+	in := []messages.Message{
+		messages.Human("list users"),
+		messages.AI("", messages.ToolCall{ID: "c1", Name: "users"}, messages.ToolCall{ID: "c2", Name: "text"}, messages.ToolCall{ID: "c3", Name: "parts"}, messages.ToolCall{ID: "c4", Name: "tiny"}),
+		messages.Tool(usersJSON, "c1"),
+		messages.Tool("plain text output", "c2"),
+		{Role: messages.RoleTool, Content: usersJSON, ToolCallID: "c3", Parts: []messages.ContentPart{{Type: "text", Text: usersJSON}}},
+		messages.Tool("[1]", "c4"),
+	}
+	orig := append([]messages.Message(nil), in...)
+	c := Compression{Decider: decider("full", false, false, false, true), Keep: 4}
+	var got *agents.ModelRequest
+	if _, err := c.WrapModelCall(context.Background(), &agents.ModelRequest{Messages: in}, capture(&got)); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != len(in) {
+		t.Fatalf("len changed: %d -> %d", len(in), len(got.Messages))
+	}
+	want := "users[2]{id,name,role}:\n  1,Ada,admin\n  2,Bob,user"
+	if got.Messages[2].Content != want {
+		t.Fatalf("json tool result = %q, want TOON %q", got.Messages[2].Content, want)
+	}
+	if got.Messages[2].ToolCallID != "c1" {
+		t.Fatalf("tool call id changed: %q", got.Messages[2].ToolCallID)
+	}
+	if got.Messages[3].Content != "plain text output" {
+		t.Fatalf("non-JSON tool result changed: %q", got.Messages[3].Content)
+	}
+	if !reflect.DeepEqual(got.Messages[4], orig[4]) {
+		t.Fatalf("tool result with Parts changed: %+v", got.Messages[4])
+	}
+	if got.Messages[5].Content != "[1]" {
+		t.Fatalf("not-shorter JSON tool result changed: %q", got.Messages[5].Content)
+	}
+	for i := range in {
+		if got.Messages[i].Role != in[i].Role || got.Messages[i].ToolCallID != in[i].ToolCallID || len(got.Messages[i].ToolCalls) != len(in[i].ToolCalls) {
+			t.Fatalf("message %d role, id or calls changed", i)
+		}
+	}
+	if !reflect.DeepEqual(in, orig) {
+		t.Fatal("input mutated by TOON rewrite")
+	}
+}
+
+func TestCompressionBothDirectivesOrder(t *testing.T) {
+	in := turns(2)
+	in = append(in, messages.Human("question"))
+	c := Compression{Decider: decider("full", false, true, true, false), Keep: 4}
+	var got *agents.ModelRequest
+	if _, err := c.WrapModelCall(context.Background(), &agents.ModelRequest{Messages: in}, capture(&got)); err != nil {
+		t.Fatal(err)
+	}
+	want := "question\n\n" + compress.PonytailDirective(compress.Full) + "\n\n" + compress.ReplyDirective
+	if last := got.Messages[len(got.Messages)-1].Text(); last != want {
+		t.Fatalf("last human = %q, want %q", last, want)
+	}
+}
+
+func TestCompressionDeciderNoLeavesUntouched(t *testing.T) {
+	in := turns(6)
+	in = append(in, messages.Human("question"))
+	orig := append([]messages.Message(nil), in...)
+	req := &agents.ModelRequest{Messages: in}
+	c := Compression{Decider: decider("ultra", false, false, false, false), Keep: 1}
+	calls := 0
+	next := func(_ context.Context, r *agents.ModelRequest) (messages.Message, error) {
+		calls++
+		if r != req {
+			t.Fatal("request copied although nothing applies")
+		}
+		return messages.AI("ok"), nil
+	}
+	if _, err := c.WrapModelCall(context.Background(), req, next); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || !reflect.DeepEqual(in, orig) {
+		t.Fatal("request changed although every answer is no")
 	}
 }

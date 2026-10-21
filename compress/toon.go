@@ -71,7 +71,8 @@ func TOONShorter(text string) (string, bool) {
 		return text, false
 	}
 	out, err := TOONFromJSON(text, TOONOptions{})
-	if err != nil || len(out) >= len(text) {
+	// an empty document (root {}) is not a usable rewrite
+	if err != nil || out == "" || len(out) >= len(text) {
 		return text, false
 	}
 	return out, true
