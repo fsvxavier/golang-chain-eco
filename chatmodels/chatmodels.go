@@ -98,7 +98,7 @@ var OpenAICompatible = map[string]string{
 
 // Providers lists every provider name Init understands.
 func Providers() []string {
-	names := []string{"openai", "azure_openai", "anthropic", "google_genai", "google", "google_vertexai", "cohere", "bedrock", "bedrock_converse", "ollama", "ibm", "watsonx", "replicate", "fake"}
+	names := []string{"openai", "azure_openai", "anthropic", "google_genai", "google", "google_vertexai", "cohere", "bedrock", "bedrock_converse", "ollama", "ibm", "watsonx", "replicate", "router", "fake"}
 	for k := range OpenAICompatible {
 		names = append(names, k)
 	}
@@ -151,6 +151,8 @@ func Init(spec string, defaults ...models.Option) (models.ChatModel, error) {
 		return watsonx.New(model, watsonx.Config{}, defaults...), nil
 	case "replicate":
 		return replicate.New(model, defaults...), nil
+	case "router":
+		return newRouter(model, defaults...)
 	case "fake":
 		return &models.Fake{Name: spec}, nil
 	}
