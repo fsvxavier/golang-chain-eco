@@ -182,7 +182,10 @@ func (e *toonEncoder) field(prefix, key string, v any, depth int) {
 // everywhere except an array that is itself a list item (spec 9.4).
 func (e *toonEncoder) array(prefix, key string, arr []any, depth int, tabular bool) {
 	if len(arr) == 0 {
-		if key == "" {
+		if key == "" && prefix != "" {
+			// keyless list-item array: spec 9.2 forbids "- []"
+			e.lines = append(e.lines, prefix+"[0"+e.marker+"]:")
+		} else if key == "" {
 			e.lines = append(e.lines, prefix+"[]")
 		} else {
 			e.lines = append(e.lines, prefix+key+": []")
@@ -231,7 +234,8 @@ func (e *toonEncoder) item(d int, v any) {
 		}
 		e.fields(x, d+1, hyphen)
 	case []any:
-		e.array(hyphen, "", x, d+1, false)
+		// the hyphen line stands at d; its items go to d+1 (spec 10)
+		e.array(hyphen, "", x, d, false)
 	default:
 		e.lines = append(e.lines, hyphen+e.prim(v))
 	}

@@ -47,8 +47,9 @@ func TestTOONMixedArrayListForm(t *testing.T) {
 		"m[2]:\n  - id: 1\n    meta:\n      k: v\n    n: 2\n  - 1")
 	toonGolden(t, `{"m":[{},1]}`, "m[2]:\n  -\n  - 1")
 	toonGolden(t, `{"m":[[1,2],"x"]}`, "m[2]:\n  - [2]: 1,2\n  - x")
-	toonGolden(t, `{"m":[[{"a":1}],2]}`, "m[2]:\n  - [1]:\n      - a: 1\n  - 2")
-	toonGolden(t, `{"m":[[],"x"]}`, "m[2]:\n  - []\n  - x")
+	toonGolden(t, `{"m":[[{"a":1}],2]}`, "m[2]:\n  - [1]:\n    - a: 1\n  - 2")
+	toonGolden(t, `{"m":[[],"x"]}`, "m[2]:\n  - [0]:\n  - x")
+	toonGolden(t, `{"a":[[{"x":1},[1,2]],[]]}`, "a[2]:\n  - [2]:\n    - x: 1\n    - [2]: 1,2\n  - [0]:")
 	toonGolden(t, `{"m":[{"users":[{"a":1},{"a":2}],"z":1},3]}`,
 		"m[2]:\n  - users[2]{a}:\n      1\n      2\n    z: 1\n  - 3")
 }
