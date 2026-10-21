@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
-	"github.com/fsvxavier/golang-chain-eco/examples/internal/tasktrack"
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/tasktrack"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
 	"github.com/fsvxavier/golang-chain-eco/remote"
 	"github.com/fsvxavier/golang-chain-eco/remote/server"

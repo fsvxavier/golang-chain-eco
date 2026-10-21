@@ -11,7 +11,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
-	"github.com/fsvxavier/golang-chain-eco/examples/internal/tasktrack"
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/tasktrack"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/channels"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
