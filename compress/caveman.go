@@ -414,7 +414,7 @@ var cvBuiltin = []Lexicon{
 	{
 		Lang:      "en",
 		Stopwords: []string{"the", "and", "is", "are", "of", "to", "in", "that", "it", "for", "with", "you", "this", "i", "be", "on", "not", "was", "have", "but", "or", "from", "by", "your", "we", "they", "can", "will", "if"},
-		Articles:  []string{"a", "an"},
+		Articles:  []string{"a", "an", "the"},
 		Fillers:   []string{"basically", "actually", "just", "really", "simply", "certainly", "literally", "honestly", "obviously", "sure", "absolutely", "definitely"},
 		Hedges:    []string{"maybe", "perhaps", "probably", "possibly", "somewhat", "arguably", "seemingly"},
 	},

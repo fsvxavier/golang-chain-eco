@@ -42,7 +42,7 @@ func TestCompressDropsFillerEn(t *testing.T) {
 	if len(out) >= len(in) {
 		t.Errorf("not shorter: %q", out)
 	}
-	if !strings.Contains(out, "run the tests") {
+	if !strings.Contains(out, "run") || !strings.Contains(out, "tests") {
 		t.Errorf("lost content: %q", out)
 	}
 }
