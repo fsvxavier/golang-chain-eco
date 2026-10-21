@@ -11,7 +11,7 @@ This folder is self-contained. It does not import `examples/langgraph/independen
 - **Copied from `independent_engineering_team`**: `internal/team` (hub, manager, workers, knowledge, team memory, tests), `skills/` (agent personas) and `kb/` (standards and checklists). The copy adds only the hooks below, so the original stays unchanged.
 - **Hooks added to the team**: `WorkerConfig.Middleware` and `WorkerConfig.Tools` (empty means unchanged), `LocalOptions`, and `StartLocalWith`, which gives middleware and tools to every worker. `StartLocal` is `StartLocalWith` with nothing added. `TestStartLocalWithMiddleware` checks that worker middleware runs.
 - **Model calls**: every worker's agent gets `middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}`. Old Human and AI turns are caveman-compressed per call; tool calls and results are never touched. Stored history is not rewritten.
-- **Shell**: each worker gets a `shell` tool (`{command}`) over `backends.LocalShell` with `AllowedCommands` (`go git ls grep echo`) and `Rewrite: rtk.Rewrite`. `RTK.Env` is the shell's `Env`, so `rtk` is looked up on the same PATH the shell uses. `rtk.Executor` records output sizes for the routing decision.
+- **Shell**: each worker gets a `shell` tool (`{command}`) over `backends.LocalShell` with `AllowedCommands` (`go git ls grep echo` offline; `ls grep echo` when `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set, see `allowedPrograms`) and `Rewrite: rtk.Rewrite`. `RTK.Env` is the shell's `Env`, so `rtk` is looked up on the same PATH the shell uses. `rtk.Executor` records output sizes for the routing decision.
 - **Decider**: scripted offline (answers every question as confident, so compression applies). With `LAYA_URL` set, `compress.HTTPDecider` asks a laya-serve endpoint instead.
 - **Report**: after the run, it prints how many model calls were rewritten, the estimated tokens before and after (bytes/4), and whether `rtk` is on PATH.
 
@@ -20,7 +20,7 @@ This folder is self-contained. It does not import `examples/langgraph/independen
 ## How to apply it
 
 - Middleware: `Keep` is how many recent turns stay as they are (default 4; this demo uses 1 because its threads are short).
-- Shell: `AllowedCommands` in `shellTool`. Never list shells, interpreters, `env`, `xargs` or `find`. Note that `go` and `git` can run code, so the host needs a sandbox for anything untrusted.
+- Shell: `AllowedCommands` in `shellTool`. Never list shells, interpreters, `env`, `xargs` or `find`. Note that `go` and `git` can run code, so the host needs a sandbox for anything untrusted. They are offered only in the offline scripted run: a live model with a provider key gets `ls`, `grep` and `echo` only.
 - Decider: `decider()` in `main.go`. Wrap any decider in `compress.NewGuarded` so a slow or wrong one falls back to the rules.
 
 ## Run it

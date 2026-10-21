@@ -11,7 +11,7 @@ Esta carpeta es autocontenida. No importa `examples/langgraph/independent_engine
 - **Copiado de `independent_engineering_team`**: `internal/team` (hub, gerente, workers, conocimiento, memoria del equipo, pruebas), `skills/` (personas de los agentes) y `kb/` (estándares y checklists). La copia solo añade los ganchos de abajo, así que el original queda intacto.
 - **Ganchos añadidos al equipo**: `WorkerConfig.Middleware` y `WorkerConfig.Tools` (vacío significa sin cambios), `LocalOptions` y `StartLocalWith`, que entrega middleware y herramientas a cada worker. `StartLocal` es `StartLocalWith` sin nada adicional. `TestStartLocalWithMiddleware` comprueba que el middleware del worker se ejecuta.
 - **Llamadas al modelo**: el agente de cada worker recibe `middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}`. Los turnos antiguos (Human y AI) se comprimen con caveman en cada llamada; las llamadas y resultados de herramientas nunca se tocan. El historial almacenado no se reescribe.
-- **Shell**: cada worker recibe la herramienta `shell` (`{command}`) sobre `backends.LocalShell`, con `AllowedCommands` (`go git ls grep echo`) y `Rewrite: rtk.Rewrite`. `RTK.Env` es el `Env` del shell, así `rtk` se busca en el mismo PATH que usa el shell. `rtk.Executor` registra el tamaño de la salida para la decisión de enrutado.
+- **Shell**: cada worker recibe la herramienta `shell` (`{command}`) sobre `backends.LocalShell`, con `AllowedCommands` (`go git ls grep echo` sin conexión; `ls grep echo` cuando `ANTHROPIC_API_KEY` u `OPENAI_API_KEY` está definida, véase `allowedPrograms`) y `Rewrite: rtk.Rewrite`. `RTK.Env` es el `Env` del shell, así `rtk` se busca en el mismo PATH que usa el shell. `rtk.Executor` registra el tamaño de la salida para la decisión de enrutado.
 - **Decisor**: guionizado sin conexión (responde con confianza a todo, así la compresión se aplica). Con `LAYA_URL` definido, `compress.HTTPDecider` consulta un endpoint de laya-serve.
 - **Informe**: al terminar imprime cuántas llamadas al modelo fueron reescritas, los tokens estimados antes y después (bytes/4) y si `rtk` está en el PATH.
 
@@ -20,7 +20,7 @@ Esta carpeta es autocontenida. No importa `examples/langgraph/independent_engine
 ## Cómo aplicarlo
 
 - Middleware: `Keep` es cuántos turnos recientes se dejan intactos (por defecto 4; esta demo usa 1 porque los hilos son cortos).
-- Shell: `AllowedCommands` en `shellTool`. Nunca listes shells, intérpretes, `env`, `xargs` ni `find`. `go` y `git` pueden ejecutar código, así que el host necesita sandbox para cualquier entrada no confiable.
+- Shell: `AllowedCommands` en `shellTool`. Nunca listes shells, intérpretes, `env`, `xargs` ni `find`. `go` y `git` pueden ejecutar código, así que el host necesita sandbox para cualquier entrada no confiable. Solo se ofrecen en la ejecución offline con guion: un modelo real con clave de proveedor recibe solo `ls`, `grep` y `echo`.
 - Decisor: `decider()` en `main.go`. Envuelve cualquier decisor con `compress.NewGuarded` para que uno lento o incorrecto caiga en las reglas.
 
 ## Cómo ejecutarlo

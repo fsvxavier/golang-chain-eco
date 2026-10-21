@@ -11,7 +11,7 @@ Esta pasta é autocontida. Ela não importa `examples/langgraph/independent_engi
 - **Copiado de `independent_engineering_team`**: `internal/team` (hub, gerente, workers, conhecimento, memória do time, testes), `skills/` (personas dos agentes) e `kb/` (padrões e checklists). A cópia acrescenta só os ganchos abaixo, então o original fica intacto.
 - **Ganchos acrescentados ao time**: `WorkerConfig.Middleware` e `WorkerConfig.Tools` (vazio significa sem mudança), `LocalOptions` e `StartLocalWith`, que entrega middleware e ferramentas a cada worker. `StartLocal` é `StartLocalWith` sem nada extra. `TestStartLocalWithMiddleware` confere que o middleware do worker roda.
 - **Chamadas de modelo**: cada agente de worker recebe `middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}`. Turnos antigos (Human e AI) são comprimidos com caveman a cada chamada; chamadas e resultados de ferramentas nunca são tocados. O histórico guardado não é reescrito.
-- **Shell**: cada worker recebe a ferramenta `shell` (`{command}`) sobre `backends.LocalShell`, com `AllowedCommands` (`go git ls grep echo`) e `Rewrite: rtk.Rewrite`. `RTK.Env` é o `Env` do shell, então o `rtk` é procurado no mesmo PATH que o shell usa. `rtk.Executor` registra o tamanho da saída para a decisão de roteamento.
+- **Shell**: cada worker recebe a ferramenta `shell` (`{command}`) sobre `backends.LocalShell`, com `AllowedCommands` (`go git ls grep echo` offline; `ls grep echo` quando `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` está definida, veja `allowedPrograms`) e `Rewrite: rtk.Rewrite`. `RTK.Env` é o `Env` do shell, então o `rtk` é procurado no mesmo PATH que o shell usa. `rtk.Executor` registra o tamanho da saída para a decisão de roteamento.
 - **Decisor**: roteirizado offline (responde com confiança em tudo, então a compressão se aplica). Com `LAYA_URL` definido, `compress.HTTPDecider` consulta um endpoint do laya-serve.
 - **Relatório**: ao fim, imprime quantas chamadas de modelo foram reescritas, os tokens estimados antes e depois (bytes/4) e se o `rtk` está no PATH.
 
@@ -20,7 +20,7 @@ Esta pasta é autocontida. Ela não importa `examples/langgraph/independent_engi
 ## Como aplicar
 
 - Middleware: `Keep` é quantos turnos recentes ficam como estão (padrão 4; esta demo usa 1 porque as threads são curtas).
-- Shell: `AllowedCommands` em `shellTool`. Nunca liste shells, interpretadores, `env`, `xargs` ou `find`. `go` e `git` podem executar código, então o host precisa de sandbox para qualquer entrada não confiável.
+- Shell: `AllowedCommands` em `shellTool`. Nunca liste shells, interpretadores, `env`, `xargs` ou `find`. `go` e `git` podem executar código, então o host precisa de sandbox para qualquer entrada não confiável. Eles só são oferecidos na execução offline com script: um modelo real com chave de provedor recebe só `ls`, `grep` e `echo`.
 - Decisor: `decider()` em `main.go`. Envolva qualquer decisor com `compress.NewGuarded`, para que um decisor lento ou errado caia nas regras.
 
 ## Como rodar

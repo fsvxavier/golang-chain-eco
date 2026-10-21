@@ -3,7 +3,7 @@
 [English](../en-US/COMPRESSION.md) | [Português](../pt-BR/COMPRESSION.md) | **Español**
 
 Referencia del paquete `compress`, del middleware `Compression` en `agents/middleware` y del hook `backends.LocalShell.Rewrite`.
-El código de la biblioteca usa solo la biblioteca estándar. El decider nativo de Laya es un módulo Go separado.
+El código de la biblioteca usa solo la biblioteca estándar. El `go.mod` raíz requiere laya-go para el decider nativo de Laya, pero solo la build tag `laya_native` lo compila. `examples/langgraph/decider_laya_native` es un módulo Go separado.
 
 ## La idea
 
@@ -30,7 +30,7 @@ Los ids de pregunta y respuesta son cadenas exactas (`compress.QCompressHistory`
 
 `compress.Summarize(messages, SummaryOptions{})` construye un `Summary`: conteo de mensajes y turnos, tokens estimados, proporción de salida de herramientas, tamaño del mayor resultado de herramienta, idioma dominante (inglés, portugués, español u otro, por conteo de stopwords) y los últimos mensajes, truncados. Los tokens se estiman como bytes / 4.
 
-El estado codificado (`Summary.State()` como JSON) se recorta a un presupuesto de **700 tokens**, para que las preguntas quepan en una ventana de 1024 tokens del decider. Un mensaje enorme, texto con unicode y un historial vacío quedan todos por debajo del presupuesto (probado).
+Con el `SummaryOptions` por defecto, el estado codificado (`Summary.State()` como JSON) queda por debajo de **700 tokens**, para que las preguntas quepan en una ventana de 1024 tokens del decider. Un mensaje enorme, texto con unicode y un historial vacío quedan todos por debajo del presupuesto (probado). Los `SummaryOptions` mayores no se recortan, así que pueden superarlo.
 
 ## Decider y fallback
 
@@ -48,7 +48,7 @@ Las probabilidades de un modelo no están calibradas. El umbral es un ajuste que
 
 ## Caveman (compresión de texto)
 
-`compress.Compress(text, lvl)` trabaja sobre la prosa de los turnos antiguos. Los tramos protegidos salen byte a byte iguales: bloques de código delimitados, código en línea, URLs, rutas, cadenas entre comillas, líneas con forma de JSON y código con sangría.
+`compress.Compress(text, lvl)` trabaja sobre la prosa de los turnos antiguos. Los tramos protegidos salen byte a byte iguales: bloques de código delimitados, código en línea, URLs, rutas, cadenas entre comillas, líneas con forma de JSON y código con sangría. También quedan intactas las líneas completas que son filas de tabla Markdown (primer carácter no blanco `|`) o que parecen código: contienen `==`, `!=`, `:=`, `=>`, `->`, `&&`, `||`, `{` o `}`, o terminan en `;` o `) {`.
 
 - **Reglas mecánicas, cualquier idioma, todo nivel:** normaliza CRLF a LF, colapsa secuencias de espacios y líneas en blanco, quita espacios al final de línea, elimina líneas duplicadas consecutivas, colapsa `!` y `?` repetidos.
 - **Tablas de palabras** (`Lexicon`) para `en`, `pt`, `es`, `fr`, `de` e `it`: `lite` además quita muletillas; `full` además quita artículos y atenuantes; `ultra` además quita conectores iniciales de frase.
@@ -68,14 +68,14 @@ Caveman nunca toca resultados de herramientas, argumentos de llamadas a herramie
 - `rtk` se busca con el `LookPath` sensible al entorno. `rtk` ausente significa pasar sin cambios.
 - La lista `AllowedCommands` de `LocalShell` se comprueba sobre el comando **original**, antes de cualquier reescritura.
 - `LocalShell.Rewrite` se aplica después de esa comprobación, al comando que se ejecuta. Nil mantiene el comportamiento anterior.
-- RTK conserva el código de salida, y las líneas de error de `go test` y `go build` sobreviven (probado).
+- RTK conserva el código de salida, y las líneas de error de `go vet` sobreviven (probado).
 
 ## Middleware de compresión
 
 `middleware.NewCompression(decider)` (en `agents/middleware`) es una transformación `WrapModelCall`:
 
 - Construye el `Summary`, pregunta al decider protegido por guard, y aplica Caveman a los turnos antiguos de Human y AI, y la directiva de respuesta tras el último mensaje Human.
-- `Keep` es el número de turnos recientes que no se tocan (por defecto **4**). `Floor` es el umbral de confianza (por defecto **0.7**).
+- `Keep` es el número de turnos recientes que no se tocan (por defecto **4**). El umbral de confianza (**0.7**) se define en `compress.Guarded`, no en `Compression`: `NewCompression` envuelve el decider con `NewGuarded`. Para cambiarlo, construya un `compress.Guarded{...}` y páselo como `Compression{Decider: g}`.
 - Las llamadas y resultados de herramientas nunca se tocan, así que cada id de llamada y el orden de los pares se mantienen.
 - Solo cambia la copia por llamada. El estado guardado y los checkpoints conservan el texto original.
 - La directiva de respuesta va tras el último mensaje del usuario, no en el prompt de sistema, para que los prefijos estables en bytes (`cag`) mantengan su caché.
@@ -94,6 +94,8 @@ LAYA_MODELS=... LAYA_DEVICE=cpu LAYA_HOST=127.0.0.1 LAYA_PORT=8000 LAYA_API_KEY=
 
 Variables de entorno: `LAYA_MODELS` (modelos a cargar), `LAYA_DEVICE`, `LAYA_HOST`, `LAYA_PORT`, `LAYA_API_KEY` (se envía como clave bearer). La forma `laya serve --model` no aparece en la documentación pública y no se usa aquí.
 
+**Privacidad:** la petición lleva el estado del `Summary`, incluida la cola: los últimos 3 mensajes, cada uno recortado a 160 bytes de texto codificado en JSON, con la salida de las herramientas. La cola va a la URL del decider, así que use un endpoint de confianza. El middleware siempre usa el `SummaryOptions` por defecto, y `TailMessages` 0 significa el valor por defecto 3, no ninguno. Para mantener la cola en su máquina, use un decider local (`RuleDecider`, o el decider nativo laya-go), no `HTTPDecider`.
+
 El contrato es `POST /v1/systemone`: un cuerpo JSON con el estado y las preguntas tipadas, y una respuesta JSON con las respuestas tipadas. Es el mismo protocolo que el de TypeSafe JEV, así que un endpoint JEV debería funcionar con URL y clave. **Eso no está probado.**
 
 **Punto abierto:** la forma de la respuesta Noul de `laya-serve` (booleano con o sin probabilidad) no está documentada aquí. Un booleano sin confianza cae en las reglas a través del guard. Revise una respuesta real antes de depender de las probabilidades de Laya.
@@ -102,9 +104,9 @@ El ejemplo `decider_laya_http` funciona offline contra un servidor falso en proc
 
 ## Laya nativo (laya-go)
 
-`github.com/metalagman/laya-go` v0.1.0 ejecuta el modelo en proceso. Necesita cgo y ONNX Runtime, así que vive en **su propio módulo Go**, no en el módulo principal, y se compila con la build tag `laya_native`. Calificación: **linux/amd64, solo FP32**. Una entrada más larga que la ventana del modelo devuelve `ErrInputTooLong`, salvo que el truncamiento esté activado.
+`github.com/metalagman/laya-go` v0.1.0 ejecuta el modelo en proceso. Necesita cgo y ONNX Runtime. El `go.mod` raíz lo requiere, pero solo se compila con la build tag `laya_native`, en `examples/langgraph/full_team/native`, un paquete del módulo raíz. Calificación: **linux/amd64, solo FP32**. Una entrada más larga que la ventana del modelo devuelve `ErrInputTooLong`, salvo que el truncamiento esté activado.
 
-Ejemplo: `examples/langgraph/decider_laya_native` (con `go.mod` propio y `replace` a la raíz del repositorio). Sin la tag o sin `LAYA_BUNDLE_DIR`, muestra el motivo y usa `RuleDecider`. El módulo principal nunca importa laya-go, y `go build ./...` no necesita cgo.
+Ejemplo: `examples/langgraph/decider_laya_native` es un módulo Go separado (con `go.mod` propio y `replace` a la raíz del repositorio). Sin la tag o sin `LAYA_BUNDLE_DIR`, muestra el motivo y usa `RuleDecider`. Sin la tag, `go build ./...` no compila laya-go y no necesita cgo.
 
 ## JEV (planificado)
 
@@ -122,6 +124,6 @@ Todos se ejecutan offline con un modelo falso, salvo que se configure un servici
 | `langgraph/compress_prompt_caveman` | compresión de prompt y de respuesta con el middleware |
 | `langgraph/decider_laya_http` | `HTTPDecider` contra `laya-serve` (servidor falso offline) |
 | `langgraph/decider_laya_native` | laya-go nativo, módulo separado, tag `laya_native` |
-| `langgraph/full_team` | el equipo de `independent_engineering_team` con compresión de llamadas; decider y modelo falsos por defecto |
+| `langgraph/full_team` | el equipo de `independent_engineering_team` con compresión de llamadas; decider y modelo falsos por defecto. Con `ANTHROPIC_API_KEY` u `OPENAI_API_KEY`, la herramienta de shell ofrece solo `ls`, `grep` y `echo` |
 
 Prueba en modo producción: configure la URL real del decider o el bundle nativo, y ejecute `go test -race -count=1` en el módulo del ejemplo.
