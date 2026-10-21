@@ -104,11 +104,11 @@ Qué saber antes de usarlo:
 
 **`examples/langgraph/engineering_team`** (un proceso). No lee `AGENT_MODEL_*`: usa `examples/internal/demo`, que elige `anthropic:claude-sonnet-4-5` cuando `ANTHROPIC_API_KEY` está definida, `openai:gpt-4o-mini` cuando `OPENAI_API_KEY` está definida, y si no el modelo de respuestas predefinidas. Un modelo atiende a todo el equipo, no hay mapeo por rol y el router no está conectado. Use `independent_engineering_team` para el router. (Para tener el router aquí habría que cambiar `demo.Smart`; es un cambio de código, no de configuración.)
 
-La CLI `knowledge` y el hub también aceptan el router: `KNOWLEDGE_MODEL=router:gpt-4o-mini` (lo lee `cmd/knowledge`), `AGENT_MODEL_KNOWLEDGE` en el ejemplo independiente.
+La CLI `knowledge` y el hub también aceptan el router: `KNOWLEDGE_MODEL=router:gpt-4o-mini` (lo lee `cmd/knowledge`), `AGENT_MODEL_KNOWLEDGE` en el ejemplo independiente. Bajo `router:`, el control de caché de CAG no se aplica: `cag.CacherFor` usa el prefijo `anthropic:` de `ModelID()`, que aquí es `router:<model>`, así que CAG recurre al prefijo estable simple.
 
 ## Qué target respondió
 
-Nada en el código lo informa cuando hay éxito. El router no escribe logs, no pone ningún campo en la respuesta y `ModelID()` siempre devuelve `router:<model>`. Lo que se puede observar:
+El propio router no devuelve ningún campo "respondido por", no escribe logs y `ModelID()` siempre devuelve `router:<model>`. Cada proveedor target llama a `models.Track` con su propio `ModelID()`, así que callbacks y tracers (LangSmith, OTLP) registran cada intento como `provider:model`, también los que fallaron. Lo que más se puede observar:
 
 - Cuando todos los targets fallan, el error lista cada uno: `router: all targets failed: freellmapi: <error>; omniroute: <error>; ...`.
 - Los logs y dashboards de los propios gateways (freellmapi, omniroute y bifrost tienen dashboard o registro de peticiones; vea cómo en sus docs) muestran qué peticiones llegaron.
@@ -129,7 +129,7 @@ Nada en el código lo informa cuando hay éxito. El router no escribe logs, no p
 |---|---|
 | `401` o `403` devuelto de inmediato, sin failover | Son finales por diseño: el siguiente target no arreglaría una clave mala. Corrija la clave del target que cita el error. 400, 404 y otros 4xx también son finales. |
 | `router: all targets failed: a: ...; b: ...` | El error de cada target se lista en orden. Típicos: conexión rechazada (gateway detenido o puerto equivocado), 429, 5xx. |
-| `router target "bifrost" needs $BIFROST_BASE_URL` en `Init` | Un nombre de target sin proveedor nativo necesita `<NOMBRE>_BASE_URL`; el nombre pasa a mayúsculas y lo que no es alfanumérico se vuelve `_` (`my-gw` -> `MY_GW_BASE_URL`). |
+| `router target "bifrost" needs $BIFROST_BASE_URL` en `Init` | Un nombre de target sin proveedor nativo y sin URL por defecto en la lista compatible con OpenAI incorporada (como `groq` u `openrouter`, que no necesitan la variable) necesita `<NOMBRE>_BASE_URL`; el nombre pasa a mayúsculas y lo que no es alfanumérico se vuelve `_` (`my-gw` -> `MY_GW_BASE_URL`). |
 | `set ROUTER_TARGETS to an ordered, comma-separated list` | `ROUTER_TARGETS` está vacío o no se exportó a este proceso (en Docker, revise el `env_file`). |
 | `ROUTER_WEIGHTS: "x" is not in ROUTER_TARGETS` | Los pesos deben nombrar targets existentes. |
 | Funciona en el host, falla en el contenedor | `localhost` dentro del contenedor es el propio contenedor. Vea la nota sobre `host.docker.internal` arriba. |

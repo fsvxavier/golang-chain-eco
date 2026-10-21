@@ -104,11 +104,11 @@ Things to know before using it:
 
 **`examples/langgraph/engineering_team`** (one process). It does not read `AGENT_MODEL_*`: it uses `examples/internal/demo`, which picks `anthropic:claude-sonnet-4-5` when `ANTHROPIC_API_KEY` is set, `openai:gpt-4o-mini` when `OPENAI_API_KEY` is set, otherwise the scripted model. One model serves the whole team and there is no per-role mapping, and the router is not wired in. Use `independent_engineering_team` for the router. (If you want the router here, `demo.Smart` would have to be changed; that is a code change, not configuration.)
 
-The `knowledge` CLI and hub also accept the router: `KNOWLEDGE_MODEL=router:gpt-4o-mini` (read by `cmd/knowledge`), `AGENT_MODEL_KNOWLEDGE` in the independent example.
+The `knowledge` CLI and hub also accept the router: `KNOWLEDGE_MODEL=router:gpt-4o-mini` (read by `cmd/knowledge`), `AGENT_MODEL_KNOWLEDGE` in the independent example. Under `router:`, CAG's cache control is not applied: `cag.CacherFor` keys on the `anthropic:` prefix of `ModelID()`, which here is `router:<model>`, so CAG falls back to the plain stable prefix.
 
 ## Which target answered
 
-Nothing in the code reports it on success. The router does not log, does not set a field on the answer and `ModelID()` always returns `router:<model>`. What you can observe:
+The router itself returns no "answered by" field, does not log and `ModelID()` always returns `router:<model>`. Each target provider calls `models.Track` with its own `ModelID()`, so callbacks and tracers (LangSmith, OTLP) record every attempt as `provider:model`, failed ones included. What else you can observe:
 
 - When every target fails, the error lists each one: `router: all targets failed: freellmapi: <error>; omniroute: <error>; ...`.
 - The gateways' own logs and dashboards (freellmapi, omniroute and bifrost each have a dashboard or log of requests; check their docs for how) show which requests reached them.
@@ -129,7 +129,7 @@ Nothing in the code reports it on success. The router does not log, does not set
 |---|---|
 | `401` or `403` returned at once, no failover | Those are final by design: the next target would not fix a bad key. Fix the key of the target the error names. 400, 404 and other 4xx are final too. |
 | `router: all targets failed: a: ...; b: ...` | Each target's error is listed in order. Typical: connection refused (gateway not running or wrong port), 429, 5xx. |
-| `router target "bifrost" needs $BIFROST_BASE_URL` at `Init` | A target name without a native provider needs `<NAME>_BASE_URL`; the name is upper-cased and non-alphanumerics become `_` (`my-gw` -> `MY_GW_BASE_URL`). |
+| `router target "bifrost" needs $BIFROST_BASE_URL` at `Init` | A target name with no native provider and no default URL in the built-in OpenAI-compatible list (such as `groq` or `openrouter`, which need no variable) needs `<NAME>_BASE_URL`; the name is upper-cased and non-alphanumerics become `_` (`my-gw` -> `MY_GW_BASE_URL`). |
 | `set ROUTER_TARGETS to an ordered, comma-separated list` | `ROUTER_TARGETS` is empty or not exported to this process (in Docker, check `env_file`). |
 | `ROUTER_WEIGHTS: "x" is not in ROUTER_TARGETS` | Weights must name existing targets. |
 | Works on the host, fails in the container | `localhost` inside the container is the container. See the note on `host.docker.internal` above. |

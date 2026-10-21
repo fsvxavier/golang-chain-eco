@@ -34,11 +34,13 @@ sem API pública estável para portar com fidelidade.
 
 | Variável | Significado |
 |---|---|
-| `ROUTER_TARGETS` | Nomes dos destinos em ordem, separados por vírgula (obrigatória). `anthropic` e `openai` são nativos e exigem `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; qualquer outro nome é um gateway OpenAI-compatível e exige `<NAME>_BASE_URL` (opcional `<NAME>_API_KEY`). |
+| `ROUTER_TARGETS` | Nomes dos destinos em ordem, separados por vírgula (obrigatória). `anthropic` e `openai` são nativos e exigem `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; qualquer outro nome é um gateway OpenAI-compatível. Nomes da lista OpenAI-compatível embutida que têm URL padrão (por exemplo `groq`, `openrouter`) usam essa URL e não exigem `<NAME>_BASE_URL` (a variável ainda a sobrescreve); todos os outros nomes exigem `<NAME>_BASE_URL` (opcional `<NAME>_API_KEY`). |
 | `ROUTER_MODE` | `failover` (padrão), `round_robin`, `random` ou `weighted`: como o primeiro destino de cada chamada é escolhido; os demais seguem na ordem da lista. |
 | `ROUTER_WEIGHTS` | `nome:peso,...` para `weighted`. Ausente = 1, 0 = nunca é o primeiro. |
 | `ROUTER_MODEL_<NAME>` | Modelo de um destino; senão usa-se o modelo depois de `router:`. |
 | `ROUTER_TIMEOUT` | Duração como `30s`. `Generate`: a chamada inteira. `Stream`: timeout de inatividade (primeiro chunk e cada intervalo entre chunks). |
+
+`ROUTER_MODE` é aparado e não diferencia maiúsculas (`" Round_Robin\r"` funciona), assim como `ROUTER_TIMEOUT`. `ROUTER_WEIGHTS` exige `ROUTER_MODE=weighted`. A URL base de cada gateway deve ser uma URL `http(s)` com host.
 
 Exemplo: três gateways locais e os dois provedores nativos como último recurso.
 

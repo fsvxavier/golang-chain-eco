@@ -34,11 +34,13 @@ without a stable public API to port faithfully.
 
 | Variable | Meaning |
 |---|---|
-| `ROUTER_TARGETS` | Ordered, comma-separated target names (required). `anthropic` and `openai` are native and need `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; any other name is an OpenAI-compatible gateway and needs `<NAME>_BASE_URL` (optional `<NAME>_API_KEY`). |
+| `ROUTER_TARGETS` | Ordered, comma-separated target names (required). `anthropic` and `openai` are native and need `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; any other name is an OpenAI-compatible gateway. Names in the built-in OpenAI-compatible list that have a default URL (for example `groq`, `openrouter`) use that URL and need no `<NAME>_BASE_URL` (the variable still overrides it); every other name needs `<NAME>_BASE_URL` (optional `<NAME>_API_KEY`). |
 | `ROUTER_MODE` | `failover` (default), `round_robin`, `random` or `weighted`: how the first target of each call is picked; the rest follow in list order. |
 | `ROUTER_WEIGHTS` | `name:weight,...` for `weighted`. Missing = 1, 0 = never first. |
 | `ROUTER_MODEL_<NAME>` | Model for one target; otherwise the model after `router:` is used. |
 | `ROUTER_TIMEOUT` | Duration such as `30s`. `Generate`: the whole call. `Stream`: idle timeout (first chunk and each gap between chunks). |
+
+`ROUTER_MODE` is trimmed and case-insensitive (`" Round_Robin\r"` works), as is `ROUTER_TIMEOUT`. `ROUTER_WEIGHTS` requires `ROUTER_MODE=weighted`. Each gateway base URL must be an `http(s)` URL with a host.
 
 Example: three local gateways plus the two native providers as the last resort.
 
