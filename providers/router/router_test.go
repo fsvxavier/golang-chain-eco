@@ -7,6 +7,7 @@ import (
 	"iter"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -72,6 +73,7 @@ type stub struct {
 	block bool // wait for ctx to end instead of answering
 
 	calls atomic.Int32
+	mu    sync.Mutex // guards msgs and opts when called concurrently
 	msgs  []messages.Message
 	opts  models.Options
 }
@@ -80,8 +82,10 @@ func (s *stub) ModelID() string { return "stub:" + s.name }
 
 func (s *stub) Generate(ctx context.Context, msgs []messages.Message, opts ...models.Option) (messages.Message, error) {
 	n := int(s.calls.Add(1)) - 1
+	s.mu.Lock()
 	s.msgs = msgs
 	s.opts = models.Apply(opts...)
+	s.mu.Unlock()
 	if s.block {
 		<-ctx.Done()
 		return messages.Message{}, ctx.Err()
@@ -260,6 +264,194 @@ func TestNewValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := New(tc.targets, tc.cfg); err == nil {
 				t.Error("New succeeded, want error")
+			}
+		})
+	}
+}
+
+// always returns err on every call.
+func always(err error) []error {
+	errs := make([]error, 1000)
+	for i := range errs {
+		errs[i] = err
+	}
+	return errs
+}
+
+// healthy answers every call with its own name.
+func healthy(name string) *stub { return &stub{name: name, reply: name} }
+
+func threeTargets(a, b, c *stub) []Target {
+	return []Target{{Name: "a", Model: a}, {Name: "b", Model: b}, {Name: "c", Model: c}}
+}
+
+func TestRoundRobinEven(t *testing.T) {
+	a, b, c := healthy("a"), healthy("b"), healthy("c")
+	r, err := New(threeTargets(a, b, c), Config{Mode: ModeRoundRobin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 30; i++ {
+		if _, err := r.Generate(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, s := range []*stub{a, b, c} {
+		if got := s.calls.Load(); got != 10 {
+			t.Errorf("%s called %d times, want 10", s.name, got)
+		}
+	}
+}
+
+func TestRoundRobinFailsOverFromChosen(t *testing.T) {
+	a := healthy("a")
+	b := &stub{name: "b", errs: always(status(500))}
+	c := healthy("c")
+	r, _ := New(threeTargets(a, b, c), Config{Mode: ModeRoundRobin})
+	// Calls 0..8 pick a, b, c in turn; the b picks (1, 4, 7) fail over to a,
+	// the next in list order after b.
+	for i := 0; i < 9; i++ {
+		out, err := r.Generate(context.Background(), nil)
+		if err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+		if out.Text() == "b" {
+			t.Fatalf("call %d answered from failing target b", i)
+		}
+	}
+	if got := b.calls.Load(); got != 3 {
+		t.Errorf("b called %d times, want 3", got)
+	}
+	if got := a.calls.Load(); got != 6 {
+		t.Errorf("a called %d times, want 6 (3 own picks + 3 fallbacks)", got)
+	}
+}
+
+func TestRoundRobinConcurrent(t *testing.T) {
+	a, b, c := healthy("a"), healthy("b"), healthy("c")
+	r, _ := New(threeTargets(a, b, c), Config{Mode: ModeRoundRobin})
+	var wg sync.WaitGroup
+	for i := 0; i < 90; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := r.Generate(context.Background(), nil); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	for _, s := range []*stub{a, b, c} {
+		if s.calls.Load() < 1 {
+			t.Errorf("%s never called", s.name)
+		}
+	}
+}
+
+func TestWeightedFirstPick(t *testing.T) {
+	// a:3, b:1 (total 4): [0, 0.75) picks a, [0.75, 1) picks b.
+	cases := []struct {
+		rand  float64
+		first string
+	}{
+		{0.0, "a"}, {0.74, "a"}, {0.76, "b"}, {0.99, "b"},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("rand=%v", tc.rand), func(t *testing.T) {
+			a, b := healthy("a"), healthy("b")
+			r, err := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, Config{
+				Mode:    ModeWeighted,
+				Weights: map[string]float64{"a": 3, "b": 1},
+				Rand:    func() float64 { return tc.rand },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := r.Generate(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Text() != tc.first {
+				t.Errorf("first = %q, want %q", out.Text(), tc.first)
+			}
+		})
+	}
+}
+
+func TestWeightedZeroNeverFirst(t *testing.T) {
+	cfg := func(rand float64) Config {
+		return Config{
+			Mode:    ModeWeighted,
+			Weights: map[string]float64{"a": 0},
+			Rand:    func() float64 { return rand },
+		}
+	}
+	for _, v := range []float64{0.0, 0.3, 0.999} {
+		a, b := healthy("a"), healthy("b")
+		r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, cfg(v))
+		if _, err := r.Generate(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+		if a.calls.Load() != 0 {
+			t.Errorf("rand=%v: weight-0 target a was first", v)
+		}
+	}
+
+	// With b failing, the fallback reaches a.
+	a := healthy("a")
+	b := &stub{name: "b", errs: always(status(500))}
+	r, _ := New([]Target{{Name: "a", Model: a}, {Name: "b", Model: b}}, cfg(0.0))
+	out, err := r.Generate(context.Background(), nil)
+	if err != nil || out.Text() != "a" {
+		t.Fatalf("got (%q, %v), want (a, nil)", out.Text(), err)
+	}
+}
+
+func TestRandomUsesRand(t *testing.T) {
+	cases := []struct {
+		rand  float64
+		first string
+	}{
+		{0.0, "a"}, {0.5, "b"}, {0.99, "c"},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("rand=%v", tc.rand), func(t *testing.T) {
+			a, b, c := healthy("a"), healthy("b"), healthy("c")
+			r, err := New(threeTargets(a, b, c), Config{
+				Mode: ModeRandom,
+				Rand: func() float64 { return tc.rand },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := r.Generate(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Text() != tc.first {
+				t.Errorf("first = %q, want %q", out.Text(), tc.first)
+			}
+		})
+	}
+}
+
+func TestNewRejectsBadTarget(t *testing.T) {
+	cases := []struct {
+		name    string
+		targets []Target
+		want    string
+	}{
+		{"nil model", []Target{{Name: "a", Model: &stub{name: "a"}}, {Name: "b"}}, "target \"b\" has no model"},
+		{"empty name", []Target{{Name: "", Model: &stub{name: "x"}}}, "target has an empty name"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := New(tc.targets, Config{})
+			if err == nil {
+				t.Fatal("New succeeded, want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not contain %q", err, tc.want)
 			}
 		})
 	}

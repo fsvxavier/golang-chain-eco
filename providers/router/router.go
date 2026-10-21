@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"math/rand/v2"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
@@ -42,6 +44,7 @@ type Config struct {
 type Router struct {
 	targets []Target
 	cfg     Config
+	next    atomic.Uint64 // round_robin counter, per instance
 }
 
 // New validates the targets and config and returns a Router.
@@ -51,6 +54,12 @@ func New(targets []Target, cfg Config) (*Router, error) {
 	}
 	names := make(map[string]bool, len(targets))
 	for _, t := range targets {
+		if t.Name == "" {
+			return nil, fmt.Errorf("router: target has an empty name")
+		}
+		if t.Model == nil {
+			return nil, fmt.Errorf("router: target %q has no model", t.Name)
+		}
 		if names[t.Name] {
 			return nil, fmt.Errorf("router: duplicate target %q", t.Name)
 		}
@@ -79,6 +88,9 @@ func New(targets []Target, cfg Config) (*Router, error) {
 	}
 	if cfg.Mode == ModeWeighted && sum == 0 {
 		return nil, fmt.Errorf("router: weighted mode needs a positive weight")
+	}
+	if cfg.Rand == nil {
+		cfg.Rand = rand.Float64
 	}
 	return &Router{targets: append([]Target(nil), targets...), cfg: cfg}, nil
 }
@@ -118,14 +130,54 @@ func (r *Router) Stream(ctx context.Context, msgs []messages.Message, opts ...mo
 	return r.targets[r.order()[0]].Model.Stream(ctx, msgs, opts...)
 }
 
-// order returns the target indexes to try, in attempt order. Only list
-// order for now; the other modes come with task 3.
+// order returns the target indexes to try, in attempt order. The mode picks
+// the first target; the rest follow in list order.
 func (r *Router) order() []int {
-	idx := make([]int, len(r.targets))
-	for i := range idx {
-		idx[i] = i
+	first := 0
+	switch r.cfg.Mode {
+	case ModeRoundRobin:
+		first = int((r.next.Add(1) - 1) % uint64(len(r.targets)))
+	case ModeRandom:
+		first = min(int(r.cfg.Rand()*float64(len(r.targets))), len(r.targets)-1)
+	case ModeWeighted:
+		first = r.weightedPick()
+	}
+	idx := make([]int, 0, len(r.targets))
+	idx = append(idx, first)
+	for i := range r.targets {
+		if i != first {
+			idx = append(idx, i)
+		}
 	}
 	return idx
+}
+
+// weightedPick chooses a target with probability proportional to its weight
+// (missing = 1). Weight 0 is never picked here, only as a fallback.
+func (r *Router) weightedPick() int {
+	weights := make([]float64, len(r.targets))
+	var total float64
+	last := 0
+	for i, t := range r.targets {
+		w, ok := r.cfg.Weights[t.Name]
+		if !ok {
+			w = 1
+		}
+		weights[i] = w
+		total += w
+		if w > 0 {
+			last = i
+		}
+	}
+	x := r.cfg.Rand() * total
+	var cum float64
+	for i, w := range weights {
+		cum += w
+		if w > 0 && x < cum {
+			return i
+		}
+	}
+	return last // only reached by float rounding at the top edge
 }
 
 // attempt calls one target, bounded by Config.Timeout when set.
