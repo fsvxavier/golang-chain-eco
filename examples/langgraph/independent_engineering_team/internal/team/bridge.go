@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/agentprotocol"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
@@ -40,6 +42,24 @@ type (
 	askArgs struct {
 		Worker   string `json:"worker" jsonschema:"worker id from team_queue"`
 		Question string `json:"question"`
+	}
+	graphArgs struct {
+		Assistant string         `json:"assistant_id" jsonschema:"graph deployed on the server, e.g. engineering_team"`
+		Thread    string         `json:"thread_id,omitempty" jsonschema:"existing thread; empty creates one"`
+		Input     map[string]any `json:"input" jsonschema:"initial state values"`
+		Wait      bool           `json:"wait,omitempty" jsonschema:"block until the run ends and return the final state"`
+		URL       string         `json:"url,omitempty" jsonschema:"Agent Server base URL; default MANAGER_URL"`
+	}
+	resumeArgs struct {
+		Assistant string `json:"assistant_id"`
+		Thread    string `json:"thread_id"`
+		Value     any    `json:"value" jsonschema:"answer to the interrupt"`
+		Wait      bool   `json:"wait,omitempty"`
+		URL       string `json:"url,omitempty"`
+	}
+	stateArgs struct {
+		Thread string `json:"thread_id"`
+		URL    string `json:"url,omitempty"`
 	}
 	memArgs struct {
 		Scope string `json:"scope" jsonschema:"the request's thread_id"`
@@ -119,8 +139,97 @@ func (b *Bridge) Tools() []tools.Tool {
 	}
 }
 
-// MCPServer serves the bridge tools; run it with ServeStdio.
-func (b *Bridge) MCPServer() *server.Server {
-	return server.New("engineering-team", "1.0").AddTool(b.Tools()...)
+// client returns the manager client, or one for url when the call names a
+// different Agent Server.
+func (b *Bridge) client(url string) *remote.Client {
+	if url == "" {
+		return b.Manager
+	}
+	c := remote.NewClient(url)
+	c.APIKey = b.Manager.APIKey
+	return c
 }
 
+func asJSON(v any) string {
+	out, _ := json.MarshalIndent(v, "", "  ")
+	return string(out)
+}
+
+// GraphTools talk to any graph on any Agent Server, not only the team.
+func (b *Bridge) GraphTools() []tools.Tool {
+	run := func(ctx context.Context, c *remote.Client, thread string, req remote.RunRequest, wait bool) (any, error) {
+		if wait {
+			out, err := c.Wait(ctx, thread, req)
+			if err != nil {
+				return nil, tools.Errorf("%v", err)
+			}
+			return asJSON(out), nil
+		}
+		r, err := c.CreateRun(ctx, thread, req)
+		if err != nil {
+			return nil, tools.Errorf("%v", err)
+		}
+		return fmt.Sprintf("thread_id=%s run_id=%s status=%s", thread, r.RunID, r.Status), nil
+	}
+	return []tools.Tool{
+		tools.New("graph_run", "Run any graph on an Agent Server. Returns thread_id and run_id, or the final state with wait=true.",
+			func(ctx context.Context, a graphArgs) (any, error) {
+				c := b.client(a.URL)
+				if a.Thread == "" {
+					tid, err := c.CreateThread(ctx, nil)
+					if err != nil {
+						return nil, tools.Errorf("graph_run: %v", err)
+					}
+					a.Thread = tid
+				}
+				return run(ctx, c, a.Thread, remote.RunRequest{AssistantID: a.Assistant, Input: a.Input}, a.Wait)
+			}),
+		tools.New("graph_state", "Show a thread's values, next nodes and pending interrupts.",
+			func(ctx context.Context, a stateArgs) (any, error) {
+				s, err := b.client(a.URL).GetState(ctx, a.Thread)
+				if err != nil {
+					return nil, tools.Errorf("graph_state: %v", err)
+				}
+				return asJSON(s), nil
+			}),
+		tools.New("graph_resume", "Resume a thread stopped at an interrupt with the user's answer.",
+			func(ctx context.Context, a resumeArgs) (any, error) {
+				return run(ctx, b.client(a.URL), a.Thread, remote.RunRequest{AssistantID: a.Assistant, Command: map[string]any{"resume": a.Value}}, a.Wait)
+			}),
+	}
+}
+
+// Proxy starts an MCP server given as a command line (e.g. "ciam mcp") and
+// returns its tools unchanged, so the bridge can offer them next to its own.
+func Proxy(ctx context.Context, cmdline string) ([]tools.Tool, error) {
+	f := strings.Fields(cmdline)
+	if len(f) == 0 {
+		return nil, nil
+	}
+	t, err := mcp.Stdio(ctx, f[0], f[1:], nil)
+	if err != nil {
+		return nil, err
+	}
+	c, err := mcp.Connect(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	return c.Tools(ctx, "")
+}
+
+// MCPServer serves the team tools, the generic graph tools and the tools of
+// the servers named by BRIDGE_CIAM_CMD and BRIDGE_KNOWLEDGE_CMD (project
+// context and RAG/CAG/KAG), e.g. "ciam mcp" and "knowledge mcp". A proxy that
+// fails to start is logged and skipped; run it with ServeStdio.
+func (b *Bridge) MCPServer(ctx context.Context) *server.Server {
+	s := server.New("engineering-team", "1.0").AddTool(b.Tools()...).AddTool(b.GraphTools()...)
+	for _, k := range []string{"BRIDGE_CIAM_CMD", "BRIDGE_KNOWLEDGE_CMD"} {
+		ts, err := Proxy(ctx, os.Getenv(k))
+		if err != nil {
+			log.Printf("bridge: %s: %v (skipped)", k, err)
+			continue
+		}
+		s.AddTool(ts...)
+	}
+	return s
+}
