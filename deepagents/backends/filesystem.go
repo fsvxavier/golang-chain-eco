@@ -181,6 +181,10 @@ type LocalShell struct {
 	AllowedCommands []string
 	// Quiet silences the one-time warning that commands run on the host.
 	Quiet bool
+	// Rewrite, if non-nil, maps a command to the one actually executed. It runs
+	// after AllowedCommands has checked the original command, so the allowlist
+	// always applies to what the caller asked for.
+	Rewrite func(ctx context.Context, command string) string
 }
 
 // ErrCommandNotAllowed is returned when AllowedCommands refuses a command.
@@ -199,6 +203,9 @@ func (s LocalShell) Execute(ctx context.Context, command string, timeout time.Du
 	}
 	if err := checkAllowed(s.AllowedCommands, command); err != nil {
 		return ExecResult{}, err
+	}
+	if s.Rewrite != nil {
+		command = s.Rewrite(ctx, command)
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
