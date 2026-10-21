@@ -6,15 +6,20 @@ const (
 	QLevel           = "level"
 	QCompressReply   = "compress_reply"
 	QRouteRTK        = "route_rtk"
+	QPonytail        = "ponytail"
+	QTOON            = "toon_tool_results"
 )
 
-// HistoryQuestions returns the questions about compressing old turns, in the
-// order compress_history, level, compress_reply.
+// HistoryQuestions returns the questions about compressing old turns and
+// shaping tool output, in the order compress_history, level, compress_reply,
+// ponytail, toon_tool_results.
 func HistoryQuestions() []Question {
 	return []Question{
 		{ID: QCompressHistory, Kind: KindNoul, Text: "Compress the older turns of this conversation?"},
 		{ID: QLevel, Kind: KindChoice, Text: "Caveman level for the older turns.", Options: []string{"lite", "full", "ultra"}},
 		{ID: QCompressReply, Kind: KindNoul, Text: "Ask the model to reply tersely?"},
+		{ID: QPonytail, Kind: KindNoul, Text: "Add the Ponytail rules that favour less code?"},
+		{ID: QTOON, Kind: KindNoul, Text: "Rewrite JSON tool results as TOON when shorter?"},
 	}
 }
 

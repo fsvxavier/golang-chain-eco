@@ -6,7 +6,7 @@ Asks a laya-serve endpoint (`POST /v1/systemone`, the same protocol as TypeSafe 
 
 ## What it does
 
-- Builds a 3-message conversation and asks the three history questions (`compress_history`, `level`, `compress_reply`) and the shell question (`route_rtk`).
+- Builds a 3-message conversation and asks the five history questions (`compress_history`, `level`, `compress_reply`, `ponytail`, `toon_tool_results`) and the shell question (`route_rtk`).
 - Without `LAYA_URL` it starts an in-process fake `POST /v1/systemone` server (`httptest`) and points the decider at it. Nothing leaves the machine and no model is needed.
 - With `LAYA_URL` it calls the real endpoint instead.
 - `NewGuarded` keeps the run safe: an error, a timeout, a missing id or a low-confidence answer sends that question to `RuleDecider`. Point `LAYA_URL` at a dead port to see the fallback.

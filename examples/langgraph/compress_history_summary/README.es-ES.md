@@ -25,7 +25,7 @@ Envía el Summary al decider, no el historial. Su tamaño no crece con el histor
 go run ./examples/langgraph/compress_history_summary
 ```
 
-Líneas de salida esperadas: `messages: 120`, `history tokens: 13160` (o cercano), `summary tokens: 120 (budget 700)`, y luego el JSON `summary:` con `messages`, `turns`, `tokens`, `tool_share`, `largest_tool_bytes`, `lang` y `tail`.
+Líneas de salida esperadas: `messages: 120`, `history tokens: 13160` (o cercano), `summary tokens: 130 (budget 700)`, y luego el JSON `summary:` con `messages`, `turns`, `tokens`, `tool_share`, `largest_tool_bytes`, `code_share`, `json_tool_bytes`, `lang` y `tail`.
 
 ## Probarlo en modo producción
 

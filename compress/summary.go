@@ -22,6 +22,8 @@ type Summary struct {
 	Tokens           int
 	LargestToolBytes int
 	ToolShare        float64
+	CodeShare        float64 // share of Human/AI bytes inside fenced code blocks, 0..1
+	JSONToolBytes    int     // bytes of Tool contents that parse as a JSON object or array
 	Lang             string
 	Tail             []string
 }
@@ -60,7 +62,7 @@ func Summarize(msgs []messages.Message, o SummaryOptions) Summary {
 
 	var s Summary
 	s.Messages = len(msgs)
-	var total, toolBytes int
+	var total, toolBytes, chatBytes, codeBytes int
 	var texts []string
 	for _, m := range msgs {
 		text := m.Text()
@@ -70,17 +72,27 @@ func Summarize(msgs []messages.Message, o SummaryOptions) Summary {
 		case messages.RoleHuman:
 			s.Turns++
 			texts = append(texts, sampleText(text))
+			chatBytes += n
+			codeBytes += fencedBytes(text)
 		case messages.RoleAI:
 			texts = append(texts, sampleText(text))
+			chatBytes += n
+			codeBytes += fencedBytes(text)
 		case messages.RoleTool:
 			toolBytes += n
 			if n > s.LargestToolBytes {
 				s.LargestToolBytes = n
 			}
+			if isJSONContainer(text) {
+				s.JSONToolBytes += n
+			}
 		}
 	}
 	if total > 0 {
 		s.ToolShare = float64(toolBytes) / float64(total)
+	}
+	if chatBytes > 0 {
+		s.CodeShare = float64(codeBytes) / float64(chatBytes)
 	}
 	s.Tokens = total / 4
 	s.Lang = summaryLang(texts)
@@ -108,6 +120,8 @@ func (s Summary) State() State {
 		"tokens":             s.Tokens,
 		"tool_share":         s.ToolShare,
 		"largest_tool_bytes": s.LargestToolBytes,
+		"code_share":         s.CodeShare,
+		"json_tool_bytes":    s.JSONToolBytes,
 		"lang":               s.Lang,
 		"tail":               tail,
 	}
@@ -117,6 +131,31 @@ func (s Summary) State() State {
 func (s Summary) EncodedTokens() int {
 	b, _ := json.Marshal(s.State())
 	return len(b) / 4
+}
+
+// fencedBytes counts the bytes of lines inside Markdown fenced code blocks.
+// The fence lines themselves are not counted. An unclosed fence runs to the end.
+func fencedBytes(text string) int {
+	n, inFence := 0, false
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			n += len(line)
+		}
+	}
+	return n
+}
+
+// isJSONContainer reports whether text is a valid JSON object or array.
+func isJSONContainer(text string) bool {
+	t := strings.TrimSpace(text)
+	if len(t) == 0 || (t[0] != '{' && t[0] != '[') {
+		return false
+	}
+	return json.Valid([]byte(t))
 }
 
 func sampleText(text string) string {

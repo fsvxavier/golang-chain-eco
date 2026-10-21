@@ -234,3 +234,123 @@ func TestGuardedRejectsNoulTrueDisagreeingWithP(t *testing.T) {
 		t.Errorf("inconsistent noul accepted: %+v; want rule answer (False)", got[0])
 	}
 }
+
+func TestSummaryCodeShare(t *testing.T) {
+	code := "```go\nfmt.Println(1)\n```"
+	msgs := []messages.Message{
+		messages.Human("look at this\n" + code),
+		messages.AI("plain reply with no fence"),
+		messages.Tool(`{"a":1}`, "c1"),
+	}
+	s := Summarize(msgs, SummaryOptions{})
+	if s.CodeShare <= 0 || s.CodeShare > 1 {
+		t.Fatalf("CodeShare=%v, want in (0,1]", s.CodeShare)
+	}
+	if none := Summarize([]messages.Message{messages.Human("no code here")}, SummaryOptions{}); none.CodeShare != 0 {
+		t.Fatalf("CodeShare=%v without fences, want 0", none.CodeShare)
+	}
+	if empty := Summarize(nil, SummaryOptions{}); empty.CodeShare != 0 {
+		t.Fatalf("empty CodeShare=%v, want 0", empty.CodeShare)
+	}
+	// An unclosed fence counts its lines to the end of the message: "x = 1"
+	// is 5 of the 10 bytes, the fence lines are not counted.
+	open := Summarize([]messages.Message{messages.AI("```\nx = 1\n")}, SummaryOptions{})
+	if open.CodeShare != 0.5 {
+		t.Fatalf("unclosed fence CodeShare=%v, want 0.5", open.CodeShare)
+	}
+}
+
+func TestSummaryJSONToolBytes(t *testing.T) {
+	obj := `{"users":[{"id":1}]}`
+	arr := ` [1,2,3] `
+	msgs := []messages.Message{
+		messages.Human(`{"not":"a tool"}`),
+		messages.Tool(obj, "c1"),
+		messages.Tool(arr, "c2"),
+		messages.Tool("plain text", "c3"),
+		messages.Tool(`{"broken":`, "c4"),
+		messages.Tool(`"just a string"`, "c5"),
+	}
+	s := Summarize(msgs, SummaryOptions{})
+	want := len(obj) + len(arr)
+	if s.JSONToolBytes != want {
+		t.Fatalf("JSONToolBytes=%d, want %d", s.JSONToolBytes, want)
+	}
+	st := s.State()
+	if st["code_share"] != s.CodeShare || st["json_tool_bytes"] != s.JSONToolBytes {
+		t.Fatalf("state keys missing: %v", st)
+	}
+}
+
+func TestRuleDeciderPonytailAndTOON(t *testing.T) {
+	qs := []Question{{ID: QPonytail, Kind: KindNoul}, {ID: QTOON, Kind: KindNoul}}
+	ctx := context.Background()
+	cases := []struct {
+		name   string
+		st     State
+		ponyOK bool
+		toonOK bool
+	}{
+		{"none", State{}, false, false},
+		{"code below", State{"code_share": 0.05, "json_tool_bytes": 100}, false, false},
+		{"code at threshold", State{"code_share": 0.1}, true, false},
+		{"json at threshold", State{"json_tool_bytes": 2048}, false, true},
+		{"json below", State{"json_tool_bytes": 2047}, false, false},
+		{"both", State{"code_share": 0.5, "json_tool_bytes": 9000}, true, true},
+	}
+	for _, c := range cases {
+		ans, err := RuleDecider{}.Decide(ctx, c.st, qs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ans[0].ID != QPonytail || ans[0].True != c.ponyOK {
+			t.Errorf("%s: ponytail=%v, want %v", c.name, ans[0].True, c.ponyOK)
+		}
+		if ans[1].ID != QTOON || ans[1].True != c.toonOK {
+			t.Errorf("%s: toon=%v, want %v", c.name, ans[1].True, c.toonOK)
+		}
+	}
+}
+
+func TestHistoryQuestionsOrder(t *testing.T) {
+	want := []string{QCompressHistory, QLevel, QCompressReply, QPonytail, QTOON}
+	qs := HistoryQuestions()
+	if len(qs) != len(want) {
+		t.Fatalf("len=%d, want %d", len(qs), len(want))
+	}
+	for i, id := range want {
+		if qs[i].ID != id {
+			t.Errorf("question %d = %q, want %q", i, qs[i].ID, id)
+		}
+	}
+	if QPonytail != "ponytail" || QTOON != "toon_tool_results" {
+		t.Fatal("question ids changed")
+	}
+	for _, q := range qs {
+		if q.Kind != KindNoul && q.Kind != KindChoice {
+			t.Errorf("%s has kind %v", q.ID, q.Kind)
+		}
+	}
+	if qs[3].Kind != KindNoul || qs[4].Kind != KindNoul {
+		t.Error("ponytail and toon_tool_results must be noul questions")
+	}
+}
+
+func TestGuardedFallsBackForNewIDs(t *testing.T) {
+	qs := []Question{{ID: QPonytail, Kind: KindNoul}, {ID: QTOON, Kind: KindNoul}}
+	st := State{"code_share": 0.5, "json_tool_bytes": 4096}
+	want, err := RuleDecider{}.Decide(context.Background(), st, qs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner := FuncDecider(func(context.Context, State, []Question) ([]Answer, error) {
+		return nil, errors.New("down")
+	})
+	got, err := NewGuarded(inner).Decide(context.Background(), st, qs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}

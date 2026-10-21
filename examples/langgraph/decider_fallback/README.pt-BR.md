@@ -8,7 +8,7 @@ Responde as perguntas sobre o histórico com `compress.RuleDecider` e mostra `co
 
 - Monta um histórico curto (4 mensagens) e um longo (120 mensagens, cerca de 12 mil tokens estimados).
 - `compress.Summarize(...).State()` gera a visão em objeto JSON que os deciders leem.
-- `RuleDecider{}` responde `compress_history`, `level` e `compress_reply` com limiares fixos (comprimir acima de 4000 tokens estimados, nível `full`). Não precisa de modelo.
+- `RuleDecider{}` responde `compress_history`, `level`, `compress_reply`, `ponytail` e `toon_tool_results` com limiares fixos (comprimir acima de 4000 tokens estimados, nível `full`, ponytail acima de 10% de código, TOON acima de 2048 bytes de JSON em ferramentas). Não precisa de modelo.
 - `compress.Guarded` envolve um `FuncDecider` que sempre retorna erro. Todas as perguntas caem nas regras, então a execução não falha.
 
 ## Como aplicar

@@ -10,6 +10,8 @@ import (
 const (
 	defaultHistoryTokens = 4000
 	defaultShellMinBytes = 2048
+	ruleCodeShare        = 0.1  // ponytail when code is at least this share of chat bytes
+	ruleJSONBytes        = 2048 // toon_tool_results when JSON tool bytes reach this
 )
 
 var defaultRTKCommands = []string{"git", "go", "ls", "grep", "find", "docker", "kubectl", "npm", "cargo", "pytest"}
@@ -40,6 +42,8 @@ func (r RuleDecider) Decide(_ context.Context, st State, qs []Question) ([]Answe
 
 	tokens, _ := ruleNum(st, "tokens")
 	compress := tokens > historyTokens
+	codeShare, _ := ruleNum(st, "code_share")
+	jsonBytes, _ := ruleNum(st, "json_tool_bytes")
 
 	out := make([]Answer, 0, len(qs))
 	for _, q := range qs {
@@ -48,6 +52,10 @@ func (r RuleDecider) Decide(_ context.Context, st State, qs []Question) ([]Answe
 			out = append(out, ruleNoul(q, compress))
 		case QLevel:
 			out = append(out, Answer{ID: q.ID, Kind: KindChoice, Pick: "full", Dist: map[string]float64{"full": 1}})
+		case QPonytail:
+			out = append(out, ruleNoul(q, codeShare >= ruleCodeShare))
+		case QTOON:
+			out = append(out, ruleNoul(q, jsonBytes >= ruleJSONBytes))
 		case QRouteRTK:
 			command, _ := st["command"].(string)
 			route := false

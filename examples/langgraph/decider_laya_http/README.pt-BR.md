@@ -6,7 +6,7 @@ Pergunta a um endpoint do laya-serve (`POST /v1/systemone`, o mesmo protocolo do
 
 ## O que faz
 
-- Monta uma conversa de 3 mensagens e faz as três perguntas de histórico (`compress_history`, `level`, `compress_reply`) e a pergunta de shell (`route_rtk`).
+- Monta uma conversa de 3 mensagens e faz as cinco perguntas de histórico (`compress_history`, `level`, `compress_reply`, `ponytail`, `toon_tool_results`) e a pergunta de shell (`route_rtk`).
 - Sem `LAYA_URL`, sobe dentro do próprio processo um servidor falso `POST /v1/systemone` (`httptest`) e aponta o decider para ele. Nada sai da máquina e nenhum modelo é necessário.
 - Com `LAYA_URL`, chama o endpoint real.
 - `NewGuarded` mantém a execução segura: erro, timeout, id ausente ou resposta com baixa confiança mandam aquela pergunta para o `RuleDecider`. Aponte `LAYA_URL` para uma porta sem serviço para ver o fallback.
