@@ -25,7 +25,7 @@ Integration tests for external services skip unless their env var is set (`REDIS
 
 ## Rules that are easy to break
 
-- **Library code is stdlib-only.** No production package may import a third-party module. SQL drivers in `go.mod` are used only by tests under `internal/pgtest` and `internal/sqlitetest`.
+- **Library code is stdlib-only.** No production package may import a third-party module. SQL drivers in `go.mod` are used only by tests under `internal/pgtest` and `internal/sqlitetest`. `github.com/metalagman/laya-go` (cgo + ONNX) is used only by `examples/langgraph/full_team/native` behind the `laya_native` build tag; without the tag nothing imports it.
 - Examples must run offline (fake model); a real provider is used only when `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` is set. Each example folder has `README.md`, `README.pt-BR.md` and `README.es-ES.md` (what it does, how to apply it, how to run it, how to test it in production mode); add all three with every new example.
 - When adding a package or example, update the package map and counts in `README.md`, `docs/en-US/ARCHITECTURE.md`, `docs/en-US/manual/README.md` and `examples/README.md` (and its two translations), and mirror the change in the pt-BR and es translations (`README.pt-BR.md`, `README.es-ES.md`, `docs/pt-BR/`, `docs/es-ES/`).
 

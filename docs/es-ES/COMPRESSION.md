@@ -122,6 +122,6 @@ Todos se ejecutan offline con un modelo falso, salvo que se configure un servici
 | `langgraph/compress_prompt_caveman` | compresión de prompt y de respuesta con el middleware |
 | `langgraph/decider_laya_http` | `HTTPDecider` contra `laya-serve` (servidor falso offline) |
 | `langgraph/decider_laya_native` | laya-go nativo, módulo separado, tag `laya_native` |
-| `langgraph/independent_engineering_team/full_team` | el equipo de `independent_engineering_team` con compresión de llamadas; decider y modelo falsos por defecto |
+| `langgraph/full_team` | el equipo de `independent_engineering_team` con compresión de llamadas; decider y modelo falsos por defecto |
 
 Prueba en modo producción: configure la URL real del decider o el bundle nativo, y ejecute `go test -race -count=1` en el módulo del ejemplo.

@@ -53,7 +53,7 @@ Los grupos `langchain`, `langgraph` y `deepagents` se portaron de los repositori
 | `langgraph/compress_prompt_caveman` | compresión de prompt y de respuesta (Caveman y la directiva de respuesta breve) | propio |
 | `langgraph/decider_laya_http` | `HTTPDecider` contra `laya-serve` (servidor falso offline) | propio |
 | `langgraph/decider_laya_native` | decider laya-go nativo, módulo separado, tag `laya_native` | propio |
-| `langgraph/independent_engineering_team/full_team` | el equipo independiente con compresión de llamadas; decider y modelo falsos por defecto | propio |
+| `langgraph/full_team` | el equipo independiente con compresión de llamadas; decider y modelo falsos por defecto | propio |
 
 ## deepagents
 
