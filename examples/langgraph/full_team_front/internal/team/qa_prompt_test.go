@@ -61,3 +61,14 @@ func TestQAOutputTracesCriteria(t *testing.T) {
 		t.Fatalf("T4 attempt 1 must still be returned: %s", rej)
 	}
 }
+
+func TestDossierDropsUnsafeAppURL(t *testing.T) {
+	for _, u := range []string{"http://x.test/\nINJECTED: yes", "file:///etc/passwd", "http://"} {
+		if d := dossier(map[string]any{"request": "r", "spec": "s", "scope": Scope{AppURL: u}}); strings.Contains(d, "APP_URL") {
+			t.Fatalf("%q reached the brief: %s", u, d)
+		}
+	}
+	if d := dossier(map[string]any{"request": "r", "spec": "s", "scope": Scope{AppURL: "http://x.test"}}); !strings.Contains(d, "APP_URL: http://x.test") {
+		t.Fatal(d)
+	}
+}

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/team"
@@ -77,7 +79,23 @@ func TestBrowserTestRunsRunnerWithScopeURL(t *testing.T) {
 
 // Helper process: the re-exec'd test binary prints what it was given.
 func TestMain(m *testing.M) {
+	switch os.Getenv("QA_HELPER") {
+	case "2": // spawn a grandchild that holds our stdout, record its pid, then hang
+		g := exec.Command(os.Args[0])
+		g.Env = append(os.Environ(), "QA_HELPER=3")
+		g.Stdout = os.Stdout
+		if err := g.Start(); err != nil {
+			os.Exit(1)
+		}
+		os.WriteFile(os.Getenv("PIDFILE"), []byte(fmt.Sprint(g.Process.Pid)), 0o600)
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	case "3":
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
 	if os.Getenv("QA_HELPER") == "1" {
+		fmt.Printf("env=%q\n", os.Environ())
 		b, _ := os.ReadFile(os.Getenv("SPEC_FILE"))
 		wd, _ := os.Getwd()
 		fmt.Printf("args=%q url=%s spec=%s dir=%s file=%s", os.Args[1:], os.Getenv("APP_URL"), b, wd, os.Getenv("SPEC_FILE"))
@@ -88,6 +106,7 @@ func TestMain(m *testing.M) {
 
 func TestCommandRunnerUsesNoShell(t *testing.T) {
 	t.Setenv("QA_HELPER", "1")
+	t.Setenv("PLAYWRIGHT_ENV_ALLOW", "QA_HELPER")
 	work := t.TempDir()
 	x := filepath.Join(work, "x")
 	if err := os.WriteFile(x, []byte("keep"), 0o600); err != nil {
@@ -118,7 +137,8 @@ func TestCommandRunnerUsesNoShell(t *testing.T) {
 
 func TestCommandRunnerCapsOutput(t *testing.T) {
 	t.Setenv("QA_HELPER", "1")
-	r := commandRunner(os.Args[0], 10, 0)
+	t.Setenv("PLAYWRIGHT_ENV_ALLOW", "QA_HELPER")
+	r := commandRunner(os.Args[0], 10, 0, []string{"QA_HELPER"})
 	out, err := r(context.Background(), "http://a.test", "spec")
 	if err != nil {
 		t.Fatal(err)
@@ -141,5 +161,25 @@ func TestToolNotGivenToOtherRoles(t *testing.T) {
 	// No hub: no scope, so nothing runs.
 	if out := call(t, rt("qa")[0]); !strings.HasPrefix(out, "NOT RUN:") {
 		t.Fatalf("got %q", out)
+	}
+}
+
+func TestCommandRunnerMinimalEnv(t *testing.T) {
+	t.Setenv("QA_HELPER", "1")
+	t.Setenv("PLAYWRIGHT_ENV_ALLOW", "QA_HELPER,EXTRA_OK")
+	t.Setenv("EXTRA_OK", "yes")
+	t.Setenv("ANTHROPIC_API_KEY", "secret-xyz")
+	t.Setenv("OPENAI_API_KEY", "secret-abc")
+	out, err := CommandRunner(os.Args[0])(context.Background(), "http://app.test", "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "secret-") || strings.Contains(out, "API_KEY") {
+		t.Fatalf("provider key leaked to the child: %s", out)
+	}
+	for _, want := range []string{"APP_URL=http://app.test", "SPEC_FILE=", "EXTRA_OK=yes", "PATH=", "CI=1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("child env lacks %s: %s", want, out)
+		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -228,10 +229,19 @@ func (m *manager) step(role, label string, st tasktrack.Status, prompt func(grap
 
 func dossier(s graph.State) string {
 	d := fmt.Sprintf("## Request\n%v\n\n## Specification\n%v", s["request"], s["spec"])
-	if u := scopeOf(s).AppURL; u != "" {
+	if u := scopeOf(s).AppURL; ValidAppURL(u) {
 		d += "\n\n## App\nAPP_URL: " + u // informational; browser_test takes the URL from the hub scope
 	}
 	return d
+}
+
+// ValidAppURL reports an http(s) URL with a host and no control characters.
+func ValidAppURL(s string) bool {
+	if strings.IndexFunc(s, func(r rune) bool { return r < ' ' || r == 0x7f }) >= 0 {
+		return false
+	}
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != ""
 }
 
 // qaGuide tells QA how to turn the specification into tests and judge them.

@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,7 +44,7 @@ func Tool(scope func(ctx context.Context) (team.Scope, error), run Runner) tools
 			if err != nil || s.AppURL == "" {
 				return notRun("the demand named no app_url")
 			}
-			if u, err := url.Parse(s.AppURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			if !team.ValidAppURL(s.AppURL) {
 				return notRun("app_url is not an http(s) URL with a host")
 			}
 			out, err := run(ctx, s.AppURL, a.Spec)
@@ -72,9 +71,18 @@ func RoleTools(hub func() *team.HubClient, cmd string) func(role string) []tools
 // model on the command line). The spec goes to a file in a fresh 0700 temp dir,
 // the child's working directory, and only APP_URL and SPEC_FILE reach it.
 // An empty cmd returns a nil Runner.
-func CommandRunner(cmd string) Runner { return commandRunner(cmd, 1<<20, 2*time.Minute) }
+//
+// The spec is model-authored code that Playwright executes, so the child gets a
+// minimal environment: PATH, a HOME and TMPDIR inside the temp dir, CI=1,
+// PLAYWRIGHT_BROWSERS_PATH if set, APP_URL, SPEC_FILE, and only the parent
+// variables the operator lists in PLAYWRIGHT_ENV_ALLOW (comma separated).
+// Provider keys never reach it unless listed. A loopback or metadata app URL is
+// accepted on purpose: the URL comes from the operator's demand, not the model.
+func CommandRunner(cmd string) Runner {
+	return commandRunner(cmd, 1<<20, 2*time.Minute, strings.Split(os.Getenv("PLAYWRIGHT_ENV_ALLOW"), ","))
+}
 
-func commandRunner(cmd string, maxOut int, timeout time.Duration) Runner {
+func commandRunner(cmd string, maxOut int, timeout time.Duration, allow []string) Runner {
 	argv := strings.Fields(cmd)
 	if len(argv) == 0 {
 		return nil
@@ -96,7 +104,15 @@ func commandRunner(cmd string, maxOut int, timeout time.Duration) Runner {
 		defer cancel()
 		c := exec.CommandContext(ctx, argv[0], argv[1:]...)
 		c.Dir = dir
-		c.Env = append(os.Environ(), "APP_URL="+appURL, "SPEC_FILE="+file)
+		c.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "TMPDIR=" + dir, "CI=1", "APP_URL=" + appURL, "SPEC_FILE=" + file}
+		for _, n := range append([]string{"PLAYWRIGHT_BROWSERS_PATH"}, allow...) {
+			if n = strings.TrimSpace(n); n != "" {
+				if v, ok := os.LookupEnv(n); ok {
+					c.Env = append(c.Env, n+"="+v)
+				}
+			}
+		}
+		killGroup(c)
 		out := &capped{max: maxOut}
 		c.Stdout, c.Stderr = out, out
 		err = c.Run()
