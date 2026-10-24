@@ -1,0 +1,297 @@
+// Package team holds what the independent services share: the hub (registry
+// with atomic reservation, job queue, shared knowledge over MCP), the worker
+// that serves one agent over Agent Protocol and pulls jobs, and the manager
+// that runs the delivery flow.
+package team
+
+import (
+	"context"
+	"errors"
+	"slices"
+	"strconv"
+	"sync"
+	"time"
+)
+
+// Job is one unit of work for one agent. It carries everything the worker
+// needs (the prompt with the whole dossier, the thread that keeps the agent's
+// conversation across rounds, the grounding question), so a worker that
+// restarts loses nothing.
+type Job struct {
+	ID string `json:"id"`
+	// Prefer lists worker ids or roles in order of preference. The first one
+	// with a free worker wins, so "senior" never waits behind a junior.
+	Prefer []string `json:"prefer"`
+	Thread string   `json:"thread"`
+	Prompt string   `json:"prompt"`
+	Query  string   `json:"query,omitempty"` // grounding question for the knowledge tools
+	Scope  string   `json:"scope,omitempty"` // team-memory scope: the request id
+
+	Status   string `json:"status"` // queued, running, done, failed
+	Worker   string `json:"worker,omitempty"`
+	Role     string `json:"role,omitempty"` // role of the worker the job was reserved for
+	Output   string `json:"output,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Attempts int    `json:"attempts"`
+
+	delivered bool
+}
+
+// WorkerInfo is a registered worker. It is alive while Seen is within the TTL.
+type WorkerInfo struct {
+	ID   string    `json:"id"`
+	Role string    `json:"role"`
+	URL  string    `json:"url"`
+	Job  string    `json:"job,omitempty"` // non-empty means reserved
+	Seen time.Time `json:"seen"`
+}
+
+// ErrUnknownWorker tells a worker its lease expired: it must register again.
+var ErrUnknownWorker = errors.New("hub: unknown worker (lease expired), register again")
+
+// ErrNotOwner is returned when a worker completes a job it no longer holds.
+var ErrNotOwner = errors.New("hub: job is not reserved by this worker")
+
+// Hub is the registry and the queue. Every reservation happens under one lock.
+// ponytail: in-memory single instance; a replicated hub needs the same
+// transitions as compare-and-swap in a shared store (Redis, SQL).
+type Hub struct {
+	TTL         time.Duration // lease: a worker silent for longer is dropped
+	MaxAttempts int           // times a job may be handed out before it fails
+
+	mu      sync.Mutex
+	workers map[string]*WorkerInfo
+	jobs    map[string]*Job
+	queue   []string
+	wake    chan struct{}
+	seq     int
+	now     func() time.Time
+}
+
+// NewHub returns an empty hub.
+func NewHub(ttl time.Duration) *Hub {
+	return &Hub{TTL: ttl, MaxAttempts: 3, workers: map[string]*WorkerInfo{}, jobs: map[string]*Job{}, wake: make(chan struct{}), now: time.Now}
+}
+
+// notifyLocked wakes every waiter; callers hold h.mu.
+func (h *Hub) notifyLocked() {
+	close(h.wake)
+	h.wake = make(chan struct{})
+}
+
+// Register adds or refreshes a worker. A worker that registers again while
+// holding a job crashed and came back: its job goes back to the queue.
+func (h *Hub) Register(id, role, url string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if old := h.workers[id]; old != nil && old.Job != "" {
+		h.requeueLocked(old.Job)
+	}
+	h.workers[id] = &WorkerInfo{ID: id, Role: role, URL: url, Seen: h.now()}
+	h.scheduleLocked()
+	h.notifyLocked()
+}
+
+// Heartbeat renews a lease. It reports false when the worker is unknown.
+func (h *Hub) Heartbeat(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	w := h.workers[id]
+	if w != nil {
+		w.Seen = h.now()
+	}
+	return w != nil
+}
+
+// Submit queues a job and returns its id.
+func (h *Hub) Submit(j Job) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.seq++
+	j.ID = j.Thread + "." + strconv.Itoa(h.seq)
+	j.Status = "queued"
+	h.jobs[j.ID] = &j
+	h.queue = append(h.queue, j.ID)
+	h.scheduleLocked()
+	h.notifyLocked()
+	return j.ID
+}
+
+// scheduleLocked reserves, in queue order, the first preferred free worker for
+// each job. Reserving is the only place a worker becomes busy.
+func (h *Hub) scheduleLocked() {
+	ids := make([]string, 0, len(h.workers))
+	for id := range h.workers {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	var left []string
+	for _, jid := range h.queue {
+		j := h.jobs[jid]
+		w := h.pickLocked(j.Prefer, ids)
+		if w == nil {
+			left = append(left, jid)
+			continue
+		}
+		w.Job, j.Worker, j.Role, j.Status, j.delivered = j.ID, w.ID, w.Role, "running", false
+	}
+	h.queue = left
+}
+
+func (h *Hub) pickLocked(prefer, ids []string) *WorkerInfo {
+	for _, p := range prefer {
+		for _, id := range ids {
+			if w := h.workers[id]; w.Job == "" && (w.ID == p || w.Role == p) && h.now().Sub(w.Seen) <= h.TTL {
+				return w
+			}
+		}
+	}
+	return nil
+}
+
+// requeueLocked takes a job back from its worker and puts it first in line, or
+// fails it once it has been handed out MaxAttempts times.
+func (h *Hub) requeueLocked(jid string) {
+	j := h.jobs[jid]
+	if j == nil || j.Status != "running" {
+		return
+	}
+	j.Attempts++
+	j.Worker = ""
+	if j.Attempts >= h.MaxAttempts {
+		j.Status, j.Error = "failed", "no worker finished the job after "+strconv.Itoa(j.Attempts)+" attempts"
+		return
+	}
+	j.Status = "queued"
+	h.queue = append([]string{jid}, h.queue...)
+}
+
+// Reap drops workers whose lease expired and requeues their jobs.
+func (h *Hub) Reap() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for id, w := range h.workers {
+		if h.now().Sub(w.Seen) > h.TTL {
+			delete(h.workers, id)
+			if w.Job != "" {
+				h.requeueLocked(w.Job)
+			}
+		}
+	}
+	h.scheduleLocked()
+	h.notifyLocked()
+}
+
+// Run reaps expired leases until ctx ends.
+func (h *Hub) Run(ctx context.Context) {
+	t := time.NewTicker(h.TTL / 3)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			h.Reap()
+		}
+	}
+}
+
+// Claim hands the worker the job reserved for it, waiting up to wait. A nil
+// job with a nil error means nothing arrived. Claiming renews the lease.
+func (h *Hub) Claim(ctx context.Context, id string, wait time.Duration) (*Job, error) {
+	timeout := time.After(wait)
+	for {
+		h.mu.Lock()
+		w := h.workers[id]
+		if w == nil {
+			h.mu.Unlock()
+			return nil, ErrUnknownWorker
+		}
+		w.Seen = h.now()
+		if j := h.jobs[w.Job]; j != nil && !j.delivered {
+			j.delivered = true
+			cp := *j
+			h.mu.Unlock()
+			return &cp, nil
+		}
+		wake := h.wake
+		h.mu.Unlock()
+		select {
+		case <-wake:
+		case <-ctx.Done():
+			return nil, nil
+		case <-timeout:
+			return nil, nil
+		}
+	}
+}
+
+// Complete records a worker's result and frees it. A worker that lost its
+// lease meanwhile gets ErrNotOwner and its result is dropped.
+func (h *Hub) Complete(workerID, jobID, output, errMsg string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	j, w := h.jobs[jobID], h.workers[workerID]
+	if j == nil || w == nil || j.Worker != workerID || j.Status != "running" {
+		return ErrNotOwner
+	}
+	w.Job = ""
+	w.Seen = h.now()
+	j.Output, j.Error, j.Status = output, errMsg, "done"
+	if errMsg != "" {
+		j.Status = "failed"
+	}
+	h.scheduleLocked()
+	h.notifyLocked()
+	return nil
+}
+
+// Wait blocks until the job is done or failed, or ctx ends.
+func (h *Hub) Wait(ctx context.Context, id string) (Job, error) {
+	for {
+		h.mu.Lock()
+		j := h.jobs[id]
+		if j == nil {
+			h.mu.Unlock()
+			return Job{}, errors.New("hub: unknown job " + id)
+		}
+		if j.Status == "done" || j.Status == "failed" {
+			cp := *j
+			h.mu.Unlock()
+			return cp, nil
+		}
+		wake := h.wake
+		h.mu.Unlock()
+		select {
+		case <-wake:
+		case <-ctx.Done():
+			return Job{}, ctx.Err()
+		}
+	}
+}
+
+// State is a snapshot for humans and tests.
+type State struct {
+	Workers []WorkerInfo `json:"workers"`
+	Queued  []string     `json:"queued"`
+}
+
+// Snapshot returns the workers (sorted by id) and the queued job ids.
+func (h *Hub) Snapshot() State {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := State{Queued: slices.Clone(h.queue)}
+	for _, w := range h.workers {
+		s.Workers = append(s.Workers, *w)
+	}
+	slices.SortFunc(s.Workers, func(a, b WorkerInfo) int {
+		switch {
+		case a.ID < b.ID:
+			return -1
+		case a.ID > b.ID:
+			return 1
+		}
+		return 0
+	})
+	return s
+}
