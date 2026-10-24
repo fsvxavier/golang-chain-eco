@@ -106,7 +106,7 @@ type DashState struct {
 // task back to development, so its bar steps back with it.
 var taskProgress = map[tasktrack.Status]int{
 	tasktrack.TaskAssignment: 10, tasktrack.InDevelopment: 30, tasktrack.InCodeReview: 55,
-	tasktrack.ReviewRejected: 30, tasktrack.ReviewApproved: 65, tasktrack.InQATesting: 75,
+	tasktrack.ReviewRejected: 30, tasktrack.PORework: 30, tasktrack.ReviewApproved: 65, tasktrack.InQATesting: 75,
 	tasktrack.QARejected: 30, tasktrack.QAApproved: 90, tasktrack.Committed: 95, tasktrack.Completed: 100,
 }
 

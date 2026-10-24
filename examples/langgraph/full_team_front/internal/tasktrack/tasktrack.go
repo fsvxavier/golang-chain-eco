@@ -34,6 +34,7 @@ const (
 	InQATesting     Status = "in_qa_testing"
 	QAApproved      Status = "qa_approved"
 	QARejected      Status = "qa_rejected"
+	PORework        Status = "po_rework" // a rejected task is with the PO, who decides fix or spec change
 	ReviewApproved  Status = "review_approved"
 	ReviewRejected  Status = "review_rejected"
 	Committed       Status = "committed"
@@ -63,10 +64,11 @@ var flows = map[Kind]map[Status][]Status{
 		TaskAssignment: {InDevelopment},
 		InDevelopment:  {InCodeReview},
 		InCodeReview:   {ReviewApproved, ReviewRejected},
-		ReviewRejected: {InDevelopment}, // back to the engineer, with feedback
+		ReviewRejected: {PORework, InDevelopment}, // to the PO first; the engineer gets the PO's direction
 		ReviewApproved: {InQATesting},
 		InQATesting:    {QAApproved, QARejected},
-		QARejected:     {InDevelopment},
+		QARejected:     {PORework, InDevelopment},
+		PORework:       {InDevelopment},
 		QAApproved:     {Committed},
 		Committed:      {Completed},
 	},

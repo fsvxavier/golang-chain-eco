@@ -30,6 +30,9 @@ func after(text, key string) string {
 // each skill defines. It is the scripted stand-in for every model.
 func offline(msgs []messages.Message) messages.Message {
 	m, _ := messages.LastOfRole(msgs, messages.RoleHuman)
+	if field(m.Text(), "ROLE:") == "po" && strings.Contains(m.Text(), "MODE: rework") {
+		return messages.Message{Role: messages.RoleAI, Content: "DECISION: FIX\nDIRECTION: address the feedback below and resubmit."}
+	}
 	if field(m.Text(), "ROLE:") == "po" {
 		return offlinePO(msgs, m.Text())
 	}

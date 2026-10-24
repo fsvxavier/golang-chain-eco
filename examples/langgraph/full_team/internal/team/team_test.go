@@ -187,6 +187,9 @@ func TestTeamDeliversOffline(t *testing.T) {
 	if !strings.Contains(hist, "review returned") || !strings.Contains(hist, "qa returned") {
 		t.Fatalf("gates must return a task once: %s", hist)
 	}
+	if !strings.Contains(hist, ": po FIX") { // a rejection goes to the PO before the developer
+		t.Fatalf("a returned task never went to the PO: %s", hist)
+	}
 }
 
 func TestBridgeQueueAndAskUnknown(t *testing.T) {

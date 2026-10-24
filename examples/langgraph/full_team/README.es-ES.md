@@ -181,3 +181,7 @@ cada rol responde por `claude -p`, cobrado a tu suscripción de Claude en vez de
 ## Dashboard: llamadas CLI, conversaciones y agentes del chat
 
 Con `AGENT_BACKEND=claude-cli` el dashboard lista cada llamada al CLI de Claude (agente, modelo, tiempo, tokens, costo de lista; la suscripción no cobra por token) y abre la conversación de cada una. Las llamadas conservan su sesión de Claude Code (en `~/.claude/projects`) salvo `CLAUDE_CLI_TRANSCRIPTS=off`. También lista los sub-agentes definidos en `.claude/agents` del proyecto (y `~/.claude/agents`) con sus ejecuciones recientes en el chat, y abre sus conversaciones. Las conversaciones muestran prompts y respuestas: `DASHBOARD_TRANSCRIPTS=off` quita ese endpoint (la página es solo loopback).
+
+## Los rechazos van al PO
+
+Cuando la revisión o el QA rechaza una tarea, el PO la ve primero (`po_rework`): responde `DECISION: FIX` o `SPEC`, con una `DIRECTION:` para el desarrollador y, en `SPEC`, una nueva `DESCRIPTION:` de la tarea. El desarrollador recibe la orientación del PO sobre el feedback de los revisores (línea del historial `T2: po FIX -> mid-1 | ...`). La tarea sin rondas queda bloqueada sin otro viaje al PO.
