@@ -367,7 +367,7 @@ func TestRejectedWorkReturnsToSameDeveloper(t *testing.T) {
 	res := resultsOf(t, out)
 	hist := fmt.Sprint(out["history"])
 	for _, id := range []string{"T2", "T3", "T4"} { // joint review (leader, specialist) and QA returns
-		if res[id]["rounds"] == 0 {
+		if fmt.Sprint(res[id]["rounds"]) == "0" {
 			t.Fatalf("%s was never returned", id)
 		}
 		for _, w := range []string{"junior-1", "junior-2", "mid-1", "mid-2", "senior-1", "senior-2"} {
@@ -380,7 +380,7 @@ func TestRejectedWorkReturnsToSameDeveloper(t *testing.T) {
 
 func TestPlanParsesPreferField(t *testing.T) {
 	ts := parsePlan("TASK|T1|a|low|do a|PREFER:mid-2\nTASK|T2|b|high|do b with | inside?\nnoise")
-	if len(ts) != 2 || ts[0].Prefer != "mid-2" || ts[0].Desc != "do a" || ts[1].Prefer != "" {
+	if len(ts) != 2 || ts[0].Prefer != "mid-2" || ts[0].Desc != "do a" || ts[1].Prefer != "" || ts[1].Desc != "do b with | inside?" {
 		t.Fatalf("%+v", ts)
 	}
 }

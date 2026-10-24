@@ -22,10 +22,9 @@ type Job struct {
 	// Prefer lists worker ids or roles in order of preference. The first one
 	// with a free worker wins, so "senior" never waits behind a junior.
 	Prefer []string `json:"prefer"`
-	// Pin: Prefer[1] (a role) is required, it is the fallback when the pinned worker is gone.
 	// Pin makes the job wait for the worker named Prefer[0] while its lease is
-	// alive (rework goes back to the author); if it is gone, Prefer[1] (a role)
-	// takes over.
+	// alive (rework goes back to the author); if it is gone, Prefer[1] (a role,
+	// required) takes over.
 	Pin    bool   `json:"pin,omitempty"`
 	Thread string `json:"thread"`
 	Prompt string `json:"prompt"`
