@@ -95,8 +95,12 @@ func TestBackendGraphForEveryRole(t *testing.T) {
 			t.Errorf("%s lacks backend_graph", role)
 		}
 	}
-	if len(rt("junior")) != 1 {
-		t.Error("only the PO gets the read tools besides backend_graph")
+	names := map[string]bool{}
+	for _, tl := range rt("junior") {
+		names[tl.Name()] = true
+	}
+	if !names["backend_read"] || !names["backend_grep"] || names["backend_get"] {
+		t.Errorf("a junior reads the roots but never calls the backend's URLs: %v", names)
 	}
 }
 
