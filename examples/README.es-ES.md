@@ -8,6 +8,8 @@ con `ANTHROPIC_API_KEY` u `OPENAI_API_KEY` usan el proveedor real.
 Cada carpeta tiene `README.md` (inglés), `README.pt-BR.md` y `README.es-ES.md` que explican qué hace el ejemplo, cómo aplicar el patrón, cómo ejecutarlo y cómo probarlo en modo productivo.
 Los grupos `langchain`, `langgraph` y `deepagents` se portaron de los repositorios del mismo nombre; `langmem`, `agentprotocol`, `ciam` y `openswe` se portaron de los proyectos del mismo nombre (LangMem, Agent Protocol, context-ia-manager y Open SWE) e `integrations` son ejemplos propios de este proyecto.
 
+Una regla vale para todo ejemplo: un agente armado con `agents.Create` lleva `middleware.Compaction()` (caveman, Ponytail y TOON, decididos por reglas, sin modelo), y uno con directorio local lleva la herramienta de grafo de código de `integrations/codegraph` cuando el directorio tiene índice de CodeGraph o graphify. `deepagents.Create` hace ambas cosas solo. `go test ./examples/internal/audit` falla para un ejemplo que no cumpla, salvo que diga por qué con `// audit:exempt compaction: <motivo>` (o `codegraph`).
+
 ## langchain
 
 | Ejemplo | Muestra | Origen |

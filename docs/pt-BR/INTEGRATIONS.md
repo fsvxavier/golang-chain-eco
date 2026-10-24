@@ -191,3 +191,20 @@ sandboxes gerenciados (E2B, Daytona, Modal, Runloop) não estão incluídos; a l
 [PROVIDERS-ANALISE.md](PROVIDERS-ANALISE.md). Os caminhos de extensão são: uma `tools.Tool` (`tools.New`), um servidor MCP
 (`mcp.LoadTools`, que dá acesso a milhares de integrações existentes), um `vectorstore.Backend`, um `checkpoint.Saver`/`store.Store`, um
 runner de comandos plugado em `backends.Remote` (qualquer sandbox vira backend de arquivos e shell) ou um `callbacks.Handler`.
+
+## Grafo de código (`integrations/codegraph`)
+
+Buscar num projeto pelo significado custa bem menos tokens que usar grep e ler arquivos. Quando um diretório tem índice do CodeGraph (`.codegraph` ou `.codegraph-wsl`) ou do graphify (`graphify-out/graph.json`), os programas `codegraph` e `graphify` respondem a uma pergunta com o código dos símbolos relevantes e seus caminhos de chamada numa só chamada.
+
+```go
+if t := codegraph.ProjectTool("."); t != nil { // nil quando o diretório não tem índice
+	opts.Tools = append(opts.Tools, t) // o agente ganha code_graph
+}
+```
+
+- `Detect(dir)` lista os motores cujo índice está direto em `dir` (CodeGraph primeiro); um índice acima de `dir` é ignorado de propósito, pois poderia cobrir diretórios que quem chama não quis expor.
+- `Ask(ctx, run, dir, engine, query)` executa uma pergunta; `Tool(name, resolve, run, done)` monta uma ferramenta cujo `resolve` decide quais diretórios o agente pode consultar (o `backend_graph` do `full_team_front` limita às raízes da demanda e ao workspace); `ProjectTool(root)` é a versão de um diretório.
+- Os motores rodam sem shell, com ambiente mínimo, timeout de 30 segundos e limite de 24 KB na resposta; a consulta é um único argumento não vazio, com no máximo 500 bytes e que não começa com `-`.
+- `deepagents.Create` acrescenta `code_graph` sozinho quando o backend local tem índice; todo agente do `full_team_front` tem `backend_graph`.
+
+Teste: `go test -race -count=1 ./integrations/codegraph`; com um índice real, `GRAPH_TEST_ROOT=/caminho/do/projeto go test -run TestRealCodeGraphIfAvailable ./examples/langgraph/full_team_front/internal/backend`.

@@ -174,3 +174,13 @@ Todos se ejecutan offline con un modelo falso, salvo que se configure un servici
 | `langgraph/full_team` | el equipo de `independent_engineering_team` con compresión de llamadas; decider y modelo falsos por defecto. Con `ANTHROPIC_API_KEY` u `OPENAI_API_KEY`, la herramienta de shell ofrece solo `ls`, `grep` y `echo` |
 
 Prueba en modo producción: configure la URL real del decider o el bundle nativo, y ejecute `go test -race -count=1` como de costumbre.
+
+## Compactación por defecto y la auditoría
+
+`middleware.Compaction()` es la compactación que todo agente debería llevar: `middleware.NewCompression(compress.RuleDecider{})`, así que no necesita modelo ni red. Los turnos antiguos de Human y AI se comprimen en caveman, el último mensaje Human recibe la nota Ponytail cuando el código es una parte real de la conversación (al menos 10%), y los resultados JSON de herramientas pasan a TOON cuando eso es más corto (al menos 2 KB de JSON). El historial solo se comprime por encima del umbral de las reglas, 4000 tokens estimados, así que las conversaciones cortas pasan intactas. Para una versión decidida por modelo use `NewCompression` con otro decider (vea las secciones anteriores).
+
+- `deepagents.Create` la aplica por defecto (`Options.NoCompaction` la desactiva; un `middleware.Compression` en `Options.Middleware` la reemplaza).
+- `agents.Create` no la agrega solo; pase `middleware.Compaction()` en `Middleware`.
+- `examples/internal/audit` es la comprobación: `go test ./examples/internal/audit` falla para cualquier ejemplo (un directorio con `main.go`) que llame a `agents.Create` y no use ninguno de `Compaction`, `NewCompression` o `Compression`, y para el que da a los agentes un directorio `backends.Filesystem` o `LocalShell` sin `integrations/codegraph`. Un ejemplo que no puede seguir una regla dice por qué en un comentario: `// audit:exempt compaction: <motivo>` o `// audit:exempt codegraph: <motivo>`.
+
+Lo que la compactación no alcanza: el prompt de sistema y los schemas de las herramientas se reenvían en cada llamada y no se comprimen; los ejemplos `full_team` imprimen su parte junto a las cifras de compresión.
