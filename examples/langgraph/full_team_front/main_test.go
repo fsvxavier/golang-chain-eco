@@ -251,3 +251,47 @@ func TestDemoShellRejectsFlagAndExpansionBypasses(t *testing.T) {
 		}
 	}
 }
+
+// Real bash runs these through the tool: each reached a host file before the
+// guard checked glob matches and split segments outside quotes only.
+func TestDemoShellRejectsGlobAndQuoteBypasses(t *testing.T) {
+	clearModelEnv(t)
+	dir, outside := t.TempDir(), t.TempDir()
+	secret := outside + "/secretfile.txt"
+	if err := os.WriteFile(secret, []byte("topsecret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dir+"/sub", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/sub/a.go", []byte("foo|/etc\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sh := shellTool(dir, compress.NewRTK(compress.FuncDecider(scripted)))
+	run := func(cmd string) (string, error) {
+		out, err := sh.Call(context.Background(), map[string]any{"command": cmd})
+		return fmt.Sprint(out), err
+	}
+	for _, cmd := range []string{
+		"grep top " + outside + "/secretf*", "grep top " + outside + "/secretfile.tx[t]", "grep top " + outside + "/secretfile.tx?",
+		"grep -rn top " + outside[:len(outside)-3] + "*/secretf*", "ls " + outside + "/*", "echo " + outside + "/*", "ls -d /*",
+		"grep --include=" + outside + "/secr* x .",
+		`grep -E "^| grep " ` + secret, `ls "a; ls " ` + outside, `ls ";" /etc`, `grep top "x|y" ` + secret,
+		"grep -R x .", "grep --deref x .", "grep --dereference-r x .", "grep x --exclude-f=pats", "grep x --include-f=pats", "grep x --fil=pats",
+		"X=1 grep -R x .", "X=" + secret + " ls",
+	} {
+		out, err := run(cmd)
+		if err == nil || strings.Contains(out, "topsecret") {
+			t.Errorf("%q accepted (err %v), output %.80q", cmd, err, out)
+		}
+	}
+	for _, cmd := range []string{`grep -rE "foo" .`, "grep -rn --include=*.go foo sub", "grep top /nonexistent/zz*", "ls sub/*.go"} {
+		if _, err := run(cmd); err != nil {
+			t.Errorf("%q rejected: %v", cmd, err)
+		}
+	}
+	// git diff -C is copy detection, not "change directory".
+	if deniedFlag("git", "-C", true) || !deniedFlag("git", "-C", false) || !deniedFlag("go", "-C", false) {
+		t.Error("-C must be denied only before the subcommand")
+	}
+}
