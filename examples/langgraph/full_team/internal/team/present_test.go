@@ -2,7 +2,11 @@ package team
 
 import (
 	"fmt"
+	"github.com/fsvxavier/golang-chain-eco/remote"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -162,5 +166,38 @@ func TestRegisterCarriesModel(t *testing.T) {
 	s, err := NewHubClient(ts.URL).State(ctx(t))
 	if err != nil || len(s.Workers) != 1 || s.Workers[0].Model != "anthropic:claude-haiku-5-5" {
 		t.Fatalf("%+v %v", s, err)
+	}
+}
+
+// The manager key goes only to the manager: a URL named by the chat gets none.
+func TestGraphToolNeverSendsManagerKeyElsewhere(t *testing.T) {
+	var mu sync.Mutex
+	keys := map[string]string{}
+	h := func(name string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			keys[name] = r.Header.Get("x-api-key")
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{}`))
+		})
+	}
+	mgr, other := httptest.NewServer(h("manager")), httptest.NewServer(h("other"))
+	defer mgr.Close()
+	defer other.Close()
+	m := remote.NewClient(mgr.URL)
+	m.APIKey = "secret"
+	b := &Bridge{Manager: m}
+	var st tools.Tool
+	for _, tl := range b.GraphTools() {
+		if tl.Name() == "graph_state" {
+			st = tl
+		}
+	}
+	for _, u := range []string{other.URL, "", mgr.URL + "/"} {
+		_, _ = st.Call(ctx(t), map[string]any{"thread_id": "t", "url": u})
+	}
+	if keys["other"] != "" || keys["manager"] != "secret" {
+		t.Fatalf("keys seen: %v", keys)
 	}
 }
