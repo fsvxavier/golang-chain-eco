@@ -1,0 +1,92 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/fsvxavier/golang-chain-eco/compress"
+	"github.com/fsvxavier/golang-chain-eco/core/tools"
+)
+
+func testShell(t *testing.T) (tools.Tool, string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dec, _ := decider()
+	return shellTool(dir, compress.NewRTK(dec)), dir
+}
+
+func runShell(t *testing.T, sh tools.Tool, cmd string) (string, error) {
+	t.Helper()
+	out, err := sh.Call(context.Background(), map[string]any{"command": cmd})
+	return fmt.Sprint(out), err
+}
+
+func TestShellRejectsPathsOutsideWorkspace(t *testing.T) {
+	sh, dir := testShell(t)
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("topsecret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range []string{
+		"grep -r x /etc", "ls /", "grep topsecret " + secret, "ls ..", `ls "/etc"`, "ls ~", "ls ~/x",
+		"ls link", "grep topsecret link/secret.txt", "ls link/..", "ls /et*", "echo hi; ls /etc", "echo hi | grep x /etc/passwd",
+	} {
+		_, err := runShell(t, sh, cmd)
+		if err == nil || !strings.Contains(err.Error(), "shell: paths outside the workspace are not allowed") {
+			t.Errorf("%q: err = %v, want a path rejection", cmd, err)
+		}
+	}
+}
+
+func TestShellAllowsWorkspacePaths(t *testing.T) {
+	sh, _ := testShell(t)
+	for _, cmd := range []string{"ls .", "ls sub", "ls ./sub", "echo a/b", "grep -n foo /api/coupon", "ls -la"} {
+		if _, err := runShell(t, sh, cmd); err != nil {
+			t.Errorf("%q: %v", cmd, err)
+		}
+	}
+}
+
+func TestShellRejectsExpansionAndRedirection(t *testing.T) {
+	sh, _ := testShell(t)
+	for _, cmd := range []string{"echo $ANTHROPIC_API_KEY", "echo x > f", "echo `id`", "grep x < f"} {
+		if _, err := runShell(t, sh, cmd); err == nil {
+			t.Errorf("%q was accepted", cmd)
+		}
+	}
+}
+
+func TestShellEnvHasNoSecrets(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "fake-a")
+	t.Setenv("OPENAI_API_KEY", "fake-o")
+	dir := t.TempDir()
+	env := shellEnv(dir)
+	for _, kv := range env {
+		if strings.Contains(kv, "API_KEY") || strings.Contains(kv, "fake-") {
+			t.Errorf("secret in child env: %s", kv)
+		}
+	}
+	if !slices.Contains(env, "HOME="+dir) {
+		t.Errorf("HOME is not the scratch dir: %v", env)
+	}
+}
+
+func TestAllowedProgramsWithLiveModel(t *testing.T) {
+	t.Setenv("AGENT_MODEL", "anthropic:claude-haiku-5-5")
+	got := allowedPrograms(func(string) string { return "" })
+	if want := []string{"ls", "grep", "echo"}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

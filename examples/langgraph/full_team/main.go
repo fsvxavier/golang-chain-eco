@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -129,12 +130,23 @@ func scripted(ctx context.Context, st compress.State, qs []compress.Question) ([
 	return out, nil
 }
 
+// anyLive reports whether any role runs on a real model.
+func anyLive() bool {
+	for _, r := range team.Roles {
+		if team.ModelSpec(r) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // allowedPrograms is what the shell tool may run. Offline, the scripted run
 // keeps go and git (it never calls the tool, so this is for the demo shape).
-// With a real provider key the model is a live one that can write files, so
-// go and git (which run code) are withheld: ls, grep and echo only.
+// When any role has a live model (a provider key, AGENT_MODEL or
+// AGENT_MODEL_<ROLE>), go and git (which run code) are withheld: ls, grep and
+// echo only.
 func allowedPrograms(getenv func(string) string) []string {
-	if getenv("ANTHROPIC_API_KEY") != "" || getenv("OPENAI_API_KEY") != "" {
+	if getenv("ANTHROPIC_API_KEY") != "" || getenv("OPENAI_API_KEY") != "" || anyLive() {
 		return []string{"ls", "grep", "echo"}
 	}
 	return []string{"go", "git", "ls", "grep", "echo"}
@@ -175,10 +187,110 @@ func tasksTool() tools.Tool {
 		func(context.Context, struct{}) (any, error) { return backlog, nil })
 }
 
+// shellEnv is all the shell's child processes see: PATH and a HOME inside the
+// scratch directory, so no provider key or other secret reaches a command.
+func shellEnv(dir string) []string {
+	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir}
+}
+
+// errOutside is the tool error for a path argument that leaves the workspace.
+func errOutside(tok string) error {
+	return tools.Errorf("shell: paths outside the workspace are not allowed: %s", tok)
+}
+
+// shellTokens splits one command segment on spaces, honouring simple '...' and
+// "..." quotes (the quotes are dropped).
+func shellTokens(seg string) []string {
+	var toks []string
+	var cur strings.Builder
+	var quote rune
+	started := false
+	for _, r := range seg {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote, started = r, true
+		case r == ' ' || r == '\t':
+			if started {
+				toks = append(toks, cur.String())
+				cur.Reset()
+				started = false
+			}
+		default:
+			cur.WriteRune(r)
+			started = true
+		}
+	}
+	if started {
+		toks = append(toks, cur.String())
+	}
+	return toks
+}
+
+// inside reports whether p, with symlinks resolved, is within the resolved dir.
+// A path that does not exist is not inside anything: callers decide what to do.
+func inside(realDir, p string) (ok, exists bool) {
+	if _, err := os.Lstat(p); err != nil {
+		return false, false
+	}
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return false, true
+	}
+	rel, err := filepath.Rel(realDir, r)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)), true
+}
+
+// confine rejects a command line when a non-flag token (a bare name too, it may
+// be a symlink) resolves, symlinks included, outside dir. Tokens that do not exist on disk
+// (a grep pattern such as /api/coupon) pass. A glob is checked through its matches.
+// shortcut: flag values (--file=/etc/passwd) and brace expansion are not parsed,
+// the allowlist (ls, grep, echo, go, git) is what bounds those.
+func confine(dir, command string) error {
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return err
+	}
+	for _, seg := range strings.FieldsFunc(command, func(r rune) bool { return r == ';' || r == '&' || r == '|' || r == '\n' }) {
+		for _, tok := range shellTokens(seg) {
+			if strings.HasPrefix(tok, "-") {
+				continue
+			}
+			if strings.HasPrefix(tok, "~") {
+				return errOutside(tok)
+			}
+			full := tok
+			if !filepath.IsAbs(tok) {
+				full = dir + "/" + tok // not Join: keep "link/.." for the OS to resolve
+			}
+			cands := []string{full, filepath.Clean(full)}
+			if strings.ContainsAny(tok, "*?[") {
+				m, _ := filepath.Glob(full)
+				cands = append(cands, m...)
+			}
+			for _, c := range cands {
+				if ok, exists := inside(realDir, c); exists && !ok {
+					return errOutside(tok)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // shellTool runs allowlisted commands in dir. Simple ones go through rtk when
 // the decider routes them; rtk.Executor records output sizes for that decision.
+// The command line is refused when it holds a redirection, an expansion or a
+// backtick (the library's allowlist splits on ; & | and newlines only, so
+// "echo $KEY" or "echo x >> ~/.bashrc" would otherwise pass it) or a path
+// argument outside dir (see confine).
 func shellTool(dir string, rtk *compress.RTK) tools.Tool {
-	env := os.Environ()
+	env := shellEnv(dir)
 	rtk.Env = env
 	allowed := allowedPrograms(os.Getenv)
 	sh := backends.LocalShell{
@@ -188,8 +300,14 @@ func shellTool(dir string, rtk *compress.RTK) tools.Tool {
 		Rewrite:         rtk.Rewrite,
 	}
 	run := rtk.Executor(sh)
-	return tools.New("shell", "Run one shell command in the team workspace. Allowed programs: "+strings.Join(allowed, ", ")+".",
+	return tools.New("shell", "Run one shell command in the team workspace (no redirections, no $ or backticks, paths stay inside the workspace). Allowed programs: "+strings.Join(allowed, ", ")+".",
 		func(ctx context.Context, a shellArgs) (any, error) {
+			if strings.ContainsAny(a.Command, "<>$`") {
+				return nil, tools.Errorf("shell: redirections (< >), $ and backticks are not allowed")
+			}
+			if err := confine(dir, a.Command); err != nil {
+				return nil, err
+			}
 			res, err := run.Execute(ctx, a.Command, 30*time.Second)
 			if err != nil {
 				return nil, err
