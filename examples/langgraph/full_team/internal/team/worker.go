@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,7 +84,7 @@ func RunWorker(ctx context.Context, cfg WorkerConfig, ln net.Listener) error {
 	use := &usageAcc{} // a worker runs one job at a time, so its tokens are the job's
 	agent, err := agents.Create(agents.Options{
 		Model: model, Tools: append(ts, cfg.Tools...), SystemPrompt: prompt,
-		Middleware: append(slices.Clone(cfg.Middleware), usageMeter{fixed: use}, activityMeter{set: setActivity}),
+		Middleware: append(append(slices.Clone(cfg.Middleware), usageMeter{fixed: use}, activityMeter{set: setActivity}), cacheFor(cfg.Role)...), // the cache goes last: it wraps the final request
 		Compile:    []graph.CompileOption{graph.WithName(cfg.Role), graph.WithCheckpointer(checkpoint.NewMemory())},
 	})
 	if err != nil {
@@ -128,6 +129,7 @@ type worker struct {
 	act   func(string) // report what the worker is doing now
 
 	curMu   sync.Mutex
+	threads map[string]bool    // threads whose history holds the dossier (guarded by curMu)
 	curJob  string             // job being run
 	curStop context.CancelFunc // cancels its agent run
 	ap      *agentprotocol.Client
@@ -188,6 +190,21 @@ func (w *worker) heartbeat(ctx context.Context, ttl time.Duration) {
 	}
 }
 
+func (w *worker) seen(thread string) bool {
+	w.curMu.Lock()
+	defer w.curMu.Unlock()
+	return w.threads[thread]
+}
+
+func (w *worker) markSeen(thread string) {
+	w.curMu.Lock()
+	defer w.curMu.Unlock()
+	if w.threads == nil {
+		w.threads = map[string]bool{}
+	}
+	w.threads[thread] = true
+}
+
 // cancelJob stops the agent run of job id if it is still the one running.
 func (w *worker) cancelJob(id string) {
 	w.curMu.Lock()
@@ -228,7 +245,14 @@ func (w *worker) finish(ctx context.Context, j *Job) {
 // One path serves both this queue and any Agent Protocol client that calls the
 // worker directly, and every run is visible as an Agent Protocol thread.
 func (w *worker) run(ctx context.Context, j *Job) (string, error) {
-	prompt := "WHO: " + w.cfg.ID + "\n" + j.Prompt // identity is known only after the hub reserves this worker
+	// The dossier goes in the first prompt of a thread; later ones on it (rework,
+	// the next gate) already have it in the history. A worker that never saw the
+	// thread (the pinned one is gone) gets it in full.
+	brief := j.Brief
+	if w.seen(j.Thread) {
+		brief = "(The request and the specification are in the first message of this thread.)"
+	}
+	prompt := "WHO: " + w.cfg.ID + "\n" + strings.ReplaceAll(j.Prompt, briefToken, brief) // identity is known only after the hub reserves this worker
 	if tool := groundTool[w.cfg.Role]; tool != "" && j.Query != "" {
 		w.act("reference: " + tool + " (" + head(j.Query, 60) + ")")
 		if txt, err := w.mc.CallTool(ctx, tool, map[string]any{"question": j.Query}); err == nil {
@@ -256,6 +280,9 @@ func (w *worker) run(ctx context.Context, j *Job) (string, error) {
 	}
 	if len(res.Messages) == 0 {
 		return "", errors.New("agent returned no messages")
+	}
+	if j.Brief != "" {
+		w.markSeen(j.Thread)
 	}
 	out := fmt.Sprint(res.Messages[len(res.Messages)-1].Content)
 	if j.Scope != "" {

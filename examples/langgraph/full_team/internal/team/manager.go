@@ -63,7 +63,7 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 	if err != nil {
 		return nil, err
 	}
-	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt, Middleware: append(slices.Clone(mw), usageMeter{})})
+	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt, Middleware: append(append(slices.Clone(mw), usageMeter{}), cacheFor("manager")...)})
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +167,23 @@ func (m *manager) intake(ctx context.Context, s graph.State) (any, error) {
 	return graph.State{"kickoff": field(out, "KICKOFF:"), "history": "manager -> product-owner"}, nil
 }
 
+// briefToken stands for the request dossier in a prompt. The job carries the
+// dossier itself (Job.Brief) and the worker puts it in the first prompt of a
+// thread only: later prompts on the same thread already have it in the history.
+const briefToken = "<<BRIEF>>"
+
+// dispatchBrief is dispatch for a prompt that uses briefToken.
+func (m *manager) dispatchBrief(ctx context.Context, prefer []string, thread, prompt, query, brief string) (Job, error) {
+	scope := requestID(ctx)
+	out, err := m.hub.Run(ctx, Job{Prefer: prefer, Thread: scope + "-" + thread, Prompt: prompt, Brief: brief, Query: query, Scope: scope})
+	if err != nil && out.Error == CancelledMsg {
+		if id := subject(ctx, ""); m.track.Status(id) != tasktrack.Cancelled {
+			m.move(ctx, tasktrack.Request, id, tasktrack.Cancelled, "user", "cancelled")
+		}
+	}
+	return out, err
+}
+
 // dispatch queues a job for one of prefer (worker ids or roles) and waits.
 func (m *manager) dispatch(ctx context.Context, prefer []string, thread, prompt, query string) (Job, error) {
 	scope := requestID(ctx)
@@ -203,7 +220,7 @@ func dossier(s graph.State) string {
 func (m *manager) build(ctx context.Context, s graph.State) (any, error) {
 	brief := dossier(s)
 	m.move(ctx, tasktrack.Request, subject(ctx, ""), tasktrack.TaskAssignment, "tech-leader", "")
-	plan, err := m.dispatch(ctx, []string{"leader"}, "leader", "ROLE: leader\n\n"+brief, fmt.Sprint(s["request"]))
+	plan, err := m.dispatchBrief(ctx, []string{"leader"}, "leader", "ROLE: leader\n\n"+briefToken, fmt.Sprint(s["request"]), brief)
 	if err != nil {
 		return nil, err
 	}
@@ -255,12 +272,12 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 	prefer := preference[w.Complexity]
 	for w.Round < MaxRounds {
 		prompt := fmt.Sprintf("ROLE: engineer\n\n%s\n\n## Your task\nTASK: %s\nTITLE: %s\nCOMPLEXITY: %s\nDESCRIPTION: %s\nATTEMPT: %d\n",
-			brief, w.ID, w.Title, w.Complexity, w.Desc, w.Round+1)
+			briefToken, w.ID, w.Title, w.Complexity, w.Desc, w.Round+1)
 		if w.Feedback != "" {
 			prompt += "\n## Feedback to address\n" + w.Feedback + "\n"
 		}
 		m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.InDevelopment, strings.Join(prefer, "/"), fmt.Sprintf("attempt %d", w.Round+1))
-		j, err := m.dispatch(ctx, prefer, w.ID+"-dev", prompt, w.Title+" "+w.Desc)
+		j, err := m.dispatchBrief(ctx, prefer, w.ID+"-dev", prompt, w.Title+" "+w.Desc, brief)
 		if err != nil {
 			return w, hist, err
 		}
@@ -297,8 +314,8 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 func (m *manager) gate(ctx context.Context, w *work, role, label string, hist *[]any, brief string, start, approved, rejected tasktrack.Status) (bool, error) {
 	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), start, role, "built by "+w.Assignee)
 	prompt := fmt.Sprintf("ROLE: %s\n\n%s\n\n## Task under %s\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nATTEMPT: %d\n\n## Submitted work\n%s\n",
-		role, brief, label, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
-	j, err := m.dispatch(ctx, []string{role}, w.ID+"-"+label, prompt, w.Title+" "+w.Desc)
+		role, briefToken, label, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
+	j, err := m.dispatchBrief(ctx, []string{role}, w.ID+"-"+label, prompt, w.Title+" "+w.Desc, brief)
 	if err != nil {
 		return false, err
 	}
