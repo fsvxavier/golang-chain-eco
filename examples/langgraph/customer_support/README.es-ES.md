@@ -2,7 +2,7 @@
 
 [English](README.md) | [Português](README.pt-BR.md) | **Español**
 
-Un asistente cuyas tools de solo lectura corren libremente, pero cuya tool sensible requiere aprobación humana.
+Un asistente cuyas tools de solo lectura corren libremente, pero cuya tool sensible requiere aprobación humana. Los agents corren con `middleware.Compaction()`: los turnos antiguos se comprimen al estilo caveman, se añade una nota Ponytail cuando la conversación tiene una parte real de código, los resultados JSON de tools pasan a TOON, todo decidido por reglas, sin necesidad de modelo.
 
 ## Qué hace
 

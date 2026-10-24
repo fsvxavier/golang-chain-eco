@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
 	"github.com/fsvxavier/golang-chain-eco/examples/internal/demo"
@@ -200,6 +201,7 @@ func ask(ctx context.Context, a *graph.Compiled, prompt string) (string, error) 
 
 func newAgent(model agents.Options, name string) *graph.Compiled {
 	model.SystemPrompt = skill(name)
+	model.Middleware = append(model.Middleware, middleware.Compaction())
 	a, err := agents.Create(model)
 	if err != nil {
 		log.Fatal(err)

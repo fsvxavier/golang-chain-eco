@@ -9,6 +9,7 @@ import (
 	"log"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/documents"
 	"github.com/fsvxavier/golang-chain-eco/core/embeddings"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
@@ -45,6 +46,7 @@ func main() {
 		),
 		Tools:        kb.All(),
 		SystemPrompt: "Responda com base na base de conhecimento e cite as fontes.",
+		Middleware:   []agents.Middleware{middleware.Compaction()},
 	})
 	if err != nil {
 		log.Fatal(err)

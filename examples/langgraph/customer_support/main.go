@@ -51,7 +51,7 @@ func main() {
 		SystemPrompt: "You are a customer support assistant for an airline.",
 		Middleware: []agents.Middleware{middleware.HumanInTheLoop{Tools: map[string]middleware.ToolPolicy{
 			"change_booking": {Allowed: []string{middleware.Approve, middleware.Reject}},
-		}}},
+		}}, middleware.Compaction()},
 		Compile: []graph.CompileOption{graph.WithCheckpointer(checkpoint.NewMemory())},
 	})
 	if err != nil {

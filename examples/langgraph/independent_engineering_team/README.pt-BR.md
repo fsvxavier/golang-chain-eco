@@ -1,6 +1,6 @@
 # independent_engineering_team
 
-O fluxo do `engineering_team` com cada agente como **serviço próprio**: um processo (ou container, ou máquina) por agente, conversando por HTTP. Os workers sobem e caem sozinhos e pegam jobs de uma fila.
+O fluxo do `engineering_team` com cada agente como **serviço próprio**: um processo (ou container, ou máquina) por agente, conversando por HTTP. Os workers sobem e caem sozinhos e pegam jobs de uma fila. Os agents rodam com `middleware.Compaction()`: turnos antigos são comprimidos no estilo caveman, uma nota Ponytail é adicionada quando a conversa tem uma parcela real de código, resultados JSON de tools viram TOON, tudo decidido por regras, sem precisar de modelo.
 
 ## O que faz
 

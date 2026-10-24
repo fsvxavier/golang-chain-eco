@@ -32,7 +32,7 @@ func main() {
 		Tools: []tools.Tool{wire},
 		Middleware: []agents.Middleware{middleware.HumanInTheLoop{
 			Tools: map[string]middleware.ToolPolicy{"wire_money": {}},
-		}},
+		}, middleware.Compaction()},
 		Compile: []graph.CompileOption{graph.WithCheckpointer(checkpoint.NewMemory())},
 	})
 	if err != nil {

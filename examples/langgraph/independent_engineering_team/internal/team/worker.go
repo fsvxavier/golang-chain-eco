@@ -11,6 +11,7 @@ import (
 
 	"github.com/fsvxavier/golang-chain-eco/agentprotocol"
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
 	"github.com/fsvxavier/golang-chain-eco/mcp"
@@ -61,7 +62,8 @@ func RunWorker(ctx context.Context, cfg WorkerConfig, ln net.Listener) error {
 	}
 	agent, err := agents.Create(agents.Options{
 		Model: model, Tools: ts, SystemPrompt: prompt,
-		Compile: []graph.CompileOption{graph.WithName(cfg.Role), graph.WithCheckpointer(checkpoint.NewMemory())},
+		Middleware: []agents.Middleware{middleware.Compaction()},
+		Compile:    []graph.CompileOption{graph.WithName(cfg.Role), graph.WithCheckpointer(checkpoint.NewMemory())},
 	})
 	if err != nil {
 		return err

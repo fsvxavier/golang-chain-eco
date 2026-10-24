@@ -2,7 +2,7 @@
 
 **English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
 
-Pause a tool call for human approval, then resume the same run.
+Pause a tool call for human approval, then resume the same run. The agents run through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation has a real share of code, JSON tool results become TOON, all decided by rules with no model needed.
 
 ## What it does
 

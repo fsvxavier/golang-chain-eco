@@ -2,7 +2,7 @@
 
 [English](README.md) | [Português](README.pt-BR.md) | **Español**
 
-Pausa una llamada a tool para aprobación humana y luego reanuda la misma ejecución.
+Pausa una llamada a tool para aprobación humana y luego reanuda la misma ejecución. Los agents corren con `middleware.Compaction()`: los turnos antiguos se comprimen al estilo caveman, se añade una nota Ponytail cuando la conversación tiene una parte real de código, los resultados JSON de tools pasan a TOON, todo decidido por reglas, sin necesidad de modelo.
 
 ## Qué hace
 

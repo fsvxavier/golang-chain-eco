@@ -2,7 +2,7 @@
 
 **English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
 
-An assistant whose read-only tools run freely but whose sensitive tool needs human approval.
+An assistant whose read-only tools run freely but whose sensitive tool needs human approval. The agents run through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation has a real share of code, JSON tool results become TOON, all decided by rules with no model needed.
 
 ## What it does
 

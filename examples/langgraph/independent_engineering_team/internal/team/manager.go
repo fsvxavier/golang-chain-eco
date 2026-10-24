@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
@@ -61,7 +62,8 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker)
 	if err != nil {
 		return nil, err
 	}
-	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt})
+	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt,
+		Middleware: []agents.Middleware{middleware.Compaction()}})
 	if err != nil {
 		return nil, err
 	}
