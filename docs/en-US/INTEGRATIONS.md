@@ -202,7 +202,7 @@ if t := codegraph.ProjectTool("."); t != nil { // nil when the directory has no 
 }
 ```
 
-- `Detect(dir)` lists the engines whose index sits directly in `dir` (CodeGraph first); an index above `dir` is ignored on purpose, since it could cover directories the caller did not mean to expose.
+- `Detect(dir)` lists the engines whose index sits directly in `dir` (CodeGraph first; for graphify, the newest `graph.json` with at least one node anywhere under `graphify-out/`, because graphify keeps dated snapshots such as `graphify-out/2026-10-13/graph.json` and the top-level file can be empty after an update that indexed nothing); an index above `dir` is ignored on purpose, since it could cover directories the caller did not mean to expose.
 - `Ask(ctx, run, dir, engine, query)` runs one question; `Tool(name, resolve, run, done)` builds a tool whose `resolve` decides which directories the agent may ask (the `full_team_front` `backend_graph` limits it to the demand's roots and the workspace); `ProjectTool(root)` is the one-directory version.
 - The engines run without a shell, with a minimal environment, a 30 second timeout and a 24 KB cap on the answer; the query is one argument that is not empty, not longer than 500 bytes and does not start with `-`.
 - `deepagents.Create` adds `code_graph` by itself when its local backend has an index; every agent of `full_team_front` has `backend_graph`.

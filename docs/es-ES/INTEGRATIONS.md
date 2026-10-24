@@ -202,7 +202,7 @@ if t := codegraph.ProjectTool("."); t != nil { // nil cuando el directorio no ti
 }
 ```
 
-- `Detect(dir)` lista los motores cuyo índice está directamente en `dir` (CodeGraph primero); un índice por encima de `dir` se ignora a propósito, pues podría cubrir directorios que quien llama no quiso exponer.
+- `Detect(dir)` lista los motores cuyo índice está directamente en `dir` (CodeGraph primero; para graphify, el `graph.json` más reciente con al menos un nodo en cualquier punto de `graphify-out/`, porque graphify guarda snapshots por fecha, como `graphify-out/2026-10-13/graph.json`, y el archivo de la raíz puede quedar vacío tras una actualización que no indexó nada); un índice por encima de `dir` se ignora a propósito, pues podría cubrir directorios que quien llama no quiso exponer.
 - `Ask(ctx, run, dir, engine, query)` ejecuta una pregunta; `Tool(name, resolve, run, done)` arma una herramienta cuyo `resolve` decide qué directorios puede consultar el agente (el `backend_graph` de `full_team_front` lo limita a las raíces de la demanda y al workspace); `ProjectTool(root)` es la versión de un directorio.
 - Los motores corren sin shell, con entorno mínimo, timeout de 30 segundos y tope de 24 KB en la respuesta; la consulta es un único argumento no vacío, de como mucho 500 bytes y que no empieza por `-`.
 - `deepagents.Create` agrega `code_graph` solo cuando el backend local tiene índice; todo agente de `full_team_front` tiene `backend_graph`.

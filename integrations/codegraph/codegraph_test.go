@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/integrations/codegraph"
 )
@@ -129,5 +130,47 @@ func TestDetectIgnoresAnEmptyGraphifyGraph(t *testing.T) {
 	}
 	if got := codegraph.Detect(d); len(got) != 0 {
 		t.Fatalf("a broken graph is not an index: %v", got)
+	}
+}
+
+// graphify keeps dated snapshots under graphify-out; when the top-level graph is
+// empty (an update that indexed nothing), the newest snapshot with nodes is used.
+func TestGraphifyGraphScansSnapshots(t *testing.T) {
+	d := t.TempDir()
+	write := func(rel, body string, age int) string {
+		p := filepath.Join(d, "graphify-out", rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mt := time.Now().Add(-time.Duration(age) * time.Hour)
+		if err := os.Chtimes(p, mt, mt); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	full := `{"nodes":[{"id":"a"}],"links":[]}`
+	write("graph.json", `{"nodes":[],"links":[]}`, 0)
+	if codegraph.GraphifyGraph(d) != "" {
+		t.Fatal("only an empty graph: no index")
+	}
+	old := write("2026-10-01/graph.json", full, 48)
+	newer := write("2026-10-13/graph.json", full, 24)
+	write("cache/x/graph.json", full, 1) // the cache is not a graph to ask
+	write(".hidden/graph.json", full, 1)
+	if got := codegraph.GraphifyGraph(d); got != newer {
+		t.Fatalf("want the newest snapshot with nodes %s (not %s), got %s", newer, old, got)
+	}
+	top := write("graph.json", full, 0)
+	if got := codegraph.GraphifyGraph(d); got != top {
+		t.Fatalf("a populated top-level graph is the newest: %s", got)
+	}
+	if got := codegraph.Detect(d); len(got) != 1 || got[0] != codegraph.Graphify {
+		t.Fatalf("%v", got)
+	}
+	if _, args := codegraph.Command(codegraph.Graphify, d, "q"); args[3] != top {
+		t.Fatalf("the command must use the chosen graph: %v", args)
 	}
 }

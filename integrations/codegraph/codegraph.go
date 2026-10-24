@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,6 +50,7 @@ const (
 type Runner func(ctx context.Context, name string, args []string) (string, error)
 
 // Detect returns the engines whose index sits directly in dir, CodeGraph first.
+// graphify counts when graphify-out has a graph with nodes (see GraphifyGraph).
 func Detect(dir string) []Engine {
 	var out []Engine
 	for _, n := range []string{".codegraph", ".codegraph-wsl"} {
@@ -57,19 +59,54 @@ func Detect(dir string) []Engine {
 			break
 		}
 	}
-	if graphifyHasNodes(filepath.Join(dir, "graphify-out", "graph.json")) {
+	if GraphifyGraph(dir) != "" {
 		out = append(out, Graphify)
 	}
 	return out
 }
 
-// graphifyHasNodes reports whether path is a graphify graph with at least one
+// GraphifyGraph is the graph graphify should be asked about: a graph.json with
+// at least one node anywhere under dir/graphify-out (the cache and hidden
+// folders aside), the most recently written one. graphify keeps dated snapshots
+// next to the current graph (graphify-out/2026-10-13/graph.json), and the
+// current one can be empty after an update that indexed nothing, so the top-level
+// file alone is not enough. It returns "" when there is none.
+func GraphifyGraph(dir string) string {
+	root := filepath.Join(dir, "graphify-out")
+	var best string
+	var bestTime time.Time
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // an unreadable entry is skipped, not fatal
+		}
+		if d.IsDir() {
+			rel, _ := filepath.Rel(root, p)
+			if p != root && (d.Name() == "cache" || strings.HasPrefix(d.Name(), ".") || strings.Count(rel, string(filepath.Separator)) >= maxGraphDepth) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != "graph.json" || !d.Type().IsRegular() || !graphHasNodes(p) {
+			return nil
+		}
+		if fi, err := d.Info(); err == nil && (best == "" || fi.ModTime().After(bestTime)) {
+			best, bestTime = p, fi.ModTime()
+		}
+		return nil
+	})
+	return best
+}
+
+// maxGraphDepth bounds how deep under graphify-out snapshots are looked for.
+const maxGraphDepth = 3
+
+// graphHasNodes reports whether path is a graphify graph with at least one
 // node. graphify writes a valid, empty graph when it indexed no files (an ignore
 // file that excludes everything does that), and asking it only returns "No
 // matching nodes found" after a wasted call.
 // shortcut: a file over 4 KB is taken as populated without parsing it (an empty
 // graph is about 240 bytes); parse it too if graphify ever pads empty graphs.
-func graphifyHasNodes(path string) bool {
+func graphHasNodes(path string) bool {
 	fi, err := os.Stat(path)
 	if err != nil || !fi.Mode().IsRegular() {
 		return false
@@ -91,7 +128,7 @@ func graphifyHasNodes(path string) bool {
 // argv element (no shell); Ask refuses a query that starts with "-".
 func Command(e Engine, dir, query string) (string, []string) {
 	if e == Graphify {
-		return "graphify", []string{"query", query, "--graph", filepath.Join(dir, "graphify-out", "graph.json"), "--budget", "1500"}
+		return "graphify", []string{"query", query, "--graph", GraphifyGraph(dir), "--budget", "1500"}
 	}
 	return "codegraph", []string{"explore", "-p", dir, "--max-files", "4", "--", query}
 }
@@ -128,8 +165,12 @@ func Ask(ctx context.Context, run Runner, dir string, engine Engine, query strin
 		run = Run
 	}
 	name, args := Command(engine, dir, query)
-	return run(ctx, name, args)
+	// graphify only finds nodes when it runs in the project directory; Run reads
+	// the directory from the context so the Runner signature stays small.
+	return run(context.WithValue(ctx, dirKey{}, dir), name, args)
 }
+
+type dirKey struct{}
 
 // Run runs the command without a shell, with a minimal environment, a timeout
 // and a cap on the output.
@@ -137,6 +178,9 @@ func Run(ctx context.Context, name string, args []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	if d, ok := ctx.Value(dirKey{}).(string); ok {
+		cmd.Dir = d
+	}
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "NO_COLOR=1", "LANG=C.UTF-8"}
 	var out, errb bytes.Buffer
 	so := &limitWriter{w: &out, max: MaxBytes}
