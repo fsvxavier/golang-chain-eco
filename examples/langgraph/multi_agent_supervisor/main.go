@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/examples/internal/demo"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/channels"
@@ -19,6 +20,7 @@ func worker(role, answer string) *graph.Compiled {
 	a, err := agents.Create(agents.Options{
 		Model:        demo.Smart(func([]messages.Message) messages.Message { return messages.AI(answer) }),
 		SystemPrompt: "You are the " + role + ".",
+		Middleware:   []agents.Middleware{middleware.Compaction()},
 	})
 	if err != nil {
 		log.Fatal(err)

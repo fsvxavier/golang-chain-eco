@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/embeddings"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
@@ -47,6 +48,7 @@ func main() {
 		SystemPrompt: "You are a helpful assistant with long-term memory. Use your memory tools.",
 		Tools:        []tools.Tool{langmem.ManageMemory(cfg), langmem.SearchMemory(cfg)},
 		Compile:      []graph.CompileOption{graph.WithStore(st)},
+		Middleware:   []agents.Middleware{middleware.Compaction()},
 	})
 	if err != nil {
 		log.Fatal(err)

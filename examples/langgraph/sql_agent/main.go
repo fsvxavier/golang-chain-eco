@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/examples/internal/demo"
@@ -67,6 +68,7 @@ func main() {
 	agent, err := agents.Create(agents.Options{
 		Model: model, Tools: []tools.Tool{schema, run},
 		SystemPrompt: "You are a SQL analyst. Look at the tables first. Never modify data.",
+		Middleware:   []agents.Middleware{middleware.Compaction()},
 	})
 	if err != nil {
 		log.Fatal(err)

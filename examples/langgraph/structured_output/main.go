@@ -9,6 +9,7 @@ import (
 	"log"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/jsonschema"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
@@ -39,6 +40,7 @@ func main() {
 	})
 	agent, err := agents.Create(agents.Options{
 		Model: model, Tools: []tools.Tool{weather},
+		Middleware:     []agents.Middleware{middleware.Compaction()},
 		ResponseFormat: &models.ResponseFormat{Name: "WeatherReport", Schema: jsonschema.For[WeatherReport]().Map()},
 	})
 	if err != nil {

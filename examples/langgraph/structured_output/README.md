@@ -2,7 +2,7 @@
 
 **English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
 
-An agent that finishes with a typed, validated answer instead of free text.
+An agent that finishes with a typed, validated answer instead of free text. The agent runs through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation has a real share of code, and JSON tool results are re-encoded as TOON, all decided by rules with no model needed.
 
 ## What it does
 

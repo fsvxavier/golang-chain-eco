@@ -2,7 +2,7 @@
 
 **English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
 
-A tool-calling agent built with `agents.Create`, a middleware and streamed updates.
+A tool-calling agent built with `agents.Create`, a middleware and streamed updates. The agent runs through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation has a real share of code, and JSON tool results are re-encoded as TOON, all decided by rules with no model needed.
 
 ## What it does
 
