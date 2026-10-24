@@ -72,7 +72,9 @@ func Tools(scope func(ctx context.Context) (team.Scope, error), cfg Config) []to
 }
 
 // RoleTools is a team.LocalOptions.RoleTools that gives the po role the
-// backend tools and every other role backend_graph. The scope and request id come from the hub by the job's exact
+// backend tools and every other role the read-only ones that stay inside the
+// demand's roots (backend_graph, backend_read, backend_grep; backend_get, which
+// calls the backend's URLs, stays the PO's). The scope and request id come from the hub by the job's exact
 // thread; hub may return nil until the team is up, which means no access.
 func RoleTools(hub func() *team.HubClient, cfg Config) func(role string) []tools.Tool {
 	if cfg.Report == nil {
@@ -86,11 +88,12 @@ func RoleTools(hub func() *team.HubClient, cfg Config) func(role string) []tools
 	ts := newTools(func(ctx context.Context) (string, team.Scope, error) {
 		return team.RequestScopeFromContext(ctx, hub())
 	}, cfg)
-	// Every role may ask a root's code graph (it only reads, within the demand's
-	// roots, and saves tokens in any role's searches); the other tools are the PO's.
+	// Every role may read the demand's roots (graph, read, grep: they only read,
+	// within those roots), or the developers and reviewers cannot see the code the
+	// demand is about; calling URLs is the PO's alone.
 	var graph []tools.Tool
 	for _, t := range ts {
-		if t.Name() == "backend_graph" {
+		if t.Name() != "backend_get" {
 			graph = append(graph, t)
 		}
 	}

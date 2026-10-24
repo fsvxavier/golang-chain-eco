@@ -109,3 +109,12 @@ func TestInvokeXMLFormIsParsed(t *testing.T) {
 		t.Fatalf("%v %+v", err, m)
 	}
 }
+
+func TestToolCallsJSONAfterProse(t *testing.T) {
+	ts := []tools.Definition{{Name: "read", Parameters: map[string]any{"type": "object"}}}
+	text := "<invoke name=\"x\">\n</invoke>\n\nCorrection: I must use the JSON format.\n\n{ \"tool_calls\":[{\"name\":\"read\",\"args\":{\"path\":\"a\"}}]}\nmais texto"
+	m, err := fake(text, nil).Generate(context.Background(), []messages.Message{messages.Human("x")}, func(o *models.Options) { o.Tools = ts })
+	if err != nil || len(m.ToolCalls) != 1 || m.ToolCalls[0].Args["path"] != "a" {
+		t.Fatalf("%v %+v", err, m)
+	}
+}
