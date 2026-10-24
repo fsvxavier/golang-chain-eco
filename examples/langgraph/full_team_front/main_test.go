@@ -285,7 +285,7 @@ func TestDemoShellRejectsGlobAndQuoteBypasses(t *testing.T) {
 			t.Errorf("%q accepted (err %v), output %.80q", cmd, err, out)
 		}
 	}
-	for _, cmd := range []string{`grep -rE "foo" .`, "grep -rn --include=*.go foo sub", "grep top /nonexistent/zz*", "ls sub/*.go"} {
+	for _, cmd := range []string{`grep -rE "foo" .`, "grep -rn --include=*.go foo sub", "grep top /nonexistent/zz", "ls sub/*.go"} {
 		if _, err := run(cmd); err != nil {
 			t.Errorf("%q rejected: %v", cmd, err)
 		}
@@ -293,5 +293,49 @@ func TestDemoShellRejectsGlobAndQuoteBypasses(t *testing.T) {
 	// git diff -C is copy detection, not "change directory".
 	if deniedFlag("git", "-C", true) || !deniedFlag("git", "-C", false) || !deniedFlag("go", "-C", false) {
 		t.Error("-C must be denied only before the subcommand")
+	}
+}
+
+// Globs bash expands but Go's filepath.Glob does not (trailing slash, "/.",
+// bash-only bracket syntax) must be rejected through real bash.
+func TestDemoShellRejectsStructuralGlobBypasses(t *testing.T) {
+	clearModelEnv(t)
+	parent := t.TempDir()
+	dir, outside := parent+"/work", parent+"/outside"
+	for _, d := range []string{dir + "/src/components", outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for f, c := range map[string]string{outside + "/secret.txt": "SECRETMARK", dir + "/src/a.tsx": "foo\n", dir + "/file": "x1\n", dir + "/src/components/b.tsx": "foo\n"} {
+		if err := os.WriteFile(f, []byte(c), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sh := shellTool(dir, compress.NewRTK(compress.FuncDecider(scripted)))
+	run := func(cmd string) (string, error) {
+		out, err := sh.Call(context.Background(), map[string]any{"command": cmd})
+		return fmt.Sprint(out), err
+	}
+	o := outside
+	for _, cmd := range []string{
+		"ls ../*/", "ls ../o*/", "ls ./../*/", "ls ../*/.", "grep -r SECRETMARK ../*/", "grep -r SECRETMARK ../out*/", "ls ../*//", "ls /*/",
+		"grep SECRETMARK ../[!q]utside/secret.txt", "grep SECRETMARK " + o[:len(o)-7] + "[!q]utside/secret.txt", "ls ../[!q]utside",
+		"grep -r SECRETMARK ../[!w]*", "grep SECRETMARK ../[]o]utside/secret.txt", "grep SECRETMARK ../[[:alpha:]]utside/secret.txt",
+		"grep SECRETMARK ../[a-z-]utside/secret.txt", "grep -r SECRETMARK --include=../o*/ .", "grep x --exclude-dir=../*/ .",
+		"ls src/*/../..", "ls */../../*", "ls src/[a]*", "ls ./[s]rc",
+	} {
+		out, err := run(cmd)
+		if err == nil || strings.Contains(out, "SECRETMARK") {
+			t.Errorf("%q accepted (err %v), output %.80q", cmd, err, out)
+		}
+	}
+	for _, cmd := range []string{
+		"grep -n foo src", "ls -la .", "grep --include=*.tsx -r foo .", "echo a/b", `grep -rn "foo" src/components`, "ls *", "grep -r foo .",
+		"grep '[0-9]' file", "ls src/*.tsx", "ls src/*/", "ls ./src/*", "grep -r foo src/*/",
+	} {
+		if _, err := run(cmd); err != nil {
+			t.Errorf("%q rejected: %v", cmd, err)
+		}
 	}
 }

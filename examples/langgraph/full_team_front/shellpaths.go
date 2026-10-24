@@ -14,8 +14,12 @@ import (
 // Refused: a token (a bare name too, it may be a symlink), the value after "="
 // of a flag or VAR=value word, or the text attached to a short flag, that names
 // an existing path outside dir (absolute, .., symlink); anything starting with
-// "~"; a glob (* ? [) when ANY of its matches is outside dir (a glob with no
-// match passes; globs are checked even inside quotes, which is conservative);
+// "~"; a glob (* ? [): a path-like one (slash, or starting with "." or "~") is
+// rejected when it holds "[" at all, when its literal prefix (the components
+// before the first wildcard one) is not inside dir, or when ".." follows a
+// wildcard; any glob is also rejected when a match of it or of its Clean form is
+// outside dir. Bare patterns (grep '[0-9]') and workspace globs (src/*.tsx,
+// ls *) work; a glob with no match passes; globs are checked inside quotes too;
 // every token after a standalone "--" is a path; and flags that read files named
 // elsewhere (see deniedFlag). A token that does not exist on disk (a grep
 // pattern such as /api/coupon) cannot read anything and passes.
@@ -28,6 +32,7 @@ func outsideWorkspace(dir, command string) string {
 	}
 	// bad reports whether p, or any glob match of p, lies outside root.
 	bad := func(p string) bool {
+		tok := p
 		if strings.HasPrefix(p, "~") {
 			return true
 		}
@@ -35,9 +40,14 @@ func outsideWorkspace(dir, command string) string {
 			p = dir + "/" + p // not Join: keep "link/.." for the OS to resolve
 		}
 		cands := []string{p, filepath.Clean(p)}
-		if strings.ContainsAny(p, "*?[") {
-			m, _ := filepath.Glob(p)
-			cands = append(cands, m...)
+		if strings.ContainsAny(tok, "*?[") {
+			if pathLike(tok) && badGlob(dir, root, tok) {
+				return true
+			}
+			for _, g := range []string{p, filepath.Clean(p)} { // Clean covers "x/*/", "x/*/." and "x/*//"
+				m, _ := filepath.Glob(g)
+				cands = append(cands, m...)
+			}
 		}
 		for _, c := range cands {
 			if _, err := os.Lstat(c); err != nil {
@@ -91,6 +101,47 @@ func outsideWorkspace(dir, command string) string {
 		}
 	}
 	return ""
+}
+
+// pathLike: a token with a slash, or starting with "." or "~", names a path;
+// a bare word is a grep pattern or a workspace-relative name.
+func pathLike(tok string) bool {
+	return strings.Contains(tok, "/") || strings.HasPrefix(tok, ".") || strings.HasPrefix(tok, "~")
+}
+
+// badGlob decides a path-like glob structurally, without trusting Go's glob
+// dialect (bash reads [!x], []x] and [[:alpha:]] differently): it is rejected
+// when it holds "[", when the literal prefix before the first wildcard
+// component is not inside the workspace, or when ".." follows a wildcard.
+func badGlob(dir, root, tok string) bool {
+	if strings.Contains(tok, "[") {
+		return true
+	}
+	comps := strings.Split(tok, "/")
+	n := slices.IndexFunc(comps, func(c string) bool { return strings.ContainsAny(c, "*?") })
+	if n < 0 {
+		return false
+	}
+	if slices.Contains(comps[n:], "..") {
+		return true
+	}
+	lit := strings.Join(comps[:n], "/")
+	if filepath.IsAbs(tok) {
+		lit = "/" + lit
+	} else {
+		lit = dir + "/" + lit
+	}
+	lit = filepath.Clean(lit)
+	if _, err := os.Lstat(lit); err == nil {
+		real, err := filepath.EvalSymlinks(lit)
+		return err != nil || !within(root, real)
+	}
+	return !within(root, lit) && !within(filepath.Clean(dir), lit)
+}
+
+func within(root, p string) bool {
+	rel, err := filepath.Rel(root, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 var assignRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
