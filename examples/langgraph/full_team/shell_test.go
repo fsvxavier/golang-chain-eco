@@ -152,3 +152,38 @@ func TestShellAllowsNarrowedFlags(t *testing.T) {
 		}
 	}
 }
+
+// A sibling directory of the workspace holds a marker; no glob form may reach it.
+func TestShellRejectsGlobEscapes(t *testing.T) {
+	parent := t.TempDir()
+	dir, outside := filepath.Join(parent, "work"), filepath.Join(parent, "outside")
+	for _, d := range []string{filepath.Join(dir, "src"), outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("SECRETMARK"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "a.tsx"), []byte("foo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dec, _ := decider()
+	sh := shellTool(dir, compress.NewRTK(dec))
+	for _, cmd := range []string{
+		"ls ../*/", "ls ../o*/", "ls ./../*/", "ls ../*/.", "grep -r SECRETMARK ../*/", "grep -r SECRETMARK ../out*/", "ls ../*//", "ls /*/",
+		"grep SECRETMARK ../[!q]utside/secret.txt", "ls ../[!q]utside", "grep -r SECRETMARK ../[!w]*", "grep SECRETMARK ../[]o]utside/secret.txt",
+		"grep SECRETMARK ../[[:alpha:]]utside/secret.txt", "grep SECRETMARK ../[a-z-]utside/secret.txt", "ls src/*/../..", "ls /etc/pass*",
+		"ls ../outsid?", "ls src/[a]*",
+	} {
+		out, err := runShell(t, sh, cmd)
+		if err == nil {
+			t.Errorf("%q accepted, output %.80q", cmd, out)
+		}
+	}
+	for _, cmd := range []string{"grep -n foo src", "ls -la .", "grep --include=*.tsx -r foo .", "echo a/b", `grep -rn "foo" src`, "ls *", "grep -r foo .", "grep '[0-9]' src/a.tsx", "ls src/*.tsx", "ls src/*"} {
+		if _, err := runShell(t, sh, cmd); err != nil {
+			t.Errorf("%q: %v", cmd, err)
+		}
+	}
+}

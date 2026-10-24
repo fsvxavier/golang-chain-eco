@@ -261,9 +261,45 @@ func inside(realDir, p string) (ok, exists bool) {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)), true
 }
 
+// globPathLike reports whether a glob token names a path: it has a slash, a
+// dot-leading part or a .. component. A bare pattern such as [0-9] or *.go is not.
+func globPathLike(tok string) bool {
+	return strings.Contains(tok, "/") || strings.HasPrefix(tok, ".") || tok == ".."
+}
+
+// globRule is the structural rule for a path-like glob, independent of how Go
+// or bash read the pattern: no [ at all, no .. after the first wildcard
+// component, and the literal prefix (the components before it) must be inside dir.
+func globRule(dir, realDir, tok string) error {
+	if strings.Contains(tok, "[") {
+		return errOutside(tok)
+	}
+	comps := strings.Split(tok, "/")
+	first := slices.IndexFunc(comps, func(c string) bool { return strings.ContainsAny(c, "*?") })
+	if first < 0 || slices.Contains(comps[first:], "..") {
+		return errOutside(tok)
+	}
+	prefix := strings.Join(comps[:first], "/")
+	switch {
+	case filepath.IsAbs(tok) && prefix == "":
+		prefix = "/"
+	case !filepath.IsAbs(tok):
+		prefix = dir + "/" + prefix
+	}
+	prefix = filepath.Clean(prefix)
+	if rel, err := filepath.Rel(dir, prefix); err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+		return errOutside(tok)
+	}
+	if ok, exists := inside(realDir, prefix); exists && !ok {
+		return errOutside(tok)
+	}
+	return nil
+}
+
 // confine rejects a command line when a non-flag token (a bare name too, it may
 // be a symlink) resolves, symlinks included, outside dir. Tokens that do not exist on disk
-// (a grep pattern such as /api/coupon) pass. A glob is checked through its matches.
+// (a grep pattern such as /api/coupon) pass. A path-like glob is judged by its
+// literal prefix, not its matches (see globRule); a bare one (*.go, [0-9]) by its matches.
 // Flag values and attached short flags are checked as paths too, and the
 // callers refuse backslashes and braces, so the tokens match what the shell sees.
 func confine(dir, command string) error {
@@ -282,8 +318,15 @@ func confine(dir, command string) error {
 		}
 		cands := []string{full, filepath.Clean(full)}
 		if strings.ContainsAny(tok, "*?[") {
-			m, _ := filepath.Glob(full)
-			cands = append(cands, m...)
+			if globPathLike(tok) {
+				if err := globRule(dir, realDir, tok); err != nil {
+					return err
+				}
+			}
+			for _, g := range []string{full, filepath.Clean(full)} {
+				m, _ := filepath.Glob(g)
+				cands = append(cands, m...)
+			}
 		}
 		for _, c := range cands {
 			if ok, exists := inside(realDir, c); exists && !ok {
