@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/team"
 )
 
 // maxDocBytes caps one write.
@@ -15,57 +16,32 @@ const maxDocBytes = 256 << 10
 
 // DocsConfig bounds project_doc_write. Zero values take the defaults.
 type DocsConfig struct {
-	WorkspaceRoot string   // default WORKSPACE_ROOT, else the cwd
-	Dirs          []string // writable directories under the workspace (default PO_DOCS_DIRS, else "project")
-}
-
-func (c DocsConfig) withDefaults() DocsConfig {
-	c.WorkspaceRoot = Config{WorkspaceRoot: c.WorkspaceRoot}.withDefaults().WorkspaceRoot
-	if len(c.Dirs) == 0 {
-		for _, d := range strings.Split(os.Getenv("PO_DOCS_DIRS"), ",") {
-			if d = strings.TrimSpace(d); d != "" {
-				c.Dirs = append(c.Dirs, d)
-			}
-		}
-	}
-	if len(c.Dirs) == 0 {
-		c.Dirs = []string{"project"}
-	}
-	return c
+	WorkspaceRoot string // every doc root must lie under it (default WORKSPACE_ROOT, else the cwd)
 }
 
 type docArgs struct {
-	Path    string `json:"path" jsonschema:"markdown file under the project docs directory, e.g. project/front-end/plans/plan.md or project/front-end/next_steps.md"`
+	Path    string `json:"path" jsonschema:"markdown file inside a document directory named by the demand; relative to the first one, e.g. plans/plan.md or next_steps.md"`
 	Content string `json:"content" jsonschema:"the text to write"`
 	Mode    string `json:"mode,omitempty" jsonschema:"replace (default) or append"`
 }
 
 // DocTools is a team.LocalOptions.RoleTools that gives the po role, and only
 // it, project_doc_write: the one place the PO can write, so it can keep the
-// documentation, the plan and the next steps of the project current. Source
-// code stays out of reach: writes are limited to .md files under cfg.Dirs
-// (inside the workspace, symlinks resolved).
-func DocTools(cfg DocsConfig) func(role string) []tools.Tool {
-	cfg = cfg.withDefaults()
+// documentation, the plan and the next steps of the project current. Where is
+// named by the demand (its doc_roots, from the hub by the job's exact thread);
+// a demand that names none gives no write access at all. Writes are limited to
+// .md files inside those directories, which must lie under the workspace
+// (symlinks resolved). Source code stays out of reach.
+func DocTools(hub func() *team.HubClient, cfg DocsConfig) func(role string) []tools.Tool {
+	cfg.WorkspaceRoot = Config{WorkspaceRoot: cfg.WorkspaceRoot}.withDefaults().WorkspaceRoot
 	ts := []tools.Tool{
-		tools.New("project_doc_write", "Create or update a project document (markdown) such as the documentation, the plan or next_steps. Writes only .md files under the project docs directory; replace overwrites the file, append adds to its end. Keep what is already true; never paste secrets.",
+		tools.New("project_doc_write", "Create or update a project document (markdown) such as the documentation, the plan or next_steps. Writes only .md files inside the document directories the demand named; replace overwrites the file, append adds to its end. Keep what is already true; never paste secrets.",
 			func(ctx context.Context, a docArgs) (any, error) {
-				p, err := docPath(cfg, a.Path)
-				if err != nil {
-					return nil, tools.Errorf("project_doc_write: %v", err)
+				_, sc, err := team.RequestScopeFromContext(ctx, hub())
+				if err != nil || len(sc.DocRoots) == 0 {
+					return nil, tools.Errorf("project_doc_write: the demand named no document directory (doc_roots): write refused")
 				}
-				if len(a.Content) > maxDocBytes {
-					return nil, tools.Errorf("project_doc_write: content is %d bytes, the limit is %d", len(a.Content), maxDocBytes)
-				}
-				switch a.Mode {
-				case "", "replace", "append":
-				default:
-					return nil, tools.Errorf("project_doc_write: mode must be replace or append, got %q", a.Mode)
-				}
-				if err := writeDoc(p, a.Content, a.Mode == "append"); err != nil {
-					return nil, tools.Errorf("project_doc_write: %v", err)
-				}
-				return fmt.Sprintf("wrote %d bytes to %s (%s)", len(a.Content), a.Path, map[bool]string{true: "appended", false: "replaced"}[a.Mode == "append"]), nil
+				return writeDocTool(cfg, sc.DocRoots, a)
 			}),
 	}
 	return func(role string) []tools.Tool {
@@ -76,42 +52,81 @@ func DocTools(cfg DocsConfig) func(role string) []tools.Tool {
 	}
 }
 
-// docPath returns the absolute, symlink-resolved target for p, refusing
-// anything but a .md file under one of cfg.Dirs of the workspace.
-func docPath(cfg DocsConfig, p string) (string, error) {
+func writeDocTool(cfg DocsConfig, roots []string, a docArgs) (any, error) {
+	p, err := docPath(cfg.WorkspaceRoot, roots, a.Path)
+	if err != nil {
+		return nil, tools.Errorf("project_doc_write: %v", err)
+	}
+	if len(a.Content) > maxDocBytes {
+		return nil, tools.Errorf("project_doc_write: content is %d bytes, the limit is %d", len(a.Content), maxDocBytes)
+	}
+	switch a.Mode {
+	case "", "replace", "append":
+	default:
+		return nil, tools.Errorf("project_doc_write: mode must be replace or append, got %q", a.Mode)
+	}
+	if err := writeDoc(p, a.Content, a.Mode == "append"); err != nil {
+		return nil, tools.Errorf("project_doc_write: %v", err)
+	}
+	return fmt.Sprintf("wrote %d bytes to %s (%s)", len(a.Content), a.Path, map[bool]string{true: "appended", false: "replaced"}[a.Mode == "append"]), nil
+}
+
+// docPath returns the absolute, symlink-resolved target for p: a .md file
+// inside one of roots, each of which must lie under the workspace. A relative
+// p starts at the first root. Directories that do not exist yet are allowed
+// inside a root; they are created on write.
+func docPath(workspace string, roots []string, p string) (string, error) {
 	if p == "" || strings.ContainsRune(p, 0) {
 		return "", fmt.Errorf("path is required")
 	}
 	if !strings.EqualFold(filepath.Ext(p), ".md") {
 		return "", fmt.Errorf("only .md files can be written, got %q", p)
 	}
-	ws, err := resolved(cfg.WorkspaceRoot)
+	for _, part := range strings.Split(filepath.ToSlash(p), "/") {
+		if part == ".." {
+			return "", fmt.Errorf("%q: '..' is not allowed", p)
+		}
+	}
+	ws, err := resolved(workspace)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("workspace root: %v", err)
+	}
+	var allowed []string
+	for _, r := range roots {
+		if strings.TrimSpace(r) == "" {
+			continue // an empty root grants nothing
+		}
+		if !filepath.IsAbs(r) {
+			r = filepath.Join(ws, r)
+		}
+		if rr, err := resolveExisting(filepath.Clean(r)); err == nil && within(rr, ws) {
+			allowed = append(allowed, rr)
+		}
+	}
+	if len(allowed) == 0 {
+		return "", fmt.Errorf("no document directory lies inside the workspace: write refused")
 	}
 	abs := p
 	if !filepath.IsAbs(p) {
-		abs = filepath.Join(ws, p)
+		abs = filepath.Join(allowed[0], p)
 	}
-	abs = filepath.Clean(abs)
+	dir, base := filepath.Split(filepath.Clean(abs))
 	// Resolve the deepest existing ancestor, so a symlinked directory cannot
-	// carry the write out of the allowed directory.
-	dir, base := filepath.Split(abs)
+	// carry the write out of its root.
 	real, err := resolveExisting(filepath.Clean(dir))
 	if err != nil {
 		return "", err
 	}
 	target := filepath.Join(real, base)
-	for _, d := range cfg.Dirs {
-		allowed, err := resolveExisting(filepath.Join(ws, d))
-		if err == nil && within(real, allowed) && within(allowed, ws) {
+	for _, r := range allowed {
+		if within(real, r) {
 			if fi, err := os.Lstat(target); err == nil && !fi.Mode().IsRegular() {
 				return "", fmt.Errorf("%s is not a regular file", p)
 			}
 			return target, nil
 		}
 	}
-	return "", fmt.Errorf("%s is outside the writable directories %v", p, cfg.Dirs)
+	return "", fmt.Errorf("%s is outside the document directories: write refused", p)
 }
 
 // resolveExisting resolves symlinks in the longest existing prefix of p and

@@ -80,7 +80,7 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 	})
 	g.AddNode("manager", m.intake)
 	po := m.step("po", "product-owner", tasktrack.InSpecification, func(s graph.State) string {
-		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v\n\n%s", s["request"], s["kickoff"], backendBlock(scopeOf(s))+docsBlock)
+		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v\n\n%s", s["request"], s["kickoff"], backendBlock(scopeOf(s))+docsBlock(scopeOf(s)))
 	}, "spec")
 	g.AddNode("po", func(ctx context.Context, s graph.State) (any, error) {
 		out, err := po(ctx, s)
@@ -104,8 +104,18 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 	return g.Compile(graph.WithName("engineering_team"), graph.WithCheckpointer(checkpoint.NewMemory()))
 }
 
-// docsBlock tells the PO it may keep the project's documents current.
-const docsBlock = "\n\n## Project documents\nYou may keep the project documentation, plan and next steps current with project_doc_write (markdown files under the project docs directory only). Update them when this request changes what is true; do not rewrite what is unchanged.\n"
+// docsBlock tells the PO where, if anywhere, it may keep project documents.
+func docsBlock(sc Scope) string {
+	if len(sc.DocRoots) == 0 {
+		return "\n\n## Project documents\nnone: the demand named no document directory, so do not write documents."
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## Project documents\nYou may keep the project documentation, plan and next steps current with project_doc_write (markdown files in these directories only; a relative path starts at the first). Update them when this request changes what is true; do not rewrite what is unchanged.\n")
+	for _, r := range sc.DocRoots {
+		b.WriteString("DOC ROOT: " + r + "\n")
+	}
+	return b.String()
+}
 
 func requestID(ctx context.Context) string {
 	id, _ := runnables.GetConfig(ctx).Configurable["thread_id"].(string)

@@ -374,7 +374,7 @@ func workerTools(shell tools.Tool, hub func() *team.HubClient, dir string) func(
 		}
 		return []tools.Tool{shell}
 	}
-	return roleTools(notPO, backend.RoleTools(hub, backend.Config{WorkspaceRoot: dir}), backend.DocTools(backend.DocsConfig{WorkspaceRoot: dir}), qa.RoleTools(hub, os.Getenv("PLAYWRIGHT_CMD")))
+	return roleTools(notPO, backend.RoleTools(hub, backend.Config{WorkspaceRoot: dir}), backend.DocTools(hub, backend.DocsConfig{WorkspaceRoot: dir}), qa.RoleTools(hub, os.Getenv("PLAYWRIGHT_CMD")))
 }
 
 // roleTools joins per-role tool sets: a role gets the tools of every set.
