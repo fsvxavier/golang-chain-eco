@@ -396,3 +396,31 @@ func TestShellRefusesDotGlobs(t *testing.T) {
 		}
 	}
 }
+
+// A symlink to the outside whose own name holds a literal [: bash reads an
+// unterminated [ as a literal, Go's Glob calls it a bad pattern.
+func TestDemoShellRejectsUnterminatedBracketThroughSymlink(t *testing.T) {
+	clearModelEnv(t)
+	parent := t.TempDir()
+	dir, outside := parent+"/work", parent+"/outside"
+	for _, d := range []string{dir, outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(outside+"/secret.txt", []byte("SECRETMARK"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"[link", "l[ink"} {
+		if err := os.Symlink(outside, dir+"/"+n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sh := shellTool(dir, compress.NewRTK(compress.FuncDecider(scripted)))
+	for _, cmd := range []string{"ls l[*", "ls [li?k", "ls [[:alpha:]ink", "grep -r SECRETMARK l[*", "ls [link", "ls l[ink"} {
+		out, err := sh.Call(context.Background(), map[string]any{"command": cmd})
+		if s := fmt.Sprint(out); err == nil || strings.Contains(s, "SECRETMARK") || strings.Contains(s, "link ->") {
+			t.Errorf("%q accepted (err %v), output %.80q", cmd, err, s)
+		}
+	}
+}

@@ -52,8 +52,11 @@ func outsideWorkspace(dir, command string) string {
 				sp := bracketsToAny(p)
 				gs = append(gs, sp, filepath.Clean(sp))
 			}
-			for _, g := range gs {
-				m, _ := filepath.Glob(g)
+			for i, g := range gs {
+				m, err := filepath.Glob(g)
+				if err != nil && i >= 2 { // the superset must always parse: never fail open
+					return true
+				}
 				cands = append(cands, m...)
 			}
 		}
@@ -130,7 +133,7 @@ func dotGlob(tok string) bool {
 
 // bracketsToAny replaces every bracket expression with "?": in both dialects
 // it matches exactly one character, so the copy matches a superset. An
-// unterminated "[" is literal in bash and left as is.
+// unterminated "[" is literal in bash and is escaped so Go matches it literally.
 func bracketsToAny(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -155,7 +158,7 @@ func bracketsToAny(s string) string {
 			j++
 		}
 		if j >= len(s) {
-			b.WriteByte('[')
+			b.WriteString(`\[`) // Go's Glob rejects a bare unterminated [ as a bad pattern
 			continue
 		}
 		b.WriteByte('?')
