@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -256,31 +257,97 @@ func confine(dir, command string) error {
 	if err != nil {
 		return err
 	}
-	for _, seg := range strings.FieldsFunc(command, func(r rune) bool { return r == ';' || r == '&' || r == '|' || r == '\n' }) {
-		for _, tok := range shellTokens(seg) {
-			if strings.HasPrefix(tok, "-") {
-				continue
-			}
-			if strings.HasPrefix(tok, "~") {
+	// pathOK checks one candidate path; a name that is not on disk passes.
+	pathOK := func(tok string) error {
+		if strings.HasPrefix(tok, "~") {
+			return errOutside(tok)
+		}
+		full := tok
+		if !filepath.IsAbs(tok) {
+			full = dir + "/" + tok // not Join: keep "link/.." for the OS to resolve
+		}
+		cands := []string{full, filepath.Clean(full)}
+		if strings.ContainsAny(tok, "*?[") {
+			m, _ := filepath.Glob(full)
+			cands = append(cands, m...)
+		}
+		for _, c := range cands {
+			if ok, exists := inside(realDir, c); exists && !ok {
 				return errOutside(tok)
 			}
-			full := tok
-			if !filepath.IsAbs(tok) {
-				full = dir + "/" + tok // not Join: keep "link/.." for the OS to resolve
+		}
+		return nil
+	}
+	for _, seg := range strings.FieldsFunc(command, func(r rune) bool { return r == ';' || r == '&' || r == '|' || r == '\n' }) {
+		toks := shellTokens(seg)
+		if len(toks) == 0 {
+			continue
+		}
+		prog := filepath.Base(toks[0])
+		dashdash := false
+		for _, tok := range toks {
+			if dashdash || !strings.HasPrefix(tok, "-") {
+				if err := pathOK(tok); err != nil {
+					return err
+				}
+				continue
 			}
-			cands := []string{full, filepath.Clean(full)}
-			if strings.ContainsAny(tok, "*?[") {
-				m, _ := filepath.Glob(full)
-				cands = append(cands, m...)
+			if tok == "--" {
+				dashdash = true
+				continue
 			}
-			for _, c := range cands {
-				if ok, exists := inside(realDir, c); exists && !ok {
-					return errOutside(tok)
+			if name, val, ok := strings.Cut(tok, "="); strings.HasPrefix(tok, "--") {
+				if deniedFlag(prog, name) {
+					return tools.Errorf("shell: flag %s is not allowed", name)
+				}
+				if ok {
+					if err := pathOK(val); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			// short flags: -f/etc/x, -C/, -nf
+			if deniedFlag(prog, tok) {
+				return tools.Errorf("shell: flag %s is not allowed", tok)
+			}
+			if i := strings.IndexAny(tok, "/~."); i > 0 {
+				if err := pathOK(tok[i:]); err != nil {
+					return err
 				}
 			}
 		}
 	}
 	return nil
+}
+
+// deniedFlag reports flags that read a file of patterns or paths, follow
+// symlinks recursively, or move git/go to another directory. Short ones are
+// matched by prefix and, in an all-letter cluster such as -nf, by letter.
+func deniedFlag(prog, flag string) bool {
+	var short, long []string
+	switch prog {
+	case "grep":
+		short, long = []string{"f", "R"}, []string{"--file", "--exclude-from", "--include-from", "--dereference-recursive"}
+	case "git", "go":
+		short, long = []string{"C"}, []string{"--git-dir", "--work-tree"}
+	}
+	if strings.HasPrefix(flag, "--") {
+		return slices.Contains(long, flag)
+	}
+	letters := strings.TrimPrefix(flag, "-")
+	cluster := letters != ""
+	for _, r := range letters {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			cluster = false
+		}
+	}
+	for _, f := range short {
+		if strings.HasPrefix(letters, f) || cluster && strings.Contains(letters, f) {
+			return true
+		}
+	}
+	return false
 }
 
 // shellTool runs allowlisted commands in dir. Simple ones go through rtk when
@@ -300,10 +367,10 @@ func shellTool(dir string, rtk *compress.RTK) tools.Tool {
 		Rewrite:         rtk.Rewrite,
 	}
 	run := rtk.Executor(sh)
-	return tools.New("shell", "Run one shell command in the team workspace (no redirections, no $ or backticks, paths stay inside the workspace). Allowed programs: "+strings.Join(allowed, ", ")+".",
+	return tools.New("shell", "Run one shell command in the team workspace (no redirections, $, backticks, backslashes or braces, paths stay inside the workspace). Allowed programs: "+strings.Join(allowed, ", ")+".",
 		func(ctx context.Context, a shellArgs) (any, error) {
-			if strings.ContainsAny(a.Command, "<>$`") {
-				return nil, tools.Errorf("shell: redirections (< >), $ and backticks are not allowed")
+			if strings.ContainsAny(a.Command, "<>$`\\{}") {
+				return nil, tools.Errorf("shell: redirections (< >), $, backticks, backslashes and braces are not allowed")
 			}
 			if err := confine(dir, a.Command); err != nil {
 				return nil, err

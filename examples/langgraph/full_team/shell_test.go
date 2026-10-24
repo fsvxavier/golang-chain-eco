@@ -90,3 +90,41 @@ func TestAllowedProgramsWithLiveModel(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+// Each of these reached a host file before: through a flag value, an escape or
+// a brace the tokeniser reads differently from the shell.
+func TestShellRejectsBypasses(t *testing.T) {
+	sh, dir := testShell(t)
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("topsecret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pats"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range []string{
+		"grep x --file=" + secret, "grep x -f" + secret, "grep x -f pats", "grep x --file pats", "grep -nf pats .",
+		"grep -r x --exclude-from=" + secret, "grep -r x --include-from=pats", "grep x --regexp=" + secret + " -e" + secret,
+		"grep x -e" + secret, "grep x -- " + secret, "grep x -- ..", "grep -R x .", "grep --dereference-recursive x .",
+		`ls \/etc`, "ls {/etc,/tmp}", "ls /{etc,tmp}", "echo \\$HOME",
+		"git -C / status", "git --git-dir=" + outside + " status", "git --work-tree=/ status", "go -C / env",
+	} {
+		out, err := runShell(t, sh, cmd)
+		if err == nil {
+			t.Errorf("%q accepted, output %.80q", cmd, out)
+		}
+	}
+}
+
+func TestShellAllowsPlainFlags(t *testing.T) {
+	sh, _ := testShell(t)
+	for _, cmd := range []string{"grep -rn x .", "grep -r --include=*.go x .", "grep -n -C 2 foo sub", "grep -e foo -- sub", "ls -la sub"} {
+		if _, err := runShell(t, sh, cmd); err != nil {
+			t.Errorf("%q: %v", cmd, err)
+		}
+	}
+}

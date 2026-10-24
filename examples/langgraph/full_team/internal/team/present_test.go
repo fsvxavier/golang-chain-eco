@@ -205,7 +205,7 @@ func TestGraphToolNeverSendsManagerKeyElsewhere(t *testing.T) {
 // A worker that is stopped stops heartbeating; once the hub reaps its lease it
 // is gone from Hub.State, yet the roll still expects it and reports it absent.
 func TestPresentAbsentAfterRealLeaseExpiry(t *testing.T) {
-	t.Setenv("HUB_LEASE_TTL", "600ms")
+	t.Setenv("HUB_LEASE_TTL", "1500ms")
 	c := ctx(t)
 	l, err := StartLocalWith(c, LocalOptions{})
 	if err != nil {
@@ -234,15 +234,15 @@ func TestPresentAbsentAfterRealLeaseExpiry(t *testing.T) {
 		}
 		return false
 	}
-	if !poll(registered) {
-		t.Fatalf("%s never registered", id)
-	}
-	before, err := presentTool(t, b).Call(c, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := fmt.Sprintf("%d of %d present", n, n); !strings.Contains(fmt.Sprint(before), want) {
-		t.Fatalf("before stop, want %q in:\n%s", want, before)
+	// every worker present (not only this one) before the stop, polled for slow machines
+	want := fmt.Sprintf("%d of %d present", n, n)
+	var before string
+	if !poll(func() bool {
+		out, err := presentTool(t, b).Call(c, nil)
+		before = fmt.Sprint(out)
+		return err == nil && strings.Contains(before, want) && registered()
+	}) {
+		t.Fatalf("before stop, want %q and %s registered in:\n%s", want, id, before)
 	}
 	l.Workers[id]()
 	if !poll(func() bool { return !registered() }) {
