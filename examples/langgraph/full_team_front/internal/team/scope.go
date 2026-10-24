@@ -3,7 +3,6 @@ package team
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
 )
@@ -17,27 +16,22 @@ type Scope struct {
 	AppURL string   `json:"app_url,omitempty"`
 }
 
+// IsEmpty reports that the demand named nothing. An empty Scope with a nil
+// error means exactly that, and consumers must treat it as no access.
+func (s Scope) IsEmpty() bool { return len(s.Roots) == 0 && len(s.URLs) == 0 && s.AppURL == "" }
+
 // ErrNoScope is returned by HubClient.Scope when the request has none.
 var ErrNoScope = errors.New("hub: no scope for this request")
 
 // ScopeFromContext returns the scope of the request a worker tool is running
-// for. The id comes from the run's thread (runnables config), which the worker
-// sets from the job, never from model text. The job thread is
-// "<request id>-<name>" and request ids may hold dashes, so trailing segments
-// are dropped until a stored scope matches; the manager stores one (possibly
-// empty) for every request, so the longest match is the request itself.
+// for. The thread id comes from the run's config, which the worker sets from
+// the job. The hub maps that exact thread to the request that owns a running
+// job on it; any other thread (client-chosen, team_ask_worker) yields
+// ErrNoScope and the zero Scope, with no prefix or other fallback.
 func ScopeFromContext(ctx context.Context, hub *HubClient) (Scope, error) {
 	id, _ := runnables.GetConfig(ctx).Configurable["thread_id"].(string)
-	for id != "" {
-		s, err := hub.Scope(ctx, id)
-		if !errors.Is(err, ErrNoScope) {
-			return s, err
-		}
-		i := strings.LastIndex(id, "-")
-		if i < 0 {
-			break
-		}
-		id = id[:i]
+	if id == "" {
+		return Scope{}, ErrNoScope
 	}
-	return Scope{}, ErrNoScope
+	return hub.ThreadScope(ctx, id)
 }

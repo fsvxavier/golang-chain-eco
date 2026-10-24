@@ -123,8 +123,8 @@ func (m *manager) ask(ctx context.Context, prompt string) (string, error) {
 }
 
 func (m *manager) intake(ctx context.Context, s graph.State) (any, error) {
-	// Stored for every request, empty when the demand named none: workers find
-	// the request's scope by longest id prefix, so each request needs an entry.
+	// Stored for every request, empty when the demand named none; workers reach
+	// it through the exact job thread (Hub.ThreadScope), never by id prefix.
 	var sc Scope
 	if raw, err := json.Marshal(s["scope"]); err == nil {
 		_ = json.Unmarshal(raw, &sc)

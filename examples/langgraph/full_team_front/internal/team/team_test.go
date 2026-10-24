@@ -496,3 +496,38 @@ func TestToolSeesJobScope(t *testing.T) {
 		t.Fatalf("tool saw %+v, want %+v", got, want)
 	}
 }
+
+// scopeCtx is a context as a worker's tool sees it: the run's thread id.
+func scopeCtx(t *testing.T, thread string) context.Context {
+	return runnables.WithConfig(ctx(t), runnables.Config{Configurable: map[string]any{"thread_id": thread}})
+}
+
+// A thread no job owns gets no scope, even when its prefix is a real request.
+func TestScopeNeverResolvedByPrefix(t *testing.T) {
+	h := NewHub(time.Minute)
+	ts := newTestServer(t, h.Handler(nil))
+	c := NewHubClient(ts.URL)
+	h.SetScope("R1", Scope{Roots: []string{"/victim"}})
+	s, err := ScopeFromContext(scopeCtx(t, "R1-x"), c)
+	if !errors.Is(err, ErrNoScope) || !s.IsEmpty() {
+		t.Fatalf("client-chosen thread got %+v, %v", s, err)
+	}
+}
+
+// Requests R1 and R1-T1 coexist: job thread R1-T1-dev belongs to R1.
+func TestScopeIdCollision(t *testing.T) {
+	h := NewHub(time.Minute)
+	ts := newTestServer(t, h.Handler(nil))
+	c := NewHubClient(ts.URL)
+	h.SetScope("R1", Scope{Roots: []string{"/r1"}})
+	h.SetScope("R1-T1", Scope{Roots: []string{"/r1-t1"}})
+	h.Register("dev", "junior", "http://x")
+	h.Submit(Job{Thread: "R1-T1-dev", Prefer: []string{"dev"}, Scope: "R1"})
+	if j, err := c.Claim(ctx(t), "dev"); err != nil || j == nil {
+		t.Fatalf("claim: %v %v", j, err)
+	}
+	s, err := ScopeFromContext(scopeCtx(t, "R1-T1-dev"), c)
+	if err != nil || len(s.Roots) != 1 || s.Roots[0] != "/r1" {
+		t.Fatalf("got %+v, %v; want R1's scope", s, err)
+	}
+}
