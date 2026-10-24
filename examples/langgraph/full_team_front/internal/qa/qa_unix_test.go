@@ -28,11 +28,18 @@ func TestCommandRunnerTimeoutKillsProcessGroup(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("err = %v", err)
 	}
-	b, rerr := os.ReadFile(pidfile)
-	if rerr != nil {
-		t.Fatal(rerr)
+	var pid int
+	for deadline := time.Now().Add(5 * time.Second); pid == 0 && time.Now().Before(deadline); {
+		if b, err := os.ReadFile(pidfile); err == nil {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+		if pid == 0 {
+			time.Sleep(25 * time.Millisecond)
+		}
 	}
-	pid, _ := strconv.Atoi(string(b))
+	if pid == 0 {
+		t.Fatal("helper never wrote its pidfile")
+	}
 	for i := 0; i < 40; i++ {
 		if syscall.Kill(pid, 0) != nil {
 			return

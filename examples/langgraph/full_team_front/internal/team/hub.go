@@ -96,17 +96,23 @@ func (h *Hub) Scope(id string) (Scope, bool) {
 // ThreadScope returns the scope of the request that owns a running job whose
 // Thread is exactly thread, and that request's id. A tool runs while its job
 // runs, so running jobs suffice; jobs are never pruned, but finished ones no
-// longer vouch for a thread.
+// longer vouch for a thread. If running jobs on the thread belong to more than
+// one request it is ambiguous and nothing is returned (fail closed).
 func (h *Hub) ThreadScope(thread string) (Scope, string, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	var id string
 	for _, j := range h.jobs {
-		if j.Status == "running" && j.Thread == thread && j.Scope != "" {
-			s, ok := h.scopes[j.Scope]
-			return s, j.Scope, ok
+		if j.Status != "running" || j.Thread != thread || j.Scope == "" {
+			continue
 		}
+		if id != "" && id != j.Scope {
+			return Scope{}, "", false
+		}
+		id = j.Scope
 	}
-	return Scope{}, "", false
+	s, ok := h.scopes[id]
+	return s, id, ok && id != ""
 }
 
 // notifyLocked wakes every waiter; callers hold h.mu.

@@ -7,8 +7,8 @@ import (
 
 // brain is the scripted stand-in for the model when no API key is set. It
 // answers in the formats the skills define, keyed by the ROLE line of the
-// prompt, and makes two gates return a task once so the loop back to the
-// engineer is visible: the leader returns T2 and the specialist T3 (joint review), QA returns T4.
+// prompt, and makes the three return gates return a task once so the loop back to the
+// engineer is visible: the leader returns T2, the specialist T3 (joint review) and QA T4.
 func Brain(prompt string) string {
 	role := field(prompt, "ROLE:")
 	id, attempt := field(prompt, "TASK:"), field(prompt, "ATTEMPT:")

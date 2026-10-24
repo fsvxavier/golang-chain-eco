@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -371,8 +372,8 @@ func TestRejectedWorkReturnsToSameDeveloper(t *testing.T) {
 	res := resultsOf(t, out)
 	hist := fmt.Sprint(out["history"])
 	for _, id := range []string{"T2", "T3", "T4"} { // joint review (leader, specialist) and QA returns
-		if fmt.Sprint(res[id]["rounds"]) == "0" {
-			t.Fatalf("%s was never returned", id)
+		if n, err := strconv.Atoi(fmt.Sprint(res[id]["rounds"])); err != nil || n < 1 {
+			t.Fatalf("%s was never returned (rounds %v)", id, res[id]["rounds"])
 		}
 		for _, w := range []string{"junior-1", "junior-2", "mid-1", "mid-2", "senior-1", "senior-2"} {
 			if w != res[id]["by"] && strings.Contains(hist, id+": "+w+" -> review") {
@@ -386,6 +387,24 @@ func TestPlanParsesPreferField(t *testing.T) {
 	ts := parsePlan("TASK|T1|a|low|do a|PREFER:mid-2\nTASK|T2|b|high|do b with | inside?\nnoise")
 	if len(ts) != 2 || ts[0].Prefer != "mid-2" || ts[0].Desc != "do a" || ts[1].Prefer != "" || ts[1].Desc != "do b with | inside?" {
 		t.Fatalf("%+v", ts)
+	}
+}
+
+// Two running jobs on the same thread that carry different request scopes
+// make the thread ambiguous: ThreadScope returns nothing instead of picking one.
+func TestThreadScopeFailsClosedOnAmbiguity(t *testing.T) {
+	h := NewHub(time.Minute)
+	h.Register("senior-1", "senior", "http://127.0.0.1:1")
+	h.Register("senior-2", "senior", "http://127.0.0.1:1")
+	h.SetScope("req-a", Scope{Roots: []string{"/a"}})
+	h.SetScope("req-b", Scope{Roots: []string{"/b"}})
+	h.Submit(Job{Prefer: []string{"senior"}, Thread: "th", Scope: "req-a"})
+	if _, id, ok := h.ThreadScope("th"); !ok || id != "req-a" {
+		t.Fatalf("single scope: id=%q ok=%v", id, ok)
+	}
+	h.Submit(Job{Prefer: []string{"senior"}, Thread: "th", Scope: "req-b"})
+	if sc, id, ok := h.ThreadScope("th"); ok || id != "" || len(sc.Roots) != 0 {
+		t.Fatalf("ambiguous thread returned %v %q %v", sc, id, ok)
 	}
 }
 
