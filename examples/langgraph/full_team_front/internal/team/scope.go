@@ -29,9 +29,16 @@ var ErrNoScope = errors.New("hub: no scope for this request")
 // job on it; any other thread (client-chosen, team_ask_worker) yields
 // ErrNoScope and the zero Scope, with no prefix or other fallback.
 func ScopeFromContext(ctx context.Context, hub *HubClient) (Scope, error) {
+	_, s, err := RequestScopeFromContext(ctx, hub)
+	return s, err
+}
+
+// RequestScopeFromContext is ScopeFromContext plus the id of the request that
+// owns the job, resolved by the same exact thread match.
+func RequestScopeFromContext(ctx context.Context, hub *HubClient) (string, Scope, error) {
 	id, _ := runnables.GetConfig(ctx).Configurable["thread_id"].(string)
-	if id == "" {
-		return Scope{}, ErrNoScope
+	if id == "" || hub == nil {
+		return "", Scope{}, ErrNoScope
 	}
-	return hub.ThreadScope(ctx, id)
+	return hub.ThreadRequest(ctx, id)
 }

@@ -11,6 +11,10 @@
 // last Human message, asking for less code) and TOON (JSON tool results
 // rewritten to a shorter form). Offline, every worker calls open_tasks once per
 // turn, so the list of tasks reaches the model as JSON and gets rewritten.
+//
+// The demand names a backend (a fake source tree and API, see
+// internal/backend/fake), and the PO reads it through read-only guarded tools
+// before writing the spec.
 package main
 
 import (
@@ -22,6 +26,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
@@ -30,6 +35,8 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/deepagents/backends"
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/backend"
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/backend/fake"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/team"
 )
 
@@ -59,21 +66,41 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 	// turn to compress. NewCompression's guard is kept by wrapping it here.
 	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
 
+	// The demo demand names the fake backend: its source tree written into the
+	// workspace and its API on loopback. The PO tools reach nothing else.
+	root, err := fake.WriteRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	api := fake.Serve()
+	defer api.Close()
+	var hub atomic.Pointer[team.HubClient] // known once the team is up; until then no access
+
 	l, err := team.StartLocalWith(ctx, team.LocalOptions{
-		Middleware: []agents.Middleware{m},
-		Tools:      []tools.Tool{shell, tasksTool()},
-		Offline:    team.OfflineWithTool(tasksToolName),
+		Middleware:  []agents.Middleware{m},
+		Tools:       []tools.Tool{shell, tasksTool()},
+		RoleTools:   backend.RoleTools(hub.Load, backend.Config{WorkspaceRoot: dir}),
+		CallCounter: backend.Calls,
+		Offline:     team.OfflineWithTool(tasksToolName),
 	})
 	if err != nil {
 		return nil, err
 	}
+	hub.Store(team.NewHubClient(l.HubURL))
 	fmt.Fprintf(w, "decider %s; hub %s, manager %s, %d workers\n", source, l.HubURL, l.ManagerURL, len(l.Workers))
 
-	out, err := team.Invoke(ctx, l.ManagerURL, messages.NewID(), team.DefaultRequest)
+	out, err := team.InvokeWithScope(ctx, l.ManagerURL, messages.NewID(), team.DefaultRequest,
+		team.Scope{Roots: []string{root}, URLs: []string{api.URL}})
 	if err != nil {
 		cancel()
 		l.Wait()
 		return nil, err
+	}
+	// Offline the scripted PO always reads the fake backend, so a flag means the wiring broke.
+	if spec := fmt.Sprint(out["spec"]); team.ModelSpec("po") == "" && strings.Contains(spec, "UNVERIFIED") {
+		cancel()
+		l.Wait()
+		return nil, fmt.Errorf("offline PO produced no backend evidence:\n%s", spec)
 	}
 	team.Print(out)
 	m.print(w)

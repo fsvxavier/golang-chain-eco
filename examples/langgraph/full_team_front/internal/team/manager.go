@@ -46,6 +46,7 @@ type manager struct {
 	hub   *HubClient
 	agent *graph.Compiled
 	track *tasktrack.Tracker
+	calls func(requestID string) int // backend calls per request; nil: not counted
 }
 
 // move records a status change. An illegal move is a bug in the flow, not in
@@ -58,7 +59,9 @@ func (m *manager) move(ctx context.Context, kind tasktrack.Kind, id string, to t
 
 // NewManager builds the manager graph, served by the manager service through
 // remote/server and called by clients with remote.Graph.
-func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker) (*graph.Compiled, error) {
+// calls counts a request's backend calls for the PO evidence rule (nil skips
+// that half of the rule).
+func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker, calls func(requestID string) int) (*graph.Compiled, error) {
 	prompt, err := Skill("manager")
 	if err != nil {
 		return nil, err
@@ -67,7 +70,7 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker)
 	if err != nil {
 		return nil, err
 	}
-	m := &manager{hub: hub, agent: agent, track: track}
+	m := &manager{hub: hub, agent: agent, track: track, calls: calls}
 
 	g := graph.NewStateGraph(graph.Schema{
 		"request": channels.LastValue(), "kickoff": channels.LastValue(),
@@ -76,9 +79,18 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker)
 		"report": channels.LastValue(), "status": channels.LastValue(),
 	})
 	g.AddNode("manager", m.intake)
-	g.AddNode("po", m.step("po", "product-owner", tasktrack.InSpecification, func(s graph.State) string {
-		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v", s["request"], s["kickoff"])
-	}, "spec"))
+	po := m.step("po", "product-owner", tasktrack.InSpecification, func(s graph.State) string {
+		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v\n\n%s", s["request"], s["kickoff"], backendBlock(scopeOf(s)))
+	}, "spec")
+	g.AddNode("po", func(ctx context.Context, s graph.State) (any, error) {
+		out, err := po(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		st := out.(graph.State)
+		st["spec"] = verifiedSpec(fmt.Sprint(st["spec"]), scopeOf(s), m.calls, requestID(ctx))
+		return st, nil
+	})
 	g.AddNode("build", m.build)
 	g.AddNode("deliver", m.deliver)
 	g.AddEdge(graph.Start, "manager").AddEdge("manager", "po").AddEdge("po", "build").
@@ -125,11 +137,7 @@ func (m *manager) ask(ctx context.Context, prompt string) (string, error) {
 func (m *manager) intake(ctx context.Context, s graph.State) (any, error) {
 	// Stored for every request, empty when the demand named none; workers reach
 	// it through the exact job thread (Hub.ThreadScope), never by id prefix.
-	var sc Scope
-	if raw, err := json.Marshal(s["scope"]); err == nil {
-		_ = json.Unmarshal(raw, &sc)
-	}
-	if err := m.hub.SetScope(ctx, requestID(ctx), sc); err != nil {
+	if err := m.hub.SetScope(ctx, requestID(ctx), scopeOf(s)); err != nil {
 		return nil, err
 	}
 	m.move(ctx, tasktrack.Request, subject(ctx, ""), tasktrack.Received, "manager", head(fmt.Sprint(s["request"]), 80))
@@ -139,6 +147,57 @@ func (m *manager) intake(ctx context.Context, s graph.State) (any, error) {
 	}
 	log.Printf("manager: request %s routed to %s", requestID(ctx), field(out, "ROUTE:"))
 	return graph.State{"kickoff": field(out, "KICKOFF:"), "history": "manager -> product-owner"}, nil
+}
+
+// scopeOf decodes the demand's scope from the graph state (a map after JSON).
+func scopeOf(s graph.State) Scope {
+	var sc Scope
+	if raw, err := json.Marshal(s["scope"]); err == nil {
+		_ = json.Unmarshal(raw, &sc)
+	}
+	return sc
+}
+
+// backendBlock tells the PO what the demand lets its backend tools reach.
+func backendBlock(sc Scope) string {
+	if len(sc.Roots)+len(sc.URLs) == 0 {
+		return "## Backend named by the demand\nnone: do not call the backend tools; say so in OPEN ITEMS."
+	}
+	var b strings.Builder
+	b.WriteString("## Backend named by the demand\n")
+	for _, r := range sc.Roots {
+		b.WriteString("ROOT: " + r + "\n")
+	}
+	for _, u := range sc.URLs {
+		b.WriteString("URL: " + u + "\n")
+	}
+	return b.String()
+}
+
+// verifiedSpec enforces the evidence rule: when the demand named a backend, the
+// spec needs an EVIDENCE block and at least one counted backend call (that half
+// is skipped when calls is nil). Otherwise the spec's OPEN ITEMS get flagged.
+func verifiedSpec(spec string, sc Scope, calls func(string) int, requestID string) string {
+	if len(sc.Roots)+len(sc.URLs) == 0 {
+		return spec
+	}
+	hasEvidence := false
+	for _, l := range strings.Split(spec, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "EVIDENCE:") {
+			hasEvidence = true
+		}
+	}
+	if hasEvidence && (calls == nil || calls(requestID) >= 1) {
+		return spec
+	}
+	const flag = "- UNVERIFIED: no backend evidence"
+	lines := strings.Split(spec, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "OPEN ITEMS:") {
+			return strings.Join(append(lines[:i+1:i+1], append([]string{flag}, lines[i+1:]...)...), "\n")
+		}
+	}
+	return spec + "\nOPEN ITEMS:\n" + flag
 }
 
 // dispatch queues a job for one of prefer (worker ids or roles) and waits.

@@ -111,12 +111,12 @@ func (h *Hub) Handler(mcp http.Handler) http.Handler {
 		reply(w, 200, s)
 	})
 	mux.HandleFunc("GET /thread-scope/{thread}", func(w http.ResponseWriter, r *http.Request) {
-		s, ok := h.ThreadScope(r.PathValue("thread"))
+		s, id, ok := h.ThreadScope(r.PathValue("thread"))
 		if !ok {
 			reply(w, 404, map[string]string{"error": ErrNoScope.Error()})
 			return
 		}
-		reply(w, 200, s)
+		reply(w, 200, threadScope{s, id})
 	})
 	mux.HandleFunc("GET /state", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.Snapshot()) })
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, map[string]bool{"ok": true}) })
@@ -266,18 +266,31 @@ func (c *HubClient) Scope(ctx context.Context, id string) (Scope, error) {
 	return s, nil
 }
 
+// threadScope is the /thread-scope reply: the scope and the id of the request
+// that owns the thread's running job.
+type threadScope struct {
+	Scope
+	Request string `json:"request"`
+}
+
 // ThreadScope returns the scope of the request that owns the running job on
 // exactly this thread, or ErrNoScope (and the zero Scope) for any other thread.
 func (c *HubClient) ThreadScope(ctx context.Context, thread string) (Scope, error) {
-	var s Scope
-	code, err := c.call(ctx, "GET", "/thread-scope/"+url.PathEscape(thread), nil, &s)
+	_, s, err := c.ThreadRequest(ctx, thread)
+	return s, err
+}
+
+// ThreadRequest is ThreadScope plus the owning request's id.
+func (c *HubClient) ThreadRequest(ctx context.Context, thread string) (string, Scope, error) {
+	var ts threadScope
+	code, err := c.call(ctx, "GET", "/thread-scope/"+url.PathEscape(thread), nil, &ts)
 	switch {
 	case err != nil:
-		return Scope{}, err
+		return "", Scope{}, err
 	case code == 404:
-		return Scope{}, ErrNoScope
+		return "", Scope{}, ErrNoScope
 	case code != 200:
-		return Scope{}, fmt.Errorf("hub: thread scope: http %d", code)
+		return "", Scope{}, fmt.Errorf("hub: thread scope: http %d", code)
 	}
-	return s, nil
+	return ts.Request, ts.Scope, nil
 }

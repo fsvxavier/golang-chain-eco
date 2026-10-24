@@ -34,12 +34,17 @@ func Brain(prompt string) string {
 	case role == "manager":
 		return "ROUTE: product-owner\nKICKOFF: " + field(prompt, "REQUEST:")
 	case role == "po":
+		open := ""
+		if r, u := backendNamed(prompt); len(r)+len(u) == 0 {
+			open = "\nOPEN ITEMS:\n- No backend was named in the demand: endpoints, payloads and errors are unverified."
+		}
 		return "SPEC:\nSTORY: As a shopper, I want to apply a coupon at checkout, so that I pay the discounted price.\n" +
 			"AC1: A valid coupon shows its discount in the cart without consuming it.\n" +
 			"AC2: An expired or exhausted coupon is rejected with a clear message.\n" +
 			"AC3: At payment the coupon is consumed exactly once, even with concurrent payments.\n" +
 			"AC4: If the payment fails, the coupon becomes available again.\n" +
-			"OUT_OF_SCOPE: coupon authoring UI.\nASSUMPTIONS: one coupon per order."
+			"UI_STATES: loading while the coupon is checked; empty before a code is entered; error with the rejection message.\n" +
+			"OUT_OF_SCOPE: coupon authoring UI.\nASSUMPTIONS: one coupon per order." + open
 	case role == "leader" && field(prompt, "MODE:") == "review" && id == "T2" && attempt == "1":
 		return "VERDICT: RETURN\nFEEDBACK: 1. The endpoint design leaks coupon state: price the cart through the shared pricing module, not a copy of its rules."
 	case role == "leader" && field(prompt, "MODE:") == "review":

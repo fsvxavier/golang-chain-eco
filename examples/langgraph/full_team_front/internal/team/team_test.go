@@ -531,3 +531,60 @@ func TestScopeIdCollision(t *testing.T) {
 		t.Fatalf("got %+v, %v; want R1's scope", s, err)
 	}
 }
+
+// A demand that names a backend needs evidence: a PO answer without an
+// EVIDENCE block (or without a backend call) gets flagged in OPEN ITEMS.
+func TestPOSpecWithoutEvidenceIsMarkedUnverified(t *testing.T) {
+	c := ctx(t)
+	l, err := StartLocalWith(c, LocalOptions{
+		Offline: func(ms []messages.Message) messages.Message {
+			m, _ := messages.LastOfRole(ms, messages.RoleHuman)
+			return messages.AI(Brain(m.Text()))
+		},
+		CallCounter: func(string) int { return 0 },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := InvokeWithScope(c, l.ManagerURL, "req-unverified", DefaultRequest, Scope{Roots: []string{"/srv/api"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := fmt.Sprint(out["spec"])
+	if !strings.Contains(after(spec, "OPEN ITEMS:"), "UNVERIFIED: no backend evidence") {
+		t.Fatalf("spec must be flagged: %s", spec)
+	}
+	// No backend named: nothing to verify, and the PO says so itself.
+	out, err = Invoke(c, l.ManagerURL, "req-nobackend", DefaultRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec := fmt.Sprint(out["spec"]); strings.Contains(spec, "UNVERIFIED") {
+		t.Fatalf("no scope, no flag: %s", spec)
+	}
+}
+
+func TestVerifiedSpec(t *testing.T) {
+	sc := Scope{URLs: []string{"http://api:8080"}}
+	withEv := "SPEC:\nAC1: x\nEVIDENCE:\n- backend_get /x: 200\nOPEN ITEMS:\n- none"
+	for _, tc := range []struct {
+		name, spec string
+		sc         Scope
+		calls      func(string) int
+		flagged    bool
+	}{
+		{"evidence and calls", withEv, sc, func(string) int { return 1 }, false},
+		{"evidence, no calls", withEv, sc, func(string) int { return 0 }, true},
+		{"evidence, no counter", withEv, sc, nil, false},
+		{"no evidence", "SPEC:\nAC1: x", sc, func(string) int { return 3 }, true},
+		{"app url only", "SPEC:\nAC1: x", Scope{AppURL: "http://app"}, nil, false},
+	} {
+		got := verifiedSpec(tc.spec, tc.sc, tc.calls, "r")
+		if strings.Contains(got, "UNVERIFIED: no backend evidence") != tc.flagged {
+			t.Errorf("%s: %q", tc.name, got)
+		}
+		if tc.flagged && !strings.Contains(after(got, "OPEN ITEMS:"), "UNVERIFIED") {
+			t.Errorf("%s: flag outside OPEN ITEMS: %q", tc.name, got)
+		}
+	}
+}

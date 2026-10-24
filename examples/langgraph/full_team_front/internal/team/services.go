@@ -58,8 +58,9 @@ func RunHub(ctx context.Context, ln net.Listener) error {
 
 // RunManager serves the manager's delivery graph as an Agent Server
 // (remote/server, the LangGraph Platform subset). Clients call it with
-// remote.Graph.
-func RunManager(ctx context.Context, hubURL string, ln net.Listener) error {
+// remote.Graph. calls counts a request's backend calls for the evidence rule
+// (nil: skip that half of the rule).
+func RunManager(ctx context.Context, hubURL string, ln net.Listener, calls func(requestID string) int) error {
 	chat, label, err := NewModel("manager", offline)
 	if err != nil {
 		return err
@@ -69,7 +70,7 @@ func RunManager(ctx context.Context, hubURL string, ln net.Listener) error {
 		return err
 	}
 	track.OnError = func(err error) { log.Print(err) }
-	app, err := NewManager(NewHubClient(hubURL), chat, track)
+	app, err := NewManager(NewHubClient(hubURL), chat, track, calls)
 	if err != nil {
 		return err
 	}
@@ -91,6 +92,11 @@ func Env(k, def string) string {
 // returns its final state. thread is the request id: it keys the manager's
 // checkpoint and the team memory.
 func Invoke(ctx context.Context, managerURL, thread, request string) (map[string]any, error) {
+	return InvokeWithScope(ctx, managerURL, thread, request, Scope{})
+}
+
+// InvokeWithScope is Invoke for a demand that names a backend and front end.
+func InvokeWithScope(ctx context.Context, managerURL, thread, request string, sc Scope) (map[string]any, error) {
 	c := remote.NewClient(managerURL)
 	c.APIKey = os.Getenv("MANAGER_API_KEY")
 	tid, err := c.CreateThread(ctx, map[string]any{"request": thread})
@@ -98,7 +104,7 @@ func Invoke(ctx context.Context, managerURL, thread, request string) (map[string
 		return nil, err
 	}
 	g := &remote.Graph{Client: c, AssistantID: "engineering_team"}
-	return g.Invoke(runnables.WithConfig(ctx, graph.Thread(tid)), graph.State{"request": request})
+	return g.Invoke(runnables.WithConfig(ctx, graph.Thread(tid)), graph.State{"request": request, "scope": sc})
 }
 
 // DefaultRequest is the sample request the demo and the client send.

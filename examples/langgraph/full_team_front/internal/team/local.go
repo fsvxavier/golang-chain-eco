@@ -38,7 +38,13 @@ func listen() (net.Listener, string, error) {
 type LocalOptions struct {
 	Middleware []agents.Middleware
 	Tools      []tools.Tool
-	Offline    func([]messages.Message) messages.Message
+	// RoleTools adds tools to the workers of one role only, after Tools (the PO's
+	// backend tools). Nil, or nil for a role, adds nothing.
+	RoleTools func(role string) []tools.Tool
+	Offline   func([]messages.Message) messages.Message
+	// CallCounter counts the backend calls of a request id for the manager's
+	// evidence rule (see RunManager). Nil skips the call-count half of the rule.
+	CallCounter func(requestID string) int
 }
 
 // StartLocal brings up hub, manager and the 11 workers. It returns when the hub
@@ -61,11 +67,15 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
 	l.HubURL, l.ManagerURL = hubURL, mgrURL
 	l.wg.Add(2)
 	go func() { defer l.wg.Done(); _ = RunHub(ctx, hubLn) }()
-	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn) }()
+	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn, opts.CallCounter) }()
 	for _, c := range Cast {
 		ln, _, err := listen()
 		if err != nil {
 			return nil, err
+		}
+		ts := opts.Tools
+		if opts.RoleTools != nil {
+			ts = append(append([]tools.Tool(nil), opts.Tools...), opts.RoleTools(c.Role)...)
 		}
 		wctx, cancel := context.WithCancel(ctx)
 		l.Workers[c.ID] = cancel
@@ -73,7 +83,7 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
 		go func() {
 			defer l.wg.Done()
 			_ = RunWorker(wctx, WorkerConfig{ID: c.ID, Role: c.Role, Hub: hubURL,
-				Middleware: opts.Middleware, Tools: opts.Tools, Offline: opts.Offline}, ln)
+				Middleware: opts.Middleware, Tools: ts, Offline: opts.Offline}, ln)
 		}()
 	}
 	hc := NewHubClient(hubURL)
