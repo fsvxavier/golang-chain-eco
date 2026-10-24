@@ -1,0 +1,64 @@
+openapi: 3.0.3
+info:
+  title: Checkout coupons (fake backend)
+  version: 1.0.0
+paths:
+  /coupons/{code}:
+    get:
+      summary: Look up a coupon without consuming it
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: The coupon and its discount
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Coupon"}
+        "404":
+          description: Unknown coupon
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "422":
+          description: Expired or exhausted coupon
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+  /cart/{id}/coupon:
+    post:
+      summary: Apply a coupon to the cart (reserves it until payment)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: {type: string}
+      responses:
+        "200":
+          description: Cart priced with the discount
+        "409":
+          description: Coupon already reserved by another payment
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+components:
+  schemas:
+    Coupon:
+      type: object
+      required: [code, discount_percent, status]
+      properties:
+        code: {type: string}
+        discount_percent: {type: integer}
+        status: {type: string, enum: [active, reserved, consumed, expired]}
+        expires_at: {type: string, format: date-time}
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: {type: string}

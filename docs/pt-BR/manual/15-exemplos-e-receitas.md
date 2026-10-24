@@ -59,6 +59,8 @@ Cada pasta de exemplo tem `README.md` (inglês), `README.pt-BR.md` e `README.es-
 | `typed_state` | Estado tipado com struct (`NewTyped`, tags de reducer, `Validate`) |
 | `engineering_team` | Time de engenharia em um grafo: handoffs com `Send`/`Command`, reserva atômica de pessoas, skills por agente em `skills/` |
 | `independent_engineering_team` | O mesmo time como serviços separados: reserva atômica com leases, fila de jobs, RAG/CAG/KAG via MCP, workers em Agent Protocol, um modelo por agente via env |
+| `full_team` | `independent_engineering_team` com a camada de compressão em todo worker (caveman, Ponytail, TOON, RTK); `go run ./examples/langgraph/full_team serve` o serve como servidor MCP em stdio, e `/present` é uma chamada de presença do time inteiro |
+| `full_team_front` | Uma cópia de `full_team` para um time de front-end e UX: o PO lê o backend citado por ferramentas somente de leitura com proteções, revisão conjunta do especialista e do tech lead, o QA escreve testes rastreados até a spec, skills vendorizadas por persona; `go run ./examples/langgraph/full_team_front serve` o serve como servidor MCP em stdio, e `/present` é uma chamada de presença |
 
 ### `examples/deepagents`
 

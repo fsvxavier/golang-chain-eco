@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -56,15 +57,23 @@ func RunHub(ctx context.Context, ln net.Listener) error {
 	return serve(ctx, ln, hub.Handler(mcpSrv.Handler()))
 }
 
+// Console is where the manager's console notifier writes. Serve mode points it
+// at stderr: stdout carries only MCP there.
+var Console io.Writer // nil: os.Stdout
+
 // RunManager serves the manager's delivery graph as an Agent Server
 // (remote/server, the LangGraph Platform subset). Clients call it with
-// remote.Graph.
-func RunManager(ctx context.Context, hubURL string, ln net.Listener) error {
+// remote.Graph. apiKey is the key the server requires; empty reads MANAGER_API_KEY.
+func RunManager(ctx context.Context, hubURL string, ln net.Listener, apiKey string) error {
 	chat, label, err := NewModel("manager", offline)
 	if err != nil {
 		return err
 	}
-	track, err := tasktrack.FromEnv(os.Stdout)
+	console := Console
+	if console == nil {
+		console = os.Stdout
+	}
+	track, err := tasktrack.FromEnv(console)
 	if err != nil {
 		return err
 	}
@@ -75,6 +84,9 @@ func RunManager(ctx context.Context, hubURL string, ln net.Listener) error {
 	}
 	srv := server.New(map[string]*graph.Compiled{"engineering_team": app})
 	srv.APIKey = os.Getenv("MANAGER_API_KEY")
+	if apiKey != "" {
+		srv.APIKey = apiKey // an explicit key wins over the environment
+	}
 	log.Printf("manager: up on %s (model %s, hub %s)", ln.Addr(), label, hubURL)
 	return serve(ctx, ln, srv)
 }

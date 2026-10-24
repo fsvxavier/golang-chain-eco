@@ -56,6 +56,7 @@ Los grupos `langchain`, `langgraph` y `deepagents` se portaron de los repositori
 | `langgraph/decider_laya_http` | `HTTPDecider` contra `laya-serve` (servidor falso offline) | propio |
 | `langgraph/decider_laya_native` | decider laya-go nativo, tag `laya_native` | propio |
 | `langgraph/full_team` | el equipo independiente con compresión de llamadas; decider y modelo falsos por defecto | propio |
+| `langgraph/full_team_front` | copia de `full_team` para un equipo de front-end y UX: el PO lee el backend nombrado con herramientas de solo lectura con guardas, revisión conjunta de especialista y tech lead, QA escribe pruebas trazadas a la especificación (Playwright opcional), skills incorporadas por persona; servidor MCP para VS Code; modelos y backend falsos por defecto | propio |
 
 ## deepagents
 

@@ -59,6 +59,8 @@ Cada carpeta de ejemplo tiene `README.md` (inglés), `README.pt-BR.md` y `README
 | `typed_state` | Estado tipado con struct (`NewTyped`, tags de reducer, `Validate`) |
 | `engineering_team` | Equipo de ingeniería en un grafo: handoffs con `Send`/`Command`, reserva atómica de personas, skills por agente en `skills/` |
 | `independent_engineering_team` | El mismo equipo como servicios separados: reserva atómica con leases, cola de jobs, RAG/CAG/KAG vía MCP, workers en Agent Protocol, un modelo por agente vía env |
+| `full_team` | `independent_engineering_team` con la capa de compresión en cada worker (caveman, Ponytail, TOON, RTK); `go run ./examples/langgraph/full_team serve` lo sirve como servidor MCP por stdio, y `/present` es un pase de lista de todo el equipo |
+| `full_team_front` | Una copia de `full_team` para un equipo de front-end y UX: el PO lee el backend nombrado con herramientas de solo lectura protegidas, revisión conjunta del especialista y del tech lead, el QA escribe pruebas trazadas a la spec, skills incorporadas por persona; `go run ./examples/langgraph/full_team_front serve` lo sirve como servidor MCP por stdio, y `/present` es un pase de lista |
 
 ### `examples/deepagents`
 
