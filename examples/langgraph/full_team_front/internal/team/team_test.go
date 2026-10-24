@@ -389,6 +389,41 @@ func TestPlanParsesPreferField(t *testing.T) {
 	}
 }
 
+// PREFER names one registered worker whose role suits the task's complexity;
+// anything else is dropped, so developer work never goes to a reviewer and a
+// high task never to a junior.
+func TestPlanValidatesPrefer(t *testing.T) {
+	for _, bad := range []string{"po", "leader", "qa-1", "specialist-2", "ghost-9", "senior", "junior-1"} {
+		ts := parsePlan("TASK|T1|a|high|do a|PREFER:" + bad)
+		if len(ts) != 1 || ts[0].Prefer != "" || ts[0].Desc != "do a" {
+			t.Errorf("PREFER:%s kept: %+v", bad, ts)
+		}
+	}
+	if ts := parsePlan("TASK|T1|a|high|do a|PREFER:senior-2"); ts[0].Prefer != "senior-2" {
+		t.Errorf("valid PREFER dropped: %+v", ts)
+	}
+	if ts := parsePlan("TASK|T1|a|low|do a|PREFER:junior-1"); ts[0].Prefer != "junior-1" {
+		t.Errorf("junior on a low task dropped: %+v", ts)
+	}
+}
+
+// An unknown complexity becomes medium: a job with an empty Prefer would wait forever.
+func TestPlanNormalisesComplexity(t *testing.T) {
+	for _, c := range []string{"Medium", "med", "", " HIGH "} {
+		ts := parsePlan("TASK|T1|a|" + c + "|do a")
+		want := "medium"
+		if strings.EqualFold(strings.TrimSpace(c), "high") {
+			want = "high"
+		}
+		if len(ts) != 1 || ts[0].Complexity != want {
+			t.Errorf("complexity %q -> %+v, want %s", c, ts, want)
+		}
+		if len(preference[ts[0].Complexity]) == 0 {
+			t.Errorf("complexity %q has no preference list", c)
+		}
+	}
+}
+
 func TestTaskBlockedAfterMaxRounds(t *testing.T) {
 	c := ctx(t)
 	l, err := StartLocalWith(c, LocalOptions{Offline: func(ms []messages.Message) messages.Message {

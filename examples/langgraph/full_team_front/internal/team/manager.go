@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 
@@ -298,6 +299,17 @@ func (m *manager) build(ctx context.Context, s graph.State) (any, error) {
 	return graph.State{"results": results, "history": history}, nil
 }
 
+// suits reports whether id is a worker of the team whose role is in the
+// preference list of the complexity. A role name alone is not an id.
+func suits(id, complexity string) bool {
+	for _, c := range Cast {
+		if c.ID == id {
+			return slices.Contains(preference[complexity], c.Role)
+		}
+	}
+	return false
+}
+
 // parsePlan reads TASK|id|title|complexity|desc[|PREFER:<worker id>] lines.
 func parsePlan(out string) []work {
 	var tasks []work
@@ -306,10 +318,17 @@ func parsePlan(out string) []work {
 		if len(p) < 5 || p[0] != "TASK" {
 			continue
 		}
-		t := work{ID: p[1], Title: p[2], Complexity: p[3], Desc: p[4]}
+		t := work{ID: p[1], Title: p[2], Complexity: strings.ToLower(strings.TrimSpace(p[3])), Desc: p[4]}
+		if _, ok := preference[t.Complexity]; !ok { // else no worker would ever suit it
+			t.Complexity = "medium"
+		}
 		if len(p) == 6 {
 			if v, ok := strings.CutPrefix(strings.TrimSpace(p[5]), "PREFER:"); ok {
-				t.Prefer = strings.TrimSpace(v)
+				if v = strings.TrimSpace(v); suits(v, t.Complexity) {
+					t.Prefer = v
+				} else {
+					log.Printf("manager: %s: PREFER:%s dropped (not a worker id fit for %s work)", t.ID, v, t.Complexity)
+				}
 			} else {
 				t.Desc += "|" + p[5] // a "|" inside the description
 			}
