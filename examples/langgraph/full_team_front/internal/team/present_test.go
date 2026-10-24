@@ -90,7 +90,7 @@ func TestPresentAbsentWhenWorkerDown(t *testing.T) {
 
 // A worker whose lease expired is gone from the hub, but the roll still expects it.
 func TestPresentAbsentAfterLeaseExpired(t *testing.T) {
-	t.Setenv("HUB_LEASE_TTL", "600ms")
+	t.Setenv("HUB_LEASE_TTL", "1500ms")
 	c := ctx(t)
 	l, err := StartLocalWith(c, LocalOptions{})
 	if err != nil {

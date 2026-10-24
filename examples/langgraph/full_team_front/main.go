@@ -259,10 +259,10 @@ func shellTool(dir string, rtk *compress.RTK) tools.Tool {
 		Rewrite:         rtk.Rewrite,
 	}
 	run := rtk.Executor(sh)
-	return tools.New("shell", "Run one shell command in the team workspace (no redirections, no $ or backticks). Allowed programs: "+strings.Join(allowed, ", ")+".",
+	return tools.New("shell", "Run one shell command in the team workspace (no redirections, $, backticks, backslashes or braces). Allowed programs: "+strings.Join(allowed, ", ")+".",
 		func(ctx context.Context, a shellArgs) (any, error) {
-			if strings.ContainsAny(a.Command, "<>$`") {
-				return nil, tools.Errorf("shell: redirections (< >), $ and backticks are not allowed")
+			if strings.ContainsAny(a.Command, "<>$`\\{}") {
+				return nil, tools.Errorf("shell: redirections (< >), $, backticks, backslashes and braces are not allowed")
 			}
 			if tok := outsideWorkspace(dir, a.Command); tok != "" {
 				return nil, tools.Errorf("shell: paths outside the workspace are not allowed: %s", tok)

@@ -223,3 +223,31 @@ func TestDemoShellConfinesPaths(t *testing.T) {
 		}
 	}
 }
+
+// Flag-attached paths, file-reading flags, backslashes and braces: what bash
+// would expand or read but a whitespace tokenizer does not see as a path.
+func TestDemoShellRejectsFlagAndExpansionBypasses(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	dir := t.TempDir()
+	sh := shellTool(dir, compress.NewRTK(compress.FuncDecider(scripted)))
+	call := func(cmd string) error {
+		_, err := sh.Call(context.Background(), map[string]any{"command": cmd})
+		return err
+	}
+	for _, cmd := range []string{
+		"grep x --file=/etc/passwd", "grep x -f/etc/shadow", "grep x -f /etc/passwd", "grep --file /etc/passwd x",
+		"grep x --exclude-from=/etc/x", "grep x --include-from=f", "grep -R x .", "grep --dereference-recursive x .",
+		"grep -nf f x", "grep x -- /etc/passwd", "grep x --include=/etc/passwd",
+		`ls \/etc`, "ls {/etc,/tmp}", "ls /{etc,tmp}",
+		"go -C /etc list", "git -C /etc status", "git --git-dir=/etc status", "git --work-tree=/etc status",
+	} {
+		if err := call(cmd); err == nil {
+			t.Errorf("%q was accepted", cmd)
+		}
+	}
+	for _, cmd := range []string{"grep -rn --include=*.go foo .", "grep -n foo ."} {
+		if err := call(cmd); err != nil {
+			t.Errorf("%q rejected: %v", cmd, err)
+		}
+	}
+}
