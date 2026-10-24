@@ -110,6 +110,13 @@ func (h *Hub) Handler(mcp http.Handler) http.Handler {
 		}
 		reply(w, 200, s)
 	})
+	// Same trust as /scope: anyone who can POST here can add calls to any request.
+	mux.HandleFunc("POST /calls/{id}", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, 200, map[string]int{"calls": h.AddCall(r.PathValue("id"))})
+	})
+	mux.HandleFunc("GET /calls/{id}", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, 200, map[string]int{"calls": h.Calls(r.PathValue("id"))})
+	})
 	mux.HandleFunc("GET /thread-scope/{thread}", func(w http.ResponseWriter, r *http.Request) {
 		s, id, ok := h.ThreadScope(r.PathValue("thread"))
 		if !ok {
@@ -264,6 +271,27 @@ func (c *HubClient) Scope(ctx context.Context, id string) (Scope, error) {
 		return Scope{}, fmt.Errorf("hub: scope: http %d", code)
 	}
 	return s, nil
+}
+
+// AddCall counts one backend call for request id.
+func (c *HubClient) AddCall(ctx context.Context, id string) error {
+	code, err := c.call(ctx, "POST", "/calls/"+url.PathEscape(id), nil, nil)
+	if err == nil && code != 200 {
+		err = fmt.Errorf("hub: add call: http %d", code)
+	}
+	return err
+}
+
+// Calls returns how many backend calls were counted for request id.
+func (c *HubClient) Calls(ctx context.Context, id string) (int, error) {
+	var r struct {
+		Calls int `json:"calls"`
+	}
+	code, err := c.call(ctx, "GET", "/calls/"+url.PathEscape(id), nil, &r)
+	if err == nil && code != 200 {
+		err = fmt.Errorf("hub: calls: http %d", code)
+	}
+	return r.Calls, err
 }
 
 // threadScope is the /thread-scope reply: the scope and the id of the request

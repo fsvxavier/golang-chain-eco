@@ -595,7 +595,6 @@ func TestPOSpecWithoutEvidenceIsMarkedUnverified(t *testing.T) {
 			m, _ := messages.LastOfRole(ms, messages.RoleHuman)
 			return messages.AI(Brain(m.Text()))
 		},
-		CallCounter: func(string) int { return 0 },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -624,21 +623,65 @@ func TestVerifiedSpec(t *testing.T) {
 	for _, tc := range []struct {
 		name, spec string
 		sc         Scope
-		calls      func(string) int
+		calls      int
 		flagged    bool
 	}{
-		{"evidence and calls", withEv, sc, func(string) int { return 1 }, false},
-		{"evidence, no calls", withEv, sc, func(string) int { return 0 }, true},
-		{"evidence, no counter", withEv, sc, nil, false},
-		{"no evidence", "SPEC:\nAC1: x", sc, func(string) int { return 3 }, true},
-		{"app url only", "SPEC:\nAC1: x", Scope{AppURL: "http://app"}, nil, false},
+		{"evidence and calls", withEv, sc, 1, false},
+		{"evidence, no calls", withEv, sc, 0, true},
+		{"no evidence", "SPEC:\nAC1: x", sc, 3, true},
+		{"app url only", "SPEC:\nAC1: x", Scope{AppURL: "http://app"}, 0, false},
 	} {
-		got := verifiedSpec(tc.spec, tc.sc, tc.calls, "r")
+		got := verifiedSpec(tc.spec, tc.sc, tc.calls)
 		if strings.Contains(got, "UNVERIFIED: no backend evidence") != tc.flagged {
 			t.Errorf("%s: %q", tc.name, got)
 		}
 		if tc.flagged && !strings.Contains(after(got, "OPEN ITEMS:"), "UNVERIFIED") {
 			t.Errorf("%s: flag outside OPEN ITEMS: %q", tc.name, got)
 		}
+	}
+}
+
+func TestHubCountsCallsAndSetScopeResets(t *testing.T) {
+	h := NewHub(time.Minute)
+	if n := h.Calls("r"); n != 0 {
+		t.Fatalf("fresh calls = %d", n)
+	}
+	h.AddCall("r")
+	if n := h.AddCall("r"); n != 2 {
+		t.Fatalf("AddCall = %d, want 2", n)
+	}
+	h.AddCall("other")
+	if h.Calls("r") != 2 || h.Calls("other") != 1 {
+		t.Fatalf("counts r=%d other=%d", h.Calls("r"), h.Calls("other"))
+	}
+	h.SetScope("r", Scope{Roots: []string{"/a"}}) // intake of a new run
+	if h.Calls("r") != 0 || h.Calls("other") != 1 {
+		t.Fatalf("after SetScope r=%d other=%d, want 0 and 1", h.Calls("r"), h.Calls("other"))
+	}
+}
+
+func TestCallsRoundTripOverHTTP(t *testing.T) {
+	h := NewHub(time.Minute)
+	c := NewHubClient(newTestServer(t, h.Handler(nil)).URL)
+	id := "req/with space"
+	if n, err := c.Calls(ctx(t), id); err != nil || n != 0 {
+		t.Fatalf("fresh: %d, %v", n, err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := c.AddCall(ctx(t), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := c.Calls(ctx(t), id); err != nil || n != 2 || h.Calls(id) != 2 {
+		t.Fatalf("calls = %d, %v (hub %d), want 2", n, err, h.Calls(id))
+	}
+	if err := c.SetScope(ctx(t), id, Scope{}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := c.Calls(ctx(t), id); n != 0 {
+		t.Fatalf("after SetScope over HTTP: %d", n)
+	}
+	if _, err := NewHubClient("http://127.0.0.1:1").Calls(ctx(t), id); err == nil {
+		t.Fatal("unreachable hub must be an error")
 	}
 }

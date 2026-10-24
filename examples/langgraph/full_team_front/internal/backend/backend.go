@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,7 +19,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +34,12 @@ type Config struct {
 	// Client is cloned; its redirect policy and dialing are always replaced by
 	// the guarded ones, so it cannot widen what backend_get reaches.
 	Client *http.Client
+	// Report is told about every call that passed the guards and got an answer,
+	// with the request id the tools resolved. RoleTools defaults it to the hub's
+	// AddCall; Tools has no request id and defaults to no report. A failure is
+	// logged and never fails the tool call: the hub's count is then short, which
+	// the manager treats as unverified.
+	Report func(ctx context.Context, requestID string) error
 }
 
 func (c Config) withDefaults() Config {
@@ -52,29 +58,9 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-var (
-	mu    sync.Mutex
-	calls = map[string]int{}
-)
-
-// Calls is how many backend calls the tools ran for a request id. Only calls
-// that passed the guards and got an answer from the backend count; refusals
-// do not, so the manager's evidence rule cannot be met by probing.
-func Calls(scopeID string) int {
-	mu.Lock()
-	defer mu.Unlock()
-	return calls[scopeID]
-}
-
-func count(id string) {
-	mu.Lock()
-	calls[id]++
-	mu.Unlock()
-}
-
 // Tools returns backend_read, backend_grep and backend_get, guarded by the
 // scope scope returns for the call's context. They have no request id, so
-// their calls are counted under ""; RoleTools counts per request.
+// Report (if set) gets "" as the id; RoleTools reports per request.
 func Tools(scope func(ctx context.Context) (team.Scope, error), cfg Config) []tools.Tool {
 	return newTools(func(ctx context.Context) (string, team.Scope, error) {
 		s, err := scope(ctx)
@@ -86,6 +72,14 @@ func Tools(scope func(ctx context.Context) (team.Scope, error), cfg Config) []to
 // backend tools. The scope and request id come from the hub by the job's exact
 // thread; hub may return nil until the team is up, which means no access.
 func RoleTools(hub func() *team.HubClient, cfg Config) func(role string) []tools.Tool {
+	if cfg.Report == nil {
+		cfg.Report = func(ctx context.Context, id string) error {
+			if h := hub(); h != nil {
+				return h.AddCall(ctx, id)
+			}
+			return errors.New("no hub client")
+		}
+	}
 	ts := newTools(func(ctx context.Context) (string, team.Scope, error) {
 		return team.RequestScopeFromContext(ctx, hub())
 	}, cfg)
@@ -113,6 +107,14 @@ type getArgs struct {
 
 func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Config) []tools.Tool {
 	cfg = cfg.withDefaults()
+	count := func(ctx context.Context, id string) {
+		if cfg.Report == nil {
+			return
+		}
+		if err := cfg.Report(ctx, id); err != nil {
+			log.Printf("backend: counting a call for %q: %v (the manager will see too few calls)", id, err)
+		}
+	}
 	// scope returns the request id and scope, refusing when the demand named no backend.
 	scope := func(ctx context.Context, tool string) (string, team.Scope, error) {
 		id, s, err := resolve(ctx)
@@ -139,7 +141,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 				if err != nil {
 					return nil, tools.Errorf("backend_read: %v", err)
 				}
-				count(id)
+				count(ctx, id)
 				return out, nil
 			}),
 		tools.New("backend_grep", "Search the backend source the demand named for a regular expression; returns path:line: text. Read-only; never follows symlinks.",
@@ -160,7 +162,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 				if err != nil {
 					return nil, tools.Errorf("backend_grep: %v", err)
 				}
-				count(id)
+				count(ctx, id)
 				return out, nil
 			}),
 		tools.New("backend_get", "HTTP GET one URL of the backend the demand named (GET only); returns status, content type and body. Use it to see real responses and the API description.",
@@ -173,7 +175,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 				if err != nil {
 					return nil, tools.Errorf("backend_get: %v", err)
 				}
-				count(id)
+				count(ctx, id)
 				return out, nil
 			}),
 	}

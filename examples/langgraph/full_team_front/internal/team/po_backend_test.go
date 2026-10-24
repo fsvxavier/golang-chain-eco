@@ -3,12 +3,14 @@ package team_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/backend"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/backend/fake"
@@ -54,7 +56,6 @@ func TestOfflineRunPOUsesBackendTools(t *testing.T) {
 			}
 			return out
 		},
-		CallCounter: backend.Calls,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +72,7 @@ func TestOfflineRunPOUsesBackendTools(t *testing.T) {
 			t.Errorf("PO never called %s: %v", name, n)
 		}
 	}
-	// Not UNVERIFIED also proves backend.Calls saw the request's calls.
+	// Not UNVERIFIED also proves the hub counted the request's calls.
 	spec := fmt.Sprint(out["spec"])
 	t.Logf("calls %v\nspec:\n%s", n, spec)
 	if !strings.Contains(spec, "EVIDENCE:") || strings.Contains(spec, "UNVERIFIED") || !strings.Contains(spec, "OPEN ITEMS:") {
@@ -94,5 +95,79 @@ func TestOfflineRunPOUsesBackendTools(t *testing.T) {
 	}
 	if spec := fmt.Sprint(out["spec"]); !strings.Contains(spec, "OPEN ITEMS:\n- No backend was named") || strings.Contains(spec, "UNVERIFIED") {
 		t.Errorf("no-backend spec: %s", spec)
+	}
+}
+
+// startSeparate brings the team up as separate components wired only through
+// URLs: the hub, the manager and every worker each get their own listener and
+// their own HubClient. No Go variable carries the call count between them.
+func startSeparate(t *testing.T, c context.Context, ws string, offline func([]messages.Message) messages.Message) string {
+	t.Helper()
+	listen := func() (net.Listener, string) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ln, "http://" + ln.Addr().String()
+	}
+	c, cancel := context.WithCancel(c)
+	t.Cleanup(cancel)
+	hubLn, hubURL := listen()
+	mgrLn, mgrURL := listen()
+	go func() { _ = team.RunHub(c, hubLn) }()
+	go func() { _ = team.RunManager(c, hubURL, mgrLn, "") }()
+	for _, m := range team.Cast {
+		ln, _ := listen()
+		wc := team.NewHubClient(hubURL) // the worker's own client
+		cfg := team.WorkerConfig{ID: m.ID, Role: m.Role, Hub: hubURL, Offline: offline}
+		cfg.Tools = backend.RoleTools(func() *team.HubClient { return wc }, backend.Config{WorkspaceRoot: ws})(m.Role)
+		go func() { _ = team.RunWorker(c, cfg, ln) }()
+	}
+	hc := team.NewHubClient(hubURL)
+	for i := 0; i < 200; i++ {
+		if s, err := hc.State(c); err == nil && len(s.Workers) == len(team.Cast) {
+			return mgrURL
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("team did not come up")
+	return ""
+}
+
+// The evidence rule's call count lives in the hub, so it works when the manager
+// and the PO worker share nothing but URLs.
+func TestEvidenceRuleWorksAcrossServices(t *testing.T) {
+	c, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	ws := t.TempDir()
+	root, err := fake.WriteRoot(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := fake.Serve()
+	defer srv.Close()
+	sc := team.Scope{Roots: []string{root}, URLs: []string{srv.URL}}
+
+	// The scripted PO calls the backend tools: its calls reach the manager through the hub.
+	mgr := startSeparate(t, c, ws, nil)
+	out, err := team.InvokeWithScope(c, mgr, "req-sep-ok", team.DefaultRequest, sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec := fmt.Sprint(out["spec"]); !strings.Contains(spec, "EVIDENCE:") || strings.Contains(spec, "UNVERIFIED") {
+		t.Fatalf("spec must be verified: %s", spec)
+	}
+
+	// A PO that writes an EVIDENCE block but never calls a tool is flagged.
+	mgr = startSeparate(t, c, ws, func(ms []messages.Message) messages.Message {
+		m, _ := messages.LastOfRole(ms, messages.RoleHuman)
+		return messages.AI(team.Brain(m.Text()) + "\nEVIDENCE:\n- backend_get /x: 200 (made up)")
+	})
+	out, err = team.InvokeWithScope(c, mgr, "req-sep-none", team.DefaultRequest, sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec := fmt.Sprint(out["spec"]); !strings.Contains(spec, "UNVERIFIED: no backend evidence") {
+		t.Fatalf("spec must be flagged: %s", spec)
 	}
 }

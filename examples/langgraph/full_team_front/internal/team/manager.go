@@ -48,7 +48,6 @@ type manager struct {
 	hub   *HubClient
 	agent *graph.Compiled
 	track *tasktrack.Tracker
-	calls func(requestID string) int // backend calls per request; nil: not counted
 }
 
 // move records a status change. An illegal move is a bug in the flow, not in
@@ -61,9 +60,8 @@ func (m *manager) move(ctx context.Context, kind tasktrack.Kind, id string, to t
 
 // NewManager builds the manager graph, served by the manager service through
 // remote/server and called by clients with remote.Graph.
-// calls counts a request's backend calls for the PO evidence rule (nil skips
-// that half of the rule).
-func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker, calls func(requestID string) int) (*graph.Compiled, error) {
+// The PO evidence rule reads a request's backend call count from hub.
+func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker) (*graph.Compiled, error) {
 	prompt, err := Skill("manager")
 	if err != nil {
 		return nil, err
@@ -72,7 +70,7 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 	if err != nil {
 		return nil, err
 	}
-	m := &manager{hub: hub, agent: agent, track: track, calls: calls}
+	m := &manager{hub: hub, agent: agent, track: track}
 
 	g := graph.NewStateGraph(graph.Schema{
 		"request": channels.LastValue(), "kickoff": channels.LastValue(),
@@ -90,7 +88,13 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 			return nil, err
 		}
 		st := out.(graph.State)
-		st["spec"] = verifiedSpec(fmt.Sprint(st["spec"]), scopeOf(s), m.calls, requestID(ctx))
+		id := requestID(ctx)
+		n, err := m.hub.Calls(ctx, id)
+		if err != nil { // unverified is the safe side: the spec gets flagged
+			log.Printf("manager: backend call count for %s: %v", id, err)
+			n = 0
+		}
+		st["spec"] = verifiedSpec(fmt.Sprint(st["spec"]), scopeOf(s), n)
 		return st, nil
 	})
 	g.AddNode("build", m.build)
@@ -177,9 +181,9 @@ func backendBlock(sc Scope) string {
 }
 
 // verifiedSpec enforces the evidence rule: when the demand named a backend, the
-// spec needs an EVIDENCE block and at least one counted backend call (that half
-// is skipped when calls is nil). Otherwise the spec's OPEN ITEMS get flagged.
-func verifiedSpec(spec string, sc Scope, calls func(string) int, requestID string) string {
+// spec needs an EVIDENCE block and at least one backend call counted by the hub
+// (calls). Otherwise the spec's OPEN ITEMS get flagged.
+func verifiedSpec(spec string, sc Scope, calls int) string {
 	if len(sc.Roots)+len(sc.URLs) == 0 {
 		return spec
 	}
@@ -189,7 +193,7 @@ func verifiedSpec(spec string, sc Scope, calls func(string) int, requestID strin
 			hasEvidence = true
 		}
 	}
-	if hasEvidence && (calls == nil || calls(requestID) >= 1) {
+	if hasEvidence && calls >= 1 {
 		return spec
 	}
 	const flag = "- UNVERIFIED: no backend evidence"

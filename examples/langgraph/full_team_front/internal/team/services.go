@@ -63,10 +63,10 @@ var Console io.Writer // nil: os.Stdout
 
 // RunManager serves the manager's delivery graph as an Agent Server
 // (remote/server, the LangGraph Platform subset). Clients call it with
-// remote.Graph. calls counts a request's backend calls for the evidence rule
-// (nil: skip that half of the rule). apiKey, when not empty, is the x-api-key
+// remote.Graph. The evidence rule reads a request's backend call count from
+// the hub at hubURL. apiKey, when not empty, is the x-api-key
 // the server requires.
-func RunManager(ctx context.Context, hubURL string, ln net.Listener, calls func(requestID string) int, apiKey string) error {
+func RunManager(ctx context.Context, hubURL string, ln net.Listener, apiKey string) error {
 	chat, label, err := NewModel("manager", offline)
 	if err != nil {
 		return err
@@ -80,7 +80,7 @@ func RunManager(ctx context.Context, hubURL string, ln net.Listener, calls func(
 		return err
 	}
 	track.OnError = func(err error) { log.Print(err) }
-	app, err := NewManager(NewHubClient(hubURL), chat, track, calls)
+	app, err := NewManager(NewHubClient(hubURL), chat, track)
 	if err != nil {
 		return err
 	}

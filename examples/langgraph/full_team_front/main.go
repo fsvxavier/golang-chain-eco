@@ -135,9 +135,8 @@ func newStack(dir, workspace string, withShell bool) *stack {
 	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
 	hub := new(atomic.Pointer[team.HubClient])
 	st := &stack{m: m, hub: hub, source: source, opts: team.LocalOptions{
-		Middleware:  []agents.Middleware{m},
-		RoleTools:   workerTools(shell, hub.Load, workspace),
-		CallCounter: backend.Calls,
+		Middleware: []agents.Middleware{m},
+		RoleTools:  workerTools(shell, hub.Load, workspace),
 	}}
 	if !anyLive() { // a live model never gets a made-up backlog
 		st.opts.Tools = []tools.Tool{tasksTool()}

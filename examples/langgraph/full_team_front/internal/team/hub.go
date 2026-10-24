@@ -70,6 +70,7 @@ type Hub struct {
 	workers map[string]*WorkerInfo
 	jobs    map[string]*Job
 	scopes  map[string]Scope
+	calls   map[string]int // backend calls per request id; one entry per request, like scopes and jobs
 	queue   []string
 	wake    chan struct{}
 	seq     int
@@ -78,14 +79,35 @@ type Hub struct {
 
 // NewHub returns an empty hub.
 func NewHub(ttl time.Duration) *Hub {
-	return &Hub{TTL: ttl, MaxAttempts: 3, workers: map[string]*WorkerInfo{}, jobs: map[string]*Job{}, scopes: map[string]Scope{}, wake: make(chan struct{}), now: time.Now}
+	return &Hub{TTL: ttl, MaxAttempts: 3, workers: map[string]*WorkerInfo{}, jobs: map[string]*Job{}, scopes: map[string]Scope{}, calls: map[string]int{}, wake: make(chan struct{}), now: time.Now}
 }
 
-// SetScope stores what request id may reach (see Scope).
+// SetScope stores what request id may reach (see Scope). It also resets the
+// request's backend call count: the manager stores the scope at intake of every
+// run, so a re-run of the same thread cannot be satisfied by earlier calls.
 func (h *Hub) SetScope(id string, s Scope) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.scopes[id] = s
+	delete(h.calls, id)
+}
+
+// AddCall counts one backend call (one that passed the PO tools' guards and got
+// an answer) for request id and returns the new count. The map grows by one
+// entry per request, like the hub's other per-request state.
+func (h *Hub) AddCall(id string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls[id]++
+	return h.calls[id]
+}
+
+// Calls is how many backend calls were counted for request id since its scope
+// was last stored. The manager's evidence rule reads it.
+func (h *Hub) Calls(id string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.calls[id]
 }
 
 // Scope returns the scope stored for request id.

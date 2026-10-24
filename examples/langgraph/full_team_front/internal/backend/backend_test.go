@@ -320,21 +320,39 @@ func TestNoScopeMeansNoAccess(t *testing.T) {
 	}
 }
 
-// Only calls that passed the guards and reached the backend are counted.
-func TestCallsCountsGuardedCallsPerRequest(t *testing.T) {
+// Only calls that passed the guards and reached the backend are reported,
+// under the request id the tools resolved.
+func TestReportsGuardedCallsPerRequest(t *testing.T) {
 	ws, root := workspace(t)
 	resolve := func(context.Context) (string, team.Scope, error) {
 		return "req-count", team.Scope{Roots: []string{root}}, nil
 	}
-	ts := newTools(resolve, Config{WorkspaceRoot: ws})
+	var got []string
+	ts := newTools(resolve, Config{WorkspaceRoot: ws, Report: func(_ context.Context, id string) error {
+		got = append(got, id)
+		return nil
+	}})
 	call(t, ts, "backend_read", map[string]any{"path": "../secret.txt"})
-	if n := Calls("req-count"); n != 0 {
-		t.Fatalf("refused call counted: %d", n)
+	if len(got) != 0 {
+		t.Fatalf("refused call reported: %v", got)
 	}
 	call(t, ts, "backend_read", map[string]any{"path": "a.txt"})
 	call(t, ts, "backend_grep", map[string]any{"pattern": "x", "path": "."})
-	if n := Calls("req-count"); n != 2 {
-		t.Fatalf("calls = %d, want 2", n)
+	if len(got) != 2 || got[0] != "req-count" || got[1] != "req-count" {
+		t.Fatalf("reported = %v, want two for req-count", got)
+	}
+}
+
+// A reporting failure is logged and does not fail the tool call: the hub's
+// count is then short, which the manager treats as unverified.
+func TestReportFailureDoesNotFailTheCall(t *testing.T) {
+	ws, root := workspace(t)
+	resolve := func(context.Context) (string, team.Scope, error) {
+		return "r", team.Scope{Roots: []string{root}}, nil
+	}
+	ts := newTools(resolve, Config{WorkspaceRoot: ws, Report: func(context.Context, string) error { return errors.New("hub down") }})
+	if out, err := call(t, ts, "backend_read", map[string]any{"path": "a.txt"}); err != nil || out == "" {
+		t.Fatalf("read = %q, %v; the call must succeed", out, err)
 	}
 }
 

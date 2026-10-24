@@ -43,9 +43,6 @@ type LocalOptions struct {
 	// backend tools). Nil, or nil for a role, adds nothing.
 	RoleTools func(role string) []tools.Tool
 	Offline   func([]messages.Message) messages.Message
-	// CallCounter counts the backend calls of a request id for the manager's
-	// evidence rule (see RunManager). Nil skips the call-count half of the rule.
-	CallCounter func(requestID string) int
 	// ManagerAPIKey, when set, is the x-api-key the manager requires (and wins
 	// over MANAGER_API_KEY). Empty keeps the environment's value.
 	ManagerAPIKey string
@@ -85,7 +82,7 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (_ *Local, err error
 	}
 	l.wg.Add(2)
 	go func() { defer l.wg.Done(); _ = RunHub(ctx, hubLn) }()
-	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn, opts.CallCounter, key) }()
+	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn, key) }()
 	for _, c := range Cast {
 		ln, _, err := listen()
 		if err != nil {
