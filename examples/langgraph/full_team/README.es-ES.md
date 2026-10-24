@@ -171,3 +171,9 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # incluye TestStartL
 
 - [independent_engineering_team](../independent_engineering_team/README.es-ES.md): el origen del equipo copiado, sin compresión
 - [compress_history_summary](../compress_history_summary/README.es-ES.md), [compress_shell_rtk](../compress_shell_rtk/README.es-ES.md), [decider_laya_http](../decider_laya_http/README.es-ES.md), [decider_laya_native](../decider_laya_native/README.es-ES.md)
+
+## Suscripción en vez de API
+
+cada rol responde por `claude -p`, cobrado a tu suscripción de Claude en vez del crédito de la API; requiere `claude` con sesión iniciada, sin clave de API (cualquier credencial `ANTHROPIC_*` se quita del entorno del proceso hijo). Más lento que la API y el uso de herramientas se emula en el prompt; `CLAUDE_CLI_CONCURRENCY` (por defecto 3) limita los procesos, `CLAUDE_BIN` apunta al binario. Revisa los términos de tu plan antes de ejecutarlo sin supervisión. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mezcla por rol
+
+`AGENT_BACKEND=claude-cli` (`providers/claudecli`).

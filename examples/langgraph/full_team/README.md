@@ -171,3 +171,9 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # includes TestStart
 
 - [independent_engineering_team](../independent_engineering_team/README.md): the source of the copied team, without compression
 - [compress_history_summary](../compress_history_summary/README.md), [compress_shell_rtk](../compress_shell_rtk/README.md), [decider_laya_http](../decider_laya_http/README.md), [decider_laya_native](../decider_laya_native/README.md)
+
+## Subscription instead of API
+
+every role answers through `claude -p`, billed to your Claude subscription instead of API credit; needs `claude` logged in, no API key (any `ANTHROPIC_*` credential is removed from the child's environment). Slower than the API and tool use is emulated in the prompt; `CLAUDE_CLI_CONCURRENCY` (default 3) bounds the processes, `CLAUDE_BIN` points at the binary. Check your plan's terms before running it unattended. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mixes it per role
+
+`AGENT_BACKEND=claude-cli` (`providers/claudecli`).

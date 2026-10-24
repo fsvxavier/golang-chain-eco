@@ -74,3 +74,14 @@ func TestInferDocRoot(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentBackendClaudeCLI(t *testing.T) {
+	t.Setenv("AGENT_BACKEND", "claude-cli")
+	t.Setenv("ANTHROPIC_API_KEY", "k")
+	if got := ModelSpec("po"); got != "claude-cli:claude-opus-5-5" {
+		t.Fatalf("got %q", got)
+	}
+	if cacheFor("po") != nil {
+		t.Fatal("the API prompt cache must not wrap CLI calls")
+	}
+}

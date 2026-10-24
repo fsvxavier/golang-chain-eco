@@ -61,7 +61,7 @@ func markLast(ms []messages.Message) []messages.Message {
 // is Anthropic's and PROMPT_CACHE is not "off", else none.
 func cacheFor(role string) []agents.Middleware {
 	spec := ModelSpec(role)
-	if os.Getenv("PROMPT_CACHE") == "off" || !(strings.HasPrefix(spec, "anthropic:") || strings.HasPrefix(spec, "claude")) {
+	if os.Getenv("PROMPT_CACHE") == "off" || !(strings.HasPrefix(spec, "anthropic:") || (strings.HasPrefix(spec, "claude") && !strings.HasPrefix(spec, "claude-cli:"))) {
 		return nil
 	}
 	return []agents.Middleware{cachePrompt{}}
