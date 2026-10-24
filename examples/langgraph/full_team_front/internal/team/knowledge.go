@@ -22,19 +22,21 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/rag"
 )
 
-// triples is the architecture knowledge graph (KAG): what depends on what and
-// which rule guards what. Multi-hop questions ("what must hold for the coupon
-// when a payment races?") walk these edges.
+// triples is the front-end knowledge graph (KAG): which part of the screen
+// depends on what and which rule guards what. Multi-hop questions ("what must
+// hold for the coupon field when the code is expired?") walk these edges.
 var triples = [][3]string{
-	{"Checkout", "USES", "Payment"},
-	{"Payment", "CONSUMES", "Coupon"},
-	{"Payment", "REQUIRES", "Idempotency Key"},
-	{"Coupon", "GUARDED_BY", "Atomic Reservation"},
-	{"Coupon", "GUARDED_BY", "Rate Limit"},
-	{"Atomic Reservation", "EXPIRES_WITH", "TTL"},
-	{"Rate Limit", "PREVENTS", "Code Enumeration"},
-	{"Payment Failure", "TRIGGERS", "Coupon Release"},
-	{"Coupon Release", "RESTORES", "Coupon"},
+	{"Checkout Screen", "CONTAINS", "Coupon Field"},
+	{"Coupon Field", "CALLS", "Coupon Lookup"},
+	{"Coupon Field", "SHOWS", "Discount Line"},
+	{"Coupon Field", "SHOWS", "Error Message"},
+	{"Error Message", "ANNOUNCED_BY", "aria-live Region"},
+	{"Expired Coupon", "TRIGGERS", "Error Message"},
+	{"Coupon Field", "GUARDED_BY", "Disabled While Loading"},
+	{"Disabled While Loading", "PREVENTS", "Double Submit"},
+	{"Coupon Field", "GUARDED_BY", "Request Cancellation"},
+	{"Request Cancellation", "PREVENTS", "Stale Response"},
+	{"Coupon Field", "SUPPORTS", "Keyboard Focus"},
 }
 
 func entityNames() []string {
@@ -186,7 +188,7 @@ func offlineKnowledgeModel() models.ChatModel {
 	return &models.Fake{Name: "offline:echo", Func: func(msgs []messages.Message, o models.Options) (messages.Message, error) {
 		if len(o.Tools) > 0 { // kag plan, forced as a tool call
 			q := strings.ToLower(msgs[len(msgs)-1].Text())
-			entity := "Coupon"
+			entity := "Coupon Field"
 			for _, n := range entityNames() {
 				if strings.Contains(q, strings.ToLower(n)) {
 					entity = n

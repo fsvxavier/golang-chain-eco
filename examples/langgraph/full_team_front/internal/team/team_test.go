@@ -130,9 +130,9 @@ func TestKnowledgeAndMemoryOverMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	for tool, want := range map[string]string{
-		"rag_answer": "[1]", "cag_answer": "[1]", "kag_query": "Atomic", "knowledge_answer": "[1]",
+		"rag_answer": "[1]", "cag_answer": "[1]", "kag_query": "aria-live", "knowledge_answer": "[1]",
 	} {
-		out, err := mc.CallTool(c, tool, map[string]any{"question": "how must the coupon in a payment be guarded? atomic reservation idempotency acceptance criteria"})
+		out, err := mc.CallTool(c, tool, map[string]any{"question": "how must the coupon field announce an expired coupon? aria-live region double submit acceptance criteria"})
 		if err != nil || !strings.Contains(strings.ToLower(fmt.Sprint(out)), strings.ToLower(want)) {
 			t.Fatalf("%s: %v / %v", tool, out, err)
 		}

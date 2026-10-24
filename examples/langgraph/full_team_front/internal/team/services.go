@@ -118,7 +118,7 @@ func InvokeWithScope(ctx context.Context, managerURL, thread, request string, sc
 }
 
 // DefaultRequest is the sample request the demo and the client send.
-const DefaultRequest = "Let shoppers apply a discount coupon at checkout. The last coupon must never be consumed twice, even when two payments race or a payment fails."
+const DefaultRequest = "Add a coupon field to the checkout screen. A valid code shows the discount; an expired or invalid code shows an error that screen readers announce, and a double submit must not send the code twice."
 
 // Print writes the manager's report and the handoff history.
 func Print(out map[string]any) {

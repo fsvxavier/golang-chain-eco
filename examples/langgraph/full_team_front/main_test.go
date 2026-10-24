@@ -167,3 +167,24 @@ func TestShellEnvHasNoSecrets(t *testing.T) {
 		t.Errorf("env = %v, want HOME=%s", env, dir)
 	}
 }
+
+// The demo backlog tool exists only when every role is offline: a live model
+// never gets a hard-coded backlog, and with no tool the scripted call is off too.
+func TestOpenTasksOnlyOffline(t *testing.T) {
+	has := func(st *stack) bool {
+		for _, tl := range st.opts.Tools {
+			if tl.Name() == tasksToolName {
+				return true
+			}
+		}
+		return false
+	}
+	clearModelEnv(t)
+	if st := newStack(t.TempDir(), "", true); !has(st) || st.opts.Offline == nil {
+		t.Error("offline stack must register open_tasks and its scripted call")
+	}
+	t.Setenv("AGENT_MODEL_PO", "openai:x")
+	if st := newStack(t.TempDir(), "", true); has(st) || st.opts.Offline != nil {
+		t.Error("a live role must switch open_tasks off")
+	}
+}

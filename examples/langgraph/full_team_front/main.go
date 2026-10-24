@@ -1,7 +1,8 @@
-// full_team: the independent_engineering_team flow with the compress layer on
-// every worker. Each worker's model call goes through NewCompression (old turns
-// caveman-compressed, optional terse-reply directive), and the workers get a
-// shell tool whose simple commands are routed through rtk when the decider says so.
+// full_team_front: the engineering team for a front-end screen, with the
+// compress layer on every worker. Each worker's model call goes through
+// NewCompression (old turns caveman-compressed, optional terse-reply
+// directive), and the demo workers get a shell tool whose simple commands are
+// routed through rtk when the decider says so (serve mode gives no role a shell).
 //
 // Offline a scripted decider answers every question, so the effect of each
 // lever shows without a model (the numbers vary a little between runs).
@@ -9,12 +10,12 @@
 //
 // Two more rewrites come from the same middleware: Ponytail (a note on the
 // last Human message, asking for less code) and TOON (JSON tool results
-// rewritten to a shorter form). Offline, every worker calls open_tasks once per
+// rewritten to a shorter form). Offline only, every worker calls open_tasks once per
 // turn, so the list of tasks reaches the model as JSON and gets rewritten.
 //
-// The demand names a backend (a fake source tree and API, see
-// internal/backend/fake), and the PO reads it through read-only guarded tools
-// before writing the spec.
+// The demand is a checkout coupon field. It names a backend the screen
+// consumes (a fake source tree and API, see internal/backend/fake), and the PO
+// reads it through read-only guarded tools before writing the spec.
 package main
 
 import (
@@ -133,13 +134,26 @@ func newStack(dir, workspace string, withShell bool) *stack {
 	// turn to compress. NewCompression's guard is kept by wrapping it here.
 	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
 	hub := new(atomic.Pointer[team.HubClient])
-	return &stack{m: m, hub: hub, source: source, opts: team.LocalOptions{
+	st := &stack{m: m, hub: hub, source: source, opts: team.LocalOptions{
 		Middleware:  []agents.Middleware{m},
-		Tools:       []tools.Tool{tasksTool()},
 		RoleTools:   workerTools(shell, hub.Load, workspace),
 		CallCounter: backend.Calls,
-		Offline:     team.OfflineWithTool(tasksToolName),
 	}}
+	if !anyLive() { // a live model never gets a made-up backlog
+		st.opts.Tools = []tools.Tool{tasksTool()}
+		st.opts.Offline = team.OfflineWithTool(tasksToolName)
+	}
+	return st
+}
+
+// anyLive reports whether any role runs on a real model.
+func anyLive() bool {
+	for _, r := range team.Roles {
+		if team.ModelSpec(r) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // decider is the real one when LAYA_URL is set, else the scripted offline one.
@@ -183,11 +197,7 @@ func scripted(ctx context.Context, st compress.State, qs []compress.Question) ([
 // AGENT_MODEL_<ROLE>), go and git (which run code) are withheld: ls, grep and
 // echo only.
 func allowedPrograms(getenv func(string) string) []string {
-	live := getenv("ANTHROPIC_API_KEY") != "" || getenv("OPENAI_API_KEY") != ""
-	for _, r := range team.Roles {
-		live = live || team.ModelSpec(r) != ""
-	}
-	if live {
+	if getenv("ANTHROPIC_API_KEY") != "" || getenv("OPENAI_API_KEY") != "" || anyLive() {
 		return []string{"ls", "grep", "echo"}
 	}
 	return []string{"go", "git", "ls", "grep", "echo"}
@@ -212,19 +222,19 @@ type task struct {
 
 // backlog is the static list open_tasks returns. The demo has no tracker of its own.
 var backlog = []task{
-	{"T-101", "Coupon model with a single-use constraint", "in_progress", "senior-1", "high"},
-	{"T-102", "Atomic redeem on checkout", "todo", "", "high"},
-	{"T-103", "Concurrent payment race test", "todo", "", "high"},
-	{"T-104", "Payment failure rolls the coupon back", "todo", "", "medium"},
-	{"T-105", "Coupon admin endpoint", "todo", "", "low"},
-	{"T-106", "Discount line on the receipt", "todo", "", "low"},
-	{"T-107", "Audit log for redemptions", "todo", "", "medium"},
-	{"T-108", "Load test at 500 checkouts per second", "blocked", "qa-1", "medium"},
+	{"T-101", "Coupon field component with a visible label", "in_progress", "senior-1", "high"},
+	{"T-102", "Apply-coupon hook that ignores stale responses", "todo", "", "high"},
+	{"T-103", "Double-submit guard test", "todo", "", "high"},
+	{"T-104", "Expired coupon error announced by aria-live", "todo", "", "medium"},
+	{"T-105", "Empty-state hint under the coupon field", "todo", "", "low"},
+	{"T-106", "Discount line in the order summary", "todo", "", "low"},
+	{"T-107", "Keyboard and focus order of the checkout form", "todo", "", "medium"},
+	{"T-108", "Visual regression run at 320px width", "blocked", "qa-1", "medium"},
 }
 
 // tasksTool serves the backlog as a JSON array (the tool result is its JSON text).
 func tasksTool() tools.Tool {
-	return tools.New(tasksToolName, "List the open tasks of the coupon backlog as JSON.",
+	return tools.New(tasksToolName, "List the open tasks of the checkout coupon screen backlog as JSON.",
 		func(context.Context, struct{}) (any, error) { return backlog, nil })
 }
 
