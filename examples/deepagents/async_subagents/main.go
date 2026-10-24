@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/deepagents"
@@ -23,6 +24,7 @@ func main() {
 			time.Sleep(50 * time.Millisecond) // pretend this takes a while
 			return messages.AI("Report: sodium-ion batteries are cheaper but less energy dense."), nil
 		}},
+		Middleware: []agents.Middleware{middleware.Compaction()},
 	})
 	runner := &dmw.LocalRunner{Agent: researcher}
 	main := models.NewFake(

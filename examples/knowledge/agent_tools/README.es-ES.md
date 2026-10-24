@@ -2,7 +2,7 @@
 
 [English](README.md) | [Português](README.pt-BR.md) | **Español**
 
-Un agent que responde desde la base de conocimiento llamando a tools de `knowledge.Toolkit` (`rag_answer`, ...).
+Un agent que responde desde la base de conocimiento llamando a tools de `knowledge.Toolkit` (`rag_answer`, ...). Los agents corren con `middleware.Compaction()`: los turnos antiguos se comprimen al estilo caveman, se añade una nota Ponytail cuando la conversación tiene una parte real de código, los resultados JSON de tools pasan a TOON, todo decidido por reglas, sin necesidad de modelo.
 
 ## Qué hace
 

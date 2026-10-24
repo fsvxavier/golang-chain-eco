@@ -1,6 +1,6 @@
 # independent_engineering_team
 
-The `engineering_team` flow with every agent as **its own service**: a process (or container, or machine) per agent, talking HTTP. Workers start and die on their own and take jobs from a queue.
+The `engineering_team` flow with every agent as **its own service**: a process (or container, or machine) per agent, talking HTTP. Workers start and die on their own and take jobs from a queue. The agents run through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation has a real share of code, JSON tool results become TOON, all decided by rules with no model needed.
 
 ## What it does
 

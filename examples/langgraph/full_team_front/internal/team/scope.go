@@ -8,17 +8,23 @@ import (
 )
 
 // Scope is what a demand allows the PO's backend tools and the QA browser to
-// reach: source roots, backend URLs and the front-end's own URL. It comes from
+// reach: source roots, backend URLs, the front-end's own URL and the document
+// directories the PO may write. It comes from
 // team_submit and is stored per request; no scope means no access.
 type Scope struct {
 	Roots  []string `json:"roots,omitempty"`
 	URLs   []string `json:"urls,omitempty"`
 	AppURL string   `json:"app_url,omitempty"`
+	// DocRoots are the directories where the PO may write markdown project
+	// documents (documentation, plan, next steps), under the workspace.
+	DocRoots []string `json:"doc_roots,omitempty"`
 }
 
 // IsEmpty reports that the demand named nothing. An empty Scope with a nil
 // error means exactly that, and consumers must treat it as no access.
-func (s Scope) IsEmpty() bool { return len(s.Roots) == 0 && len(s.URLs) == 0 && s.AppURL == "" }
+func (s Scope) IsEmpty() bool {
+	return len(s.Roots) == 0 && len(s.URLs) == 0 && s.AppURL == "" && len(s.DocRoots) == 0
+}
 
 // ErrNoScope is returned by HubClient.Scope when the request has none.
 var ErrNoScope = errors.New("hub: no scope for this request")

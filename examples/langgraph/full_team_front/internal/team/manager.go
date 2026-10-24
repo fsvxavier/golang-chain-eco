@@ -61,12 +61,12 @@ func (m *manager) move(ctx context.Context, kind tasktrack.Kind, id string, to t
 // NewManager builds the manager graph, served by the manager service through
 // remote/server and called by clients with remote.Graph.
 // The PO evidence rule reads a request's backend call count from hub.
-func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker) (*graph.Compiled, error) {
+func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker, mw ...agents.Middleware) (*graph.Compiled, error) {
 	prompt, err := Skill("manager")
 	if err != nil {
 		return nil, err
 	}
-	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt})
+	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt, Middleware: append(append(slices.Clone(mw), usageMeter{}), cacheFor("manager")...)})
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker)
 	})
 	g.AddNode("manager", m.intake)
 	po := m.step("po", "product-owner", tasktrack.InSpecification, func(s graph.State) string {
-		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v\n\n%s", s["request"], s["kickoff"], backendBlock(scopeOf(s)))
+		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v\n\n%s", s["request"], s["kickoff"], backendBlock(scopeOf(s))+docsBlock(scopeOf(s)))
 	}, "spec")
 	g.AddNode("po", func(ctx context.Context, s graph.State) (any, error) {
 		out, err := po(ctx, s)
@@ -102,6 +102,19 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker)
 	g.AddEdge(graph.Start, "manager").AddEdge("manager", "po").AddEdge("po", "build").
 		AddEdge("build", "deliver").AddEdge("deliver", graph.End)
 	return g.Compile(graph.WithName("engineering_team"), graph.WithCheckpointer(checkpoint.NewMemory()))
+}
+
+// docsBlock tells the PO where, if anywhere, it may keep project documents.
+func docsBlock(sc Scope) string {
+	if len(sc.DocRoots) == 0 {
+		return "\n\n## Project documents\nnone: the demand named no document directory, so do not write documents."
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## Project documents\nYou may keep the project documentation, plan and next steps current with project_doc_write (markdown files in these directories only; a relative path starts at the first). Update them when this request changes what is true; do not rewrite what is unchanged.\n")
+	for _, r := range sc.DocRoots {
+		b.WriteString("DOC ROOT: " + r + "\n")
+	}
+	return b.String()
 }
 
 func requestID(ctx context.Context) string {
@@ -128,7 +141,11 @@ func subject(ctx context.Context, task string) string {
 
 // ask sends one prompt to the manager's own agent.
 func (m *manager) ask(ctx context.Context, prompt string) (string, error) {
-	out, err := m.agent.Invoke(ctx, graph.State{"messages": []messages.Message{messages.Human(prompt)}})
+	var acc usageAcc
+	out, err := m.agent.Invoke(context.WithValue(ctx, usageSinkKey{}, &acc), graph.State{"messages": []messages.Message{messages.Human(prompt)}})
+	if u := acc.take(); u.TotalTokens > 0 { // best effort: a dashboard figure must not fail the delivery
+		_ = m.hub.AddUsage(ctx, requestID(ctx), messages.Usage(u))
+	}
 	if err != nil {
 		return "", err
 	}
@@ -174,6 +191,9 @@ func backendBlock(sc Scope) string {
 	for _, r := range sc.Roots {
 		b.WriteString("ROOT: " + r + "\n")
 	}
+	if len(sc.Roots) > 0 {
+		b.WriteString("TIP: backend_graph answers from a root's own CodeGraph or graphify index (symbols, source and call paths in one call) and is much cheaper than several backend_grep and backend_read calls; try it first, and fall back to those if the root has no index.\n")
+	}
 	for _, u := range sc.URLs {
 		b.WriteString("URL: " + u + "\n")
 	}
@@ -211,11 +231,27 @@ func (m *manager) dispatch(ctx context.Context, prefer []string, thread, prompt,
 	return m.dispatchJob(ctx, Job{Prefer: prefer}, thread, prompt, query)
 }
 
+// briefToken stands for the request dossier in a prompt. The job carries the
+// dossier itself (Job.Brief) and the worker puts it in the first prompt of a
+// thread only: later prompts on the same thread already have it in the history.
+const briefToken = "<<BRIEF>>"
+
+// dispatchBrief is dispatch for a prompt that uses briefToken.
+func (m *manager) dispatchBrief(ctx context.Context, prefer []string, thread, prompt, query, brief string) (Job, error) {
+	return m.dispatchJob(ctx, Job{Prefer: prefer, Brief: brief}, thread, prompt, query)
+}
+
 // dispatchJob is dispatch with the job's Prefer and Pin already set.
 func (m *manager) dispatchJob(ctx context.Context, j Job, thread, prompt, query string) (Job, error) {
 	scope := requestID(ctx)
 	j.Thread, j.Prompt, j.Query, j.Scope = scope+"-"+thread, prompt, query, scope
-	return m.hub.Run(ctx, j)
+	out, err := m.hub.Run(ctx, j)
+	if err != nil && out.Error == CancelledMsg {
+		if id := subject(ctx, ""); m.track.Status(id) != tasktrack.Cancelled {
+			m.move(ctx, tasktrack.Request, id, tasktrack.Cancelled, "user", "cancelled")
+		}
+	}
+	return out, err
 }
 
 // step is a node that hands the request to one role and stores its answer.
@@ -234,6 +270,7 @@ func (m *manager) step(role, label string, st tasktrack.Status, prompt func(grap
 
 func dossier(s graph.State) string {
 	d := fmt.Sprintf("## Request\n%v\n\n## Specification\n%v", s["request"], s["spec"])
+	d += "\n\n## Searching\nThe workspace and the backend roots named by the demand can be searched with the backend_graph tool when they have a CodeGraph or graphify index: one call returns symbols, source and call paths."
 	if u := scopeOf(s).AppURL; ValidAppURL(u) {
 		d += "\n\n## App\nAPP_URL: " + u // informational; browser_test takes the URL from the hub scope
 	}
@@ -262,7 +299,7 @@ Answer "VERDICT: APPROVE" when the tests cover the specification, or "VERDICT: R
 func (m *manager) build(ctx context.Context, s graph.State) (any, error) {
 	brief := dossier(s)
 	m.move(ctx, tasktrack.Request, subject(ctx, ""), tasktrack.TaskAssignment, "tech-leader", "")
-	plan, err := m.dispatch(ctx, []string{"leader"}, "leader", "ROLE: leader\n\n"+brief+m.workersBlock(ctx), fmt.Sprint(s["request"]))
+	plan, err := m.dispatchBrief(ctx, []string{"leader"}, "leader", "ROLE: leader\n\n"+briefToken+m.workersBlock(ctx), fmt.Sprint(s["request"]), brief)
 	if err != nil {
 		return nil, err
 	}
@@ -378,12 +415,12 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 	}
 	for w.Round < MaxRounds {
 		prompt := fmt.Sprintf("ROLE: engineer\n\n%s\n\n## Your task\nTASK: %s\nTITLE: %s\nCOMPLEXITY: %s\nDESCRIPTION: %s\nATTEMPT: %d\n",
-			brief, w.ID, w.Title, w.Complexity, w.Desc, w.Round+1)
+			briefToken, w.ID, w.Title, w.Complexity, w.Desc, w.Round+1)
 		if w.Feedback != "" {
 			prompt += "\n## Feedback to address\n" + w.Feedback + "\n"
 		}
 		m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.InDevelopment, strings.Join(prefer, "/"), fmt.Sprintf("attempt %d", w.Round+1))
-		j, err := m.dispatchJob(ctx, Job{Prefer: prefer, Pin: w.Round > 0}, w.ID+"-dev", prompt, w.Title+" "+w.Desc)
+		j, err := m.dispatchJob(ctx, Job{Prefer: prefer, Pin: w.Round > 0, Brief: brief}, w.ID+"-dev", prompt, w.Title+" "+w.Desc)
 		if err != nil {
 			return w, hist, err
 		}
@@ -421,7 +458,7 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 func (m *manager) jointReview(ctx context.Context, w *work, hist *[]any, brief string) (bool, error) {
 	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.InCodeReview, "tech-leader/specialist", "built by "+w.Assignee)
 	body := fmt.Sprintf("MODE: review\n\n%s\n\n## Task under review\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nATTEMPT: %d\n\n## Submitted work\n%s\n",
-		brief, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
+		briefToken, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
 	reviewers := []struct{ role, label string }{{"specialist", "specialist"}, {"leader", "tech-leader"}}
 	jobs := make([]Job, len(reviewers))
 	errs := make([]error, len(reviewers))
@@ -430,7 +467,7 @@ func (m *manager) jointReview(ctx context.Context, w *work, hist *[]any, brief s
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			jobs[i], errs[i] = m.dispatch(ctx, []string{r.role}, w.ID+"-review-"+r.role, "ROLE: "+r.role+"\n"+body, w.Title+" "+w.Desc)
+			jobs[i], errs[i] = m.dispatchBrief(ctx, []string{r.role}, w.ID+"-review-"+r.role, "ROLE: "+r.role+"\n"+body, w.Title+" "+w.Desc, brief)
 		}()
 	}
 	wg.Wait()
@@ -464,11 +501,11 @@ func (m *manager) jointReview(ctx context.Context, w *work, hist *[]any, brief s
 func (m *manager) gate(ctx context.Context, w *work, role, label string, hist *[]any, brief string, start, approved, rejected tasktrack.Status) (bool, error) {
 	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), start, role, "built by "+w.Assignee)
 	prompt := fmt.Sprintf("ROLE: %s\n\n%s\n\n## Task under %s\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nATTEMPT: %d\n\n## Submitted work\n%s\n",
-		role, brief, label, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
+		role, briefToken, label, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
 	if role == "qa" {
 		prompt += qaGuide
 	}
-	j, err := m.dispatch(ctx, []string{role}, w.ID+"-"+label, prompt, w.Title+" "+w.Desc)
+	j, err := m.dispatchBrief(ctx, []string{role}, w.ID+"-"+label, prompt, w.Title+" "+w.Desc, brief)
 	if err != nil {
 		return false, err
 	}

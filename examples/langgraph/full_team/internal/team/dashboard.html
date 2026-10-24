@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Dashboard</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1c2230;--mut:#667085;--line:#e3e6eb;--ok:#1a7f4b;--run:#2563eb;--warn:#b45309;--bad:#c0392b;--track:#e9ecf1}
+@media (prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1b2029;--fg:#e8ebf1;--mut:#9aa3b2;--line:#2a313d;--ok:#4cc38a;--run:#6ea0ff;--warn:#e0a458;--bad:#ff7b6b;--track:#2a313d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+h1{font-size:18px;margin:0}h2{font-size:14px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+#meta{color:var(--mut);font-size:12px;margin-left:auto}
+main{display:grid;gap:16px;padding:16px;grid-template-columns:minmax(0,3fr) minmax(0,2fr);max-width:1400px;margin:0 auto}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0}
+.req{border-top:1px solid var(--line);padding:12px 0}.req:first-of-type{border-top:0;padding-top:0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.title{font-weight:600;overflow-wrap:anywhere}.mut{color:var(--mut);font-size:12px}
+.badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);white-space:nowrap}
+.s-run{color:var(--run);border-color:var(--run)}.s-ok{color:var(--ok);border-color:var(--ok)}.s-warn{color:var(--warn);border-color:var(--warn)}.s-bad{color:var(--bad);border-color:var(--bad)}
+.bar{height:8px;border-radius:4px;background:var(--track);overflow:hidden;flex:1;min-width:80px}
+.bar>i{display:block;height:100%;background:var(--run);transition:width .4s}.bar.done>i{background:var(--ok)}
+.time{font-variant-numeric:tabular-nums;white-space:nowrap}
+.task{margin:8px 0 0 14px;padding-left:10px;border-left:2px solid var(--line)}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:6px 8px;border-top:1px solid var(--line);font-size:13px;vertical-align:top}th{color:var(--mut);font-weight:500;border-top:0}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--mut)}.dot.busy{background:var(--run)}.dot.idle{background:var(--ok)}.dot.offline{background:var(--bad)}
+.ev{font-size:12px;padding:3px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}.ev:first-child{border-top:0}
+#err{color:var(--bad);margin:0 16px}.empty{color:var(--mut)}
+button.lnk{background:none;border:0;color:var(--run);cursor:pointer;padding:0;font:inherit;text-decoration:underline}
+#tr{position:fixed;inset:5% 8%;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;overflow:auto;box-shadow:0 8px 40px #0006;z-index:5}
+#tr .t{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0;padding:6px 8px;border-radius:6px;background:var(--bg);font-size:12px}#tr .t.assistant{border-left:3px solid var(--run)}#tr .t.tool{color:var(--mut)}
+</style>
+</head>
+<body>
+<header><h1>Team Dashboard</h1><label class="mut">project <select id="projsel"></select></label><span id="tot" class="badge s-run"></span><span id="meta">connecting…</span></header>
+<p id="err" hidden></p>
+<main>
+<div>
+  <section><h2>Requests and tasks</h2><div id="reqs"></div></section>
+  <section style="margin-top:16px"><h2>Recent events</h2><div id="events"></div></section>
+</div>
+<section><h2>Personas</h2><div style="overflow-x:auto"><table><thead><tr><th>Persona / skill</th><th>State</th><th>Now</th><th>Done</th><th>Busy</th><th>Tokens</th></tr></thead><tbody id="personas"></tbody></table></div></section>
+<div style="grid-column:1/-1;display:grid;gap:16px;grid-template-columns:minmax(0,1fr) minmax(0,1fr)" id="more">
+  <section><h2>Claude CLI calls</h2><div style="overflow-x:auto"><table><thead><tr><th>When / agent</th><th>Model</th><th>Time</th><th>Tokens</th><th>List cost</th><th></th></tr></thead><tbody id="cli"></tbody></table></div><p class="mut" id="clinote"></p></section>
+  <section><h2>Chat agents (.claude/agents)</h2><div style="overflow-x:auto"><table><thead><tr><th>Agent</th><th>Runs</th></tr></thead><tbody id="chatag"></tbody></table></div><h2 style="margin-top:14px">Recent runs in the chat</h2><div id="chatruns"></div></section>
+</div>
+</main>
+<div id="tr" hidden><div class="row"><b id="trt"></b><button class="lnk" id="trx" style="margin-left:auto">close</button></div><div id="trb"></div></div>
+<script>
+const $=id=>document.getElementById(id);
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
+function dur(ms){if(!(ms>0))return"0s";let s=Math.round(ms/1000);const h=Math.floor(s/3600);s%=3600;const m=Math.floor(s/60);s%=60;return h?h+"h "+m+"m":m?m+"m "+s+"s":s+"s"}
+function cls(st){if(!st)return"";if(/rejected|failed|blocked|cancelled/.test(st))return"s-bad";if(st==="completed"||st==="committed"||/approved/.test(st))return"s-ok";if(/review|qa|testing/.test(st))return"s-warn";return"s-run"}
+function tok(t){if(!t||!t.total)return"0 tok";return t.total.toLocaleString()+" tok ("+t.in.toLocaleString()+" in / "+t.out.toLocaleString()+" out)"}
+function label(st){return(st||"").replace(/_/g," ")}
+function bar(p,done){const b=el("div","bar"+(done?" done":""));const i=el("i");i.style.width=p+"%";b.append(i);return b}
+function render(d){
+  const now=d.now_ms;
+  $("tot").textContent="project total: "+tok(d.tokens);$("tot").title=d.project_root||"";
+  document.title=(d.project?d.project+" · ":"")+"Team Dashboard";
+  $("meta").textContent="updated "+new Date(now).toLocaleTimeString()+" · queued jobs: "+d.queued;
+  const er=$("err");er.hidden=!d.hub_error;er.textContent=d.hub_error?"hub: "+d.hub_error:"";
+  const rq=$("reqs");rq.replaceChildren();
+  if(!d.requests.length)rq.append(el("div","empty","No requests yet. Send a demand to the team and it will show up here."));
+  for(const r of d.requests){
+    const done=r.status==="completed",box=el("div","req");
+    const h=el("div","row");h.append(el("span","title",r.title||r.id),el("span","badge "+cls(r.status),label(r.status)),el("span","mut","by "+(r.agent||"-")),el("span","time mut",dur((r.ended_ms||now)-r.started_ms)),el("span","mut","· "+tok(r.tokens)));
+    const pr=el("div","row");pr.style.marginTop="6px";pr.append(bar(r.progress,done),el("span","mut",r.progress+"%"),el("span","mut","#"+r.id));
+    box.append(h,pr);
+    for(const t of r.tasks||[]){
+      const td=t.status==="completed",tk=el("div","task"),a=el("div","row");
+      a.append(el("span",null,t.title||t.id),el("span","badge "+cls(t.status),label(t.status)),el("span","mut","@"+(t.agent||"-")),el("span","mut","rounds "+t.rounds),el("span","time mut",dur((t.ended_ms||now)-t.started_ms)),el("span","mut","· "+tok(t.tokens)));
+      const b=el("div","row");b.style.marginTop="4px";b.append(bar(t.progress,td),el("span","mut",t.progress+"%"));
+      tk.append(a,b);box.append(tk);
+    }
+    rq.append(box);
+  }
+  const pb=$("personas");pb.replaceChildren();
+  for(const p of d.personas){
+    const tr=el("tr"),c1=el("td"),c2=el("td"),c3=el("td");
+    const dot=el("span","dot "+p.state);c1.append(dot,el("b",null,p.id));if(p.model)c1.append(el("div","mut",p.model));if(p.skill){const s=el("div","mut","skill: "+p.skill+(p.refs&&p.refs.length?" +"+p.refs.length+" refs":""));if(p.refs&&p.refs.length)s.title=p.refs.join(", ");c1.append(s)}
+    c2.textContent=p.state;
+    c3.textContent=p.state==="busy"?(p.job||"")+" · "+dur(p.job_ms):"-";if(p.activity)c3.append(el("div","mut",p.activity));
+    tr.append(c1,c2,c3,el("td",null,p.done+(p.failed?" (+"+p.failed+" failed)":"")),el("td","time",dur(p.busy_ms)),el("td","time",p.tokens.total?p.tokens.total.toLocaleString():"-"));
+    pb.append(tr);
+  }
+  const cb=$("cli");cb.replaceChildren();
+  const cl=d.cli_calls||[];
+  $("clinote").textContent=cl.length?"List cost is the price-list equivalent the CLI reports; the subscription is not charged per token.":"No claude CLI calls yet (AGENT_BACKEND=claude-cli).";
+  for(const c of cl){
+    const tr=el("tr"),a=el("td"),m=el("td");
+    a.append(el("b",null,c.worker),el("div","mut",new Date(c.started_ms).toLocaleTimeString()+" · "+c.role));
+    m.textContent=(c.model||"").replace("claude-","");
+    const st=c.error?"failed":c.done?"":"running";
+    const t=el("td","time",c.done?dur(c.duration_ms):dur(now-c.started_ms));if(st)t.append(" ",el("span","badge "+(c.error?"s-bad":"s-run"),st));if(c.error){t.title=c.error}
+    const v=el("td");if(c.session){const b=el("button","lnk","conversation");b.onclick=()=>openTr("cli",c.session,c.worker);v.append(b)}
+    tr.append(a,m,t,el("td","time",c.tokens.total?c.tokens.total.toLocaleString():"-"),el("td","time",c.cost_usd?"$"+c.cost_usd.toFixed(4):"-"),v);cb.append(tr);
+  }
+  const ca=$("chatag");ca.replaceChildren();
+  const ags=d.chat_agents||[];
+  if(!ags.length){const tr=el("tr");tr.append(el("td","empty","No .claude/agents in this project."));ca.append(tr)}
+  for(const a of ags){
+    const tr=el("tr"),c=el("td");c.append(el("b",null,a.name),el("span","mut"," · "+a.source+(a.model?" · "+a.model:"")));if(a.description)c.append(el("div","mut",a.description));
+    if(a.tools)c.title="tools: "+a.tools;
+    const r=el("td","time",a.runs?String(a.runs):"-");if(a.active)r.append(" ",el("span","badge s-run",a.active+" running"));
+    tr.append(c,r);ca.append(tr);
+  }
+  const cr=$("chatruns");cr.replaceChildren();
+  for(const r of d.chat_runs||[]){
+    const x=el("div","ev");x.append(el("span","dot "+(r.running?"busy":"idle")),el("b",null,r.agent),el("span","mut"," "+(r.description||"")+" · "+new Date(r.started_ms).toLocaleString()+" · "+dur(r.updated_ms-r.started_ms)+" "));
+    const b=el("button","lnk","conversation");b.onclick=()=>openTr("chat",r.id,r.agent);x.append(b);cr.append(x);
+  }
+  if(!(d.chat_runs||[]).length)cr.append(el("div","empty","No sub-agent runs in this project's chat yet."));
+  const ev=$("events");ev.replaceChildren();
+  for(const e of d.events){
+    const x=el("div","ev");x.textContent=new Date(e.time).toLocaleTimeString()+" ["+e.subject+"] "+(e.from||"new")+" → "+e.to+(e.agent?" ("+e.agent+")":"")+(e.detail?": "+e.detail:"");
+    ev.append(x);
+  }
+}
+async function openTr(kind,id,name){
+  const box=$("tr"),b=$("trb");box.hidden=false;$("trt").textContent="conversation · "+name;b.replaceChildren(el("div","empty","loading…"));
+  try{
+    const r=await fetch("api/transcript?kind="+kind+"&id="+encodeURIComponent(id),{cache:"no-store"}),j=await r.json();
+    if(!r.ok)throw new Error(j.error||"http "+r.status);
+    b.replaceChildren();for(const t of j.turns||[])b.append(el("div","t "+t.role,t.role+": "+t.text));
+    if(!(j.turns||[]).length)b.append(el("div","empty","empty"));
+  }catch(e){b.replaceChildren(el("div","empty",e.message))}
+}
+$("trx").onclick=()=>{$("tr").hidden=true};
+async function tick(){
+  try{const r=await fetch("api/state",{cache:"no-store"});if(!r.ok)throw new Error("http "+r.status);render(await r.json())}
+  catch(e){$("meta").textContent="connection lost: "+e.message}
+}
+// Project selector: /p/<name>/ is the page of one project; the list comes from the gateway.
+const cur=(location.pathname.match(/^\/p\/([^/]+)\//)||[])[1];
+const curName=cur?decodeURIComponent(cur):"";
+async function projects(){
+  const sel=$("projsel");
+  try{
+    const r=await fetch("../../api/projects",{cache:"no-store"});if(!r.ok)throw 0;
+    const list=await r.json();sel.replaceChildren();
+    for(const p of list){const o=el("option",null,p.name+(p.alive?"":" (offline)")+(p.requests?" · "+p.requests+" req":""));o.value=p.name;o.title=p.root;if(p.name===curName)o.selected=true;sel.append(o)}
+    sel.parentElement.hidden=false;
+  }catch(e){sel.parentElement.hidden=true}
+}
+$("projsel").onchange=e=>{location.href="../"+encodeURIComponent(e.target.value)+"/"};
+projects();setInterval(projects,10000);
+tick();setInterval(tick,2000);
+</script>
+</body>
+</html>

@@ -4,6 +4,8 @@
 
 A docs-search agent whose tools come from an MCP server.
 
+The agent runs through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation holds a real share of code, JSON tool results become TOON, and all of it is decided by rules, with no model needed.
+
 ## What it does
 
 - Starts a tiny in-process MCP server that exposes `search_docs`, connects with `mcp.Connect` over an in-memory pipe, and loads its tools with `client.Tools`.

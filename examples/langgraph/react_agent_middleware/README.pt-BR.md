@@ -2,7 +2,7 @@
 
 [English](README.md) | **Português** | [Español](README.es-ES.md)
 
-Um agent com chamadas de tool montado com `agents.Create`, um middleware e updates em streaming.
+Um agent com chamadas de tool montado com `agents.Create`, um middleware e updates em streaming. O agent roda com `middleware.Compaction()`: turnos antigos são comprimidos no estilo caveman, uma nota Ponytail entra quando a conversa tem uma parcela real de código, e resultados JSON de tools são recodificados em TOON, tudo decidido por regras, sem precisar de modelo.
 
 ## O que faz
 

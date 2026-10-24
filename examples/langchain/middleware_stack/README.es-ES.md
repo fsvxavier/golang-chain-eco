@@ -2,7 +2,7 @@
 
 [English](README.md) | [Português](README.pt-BR.md) | **Español**
 
-Un agent envuelto en los middlewares que quieres en producción: redacción de PII, retry, fallback de modelo y límites de llamadas.
+Un agent envuelto en los middlewares que quieres en producción: redacción de PII, retry, fallback de modelo y límites de llamadas. Los agents corren con `middleware.Compaction()`: los turnos antiguos se comprimen al estilo caveman, se añade una nota Ponytail cuando la conversación tiene una parte real de código, los resultados JSON de tools pasan a TOON, todo decidido por reglas, sin necesidad de modelo.
 
 ## Qué hace
 

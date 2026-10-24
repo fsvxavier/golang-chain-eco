@@ -29,7 +29,7 @@ func main() {
 		),
 		Tools:        []tools.Tool{weather},
 		SystemPrompt: "You are a helpful weather assistant.",
-		Middleware:   []agents.Middleware{middleware.ModelCallLimit{RunLimit: 5}},
+		Middleware:   []agents.Middleware{middleware.ModelCallLimit{RunLimit: 5}, middleware.Compaction()},
 	})
 	if err != nil {
 		log.Fatal(err)

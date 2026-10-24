@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/deepagents"
@@ -29,7 +30,8 @@ func main() {
 			time.Sleep(150 * time.Millisecond) // a "long" research job
 			return messages.AI("Findings: solid-state batteries reach ~400 Wh/kg in lab cells."), nil
 		}},
-		Compile: []graph.CompileOption{graph.WithCheckpointer(checkpoint.NewMemory())},
+		Compile:    []graph.CompileOption{graph.WithCheckpointer(checkpoint.NewMemory())},
+		Middleware: []agents.Middleware{middleware.Compaction()},
 	})
 	if err != nil {
 		log.Fatal(err)

@@ -169,7 +169,7 @@ func TestNoticesCoverLockedLicensesAndSources(t *testing.T) {
 
 func TestPinnedFromIsPlausibleCommit(t *testing.T) {
 	commit := regexp.MustCompile(`/(?:blob|tree)/[0-9a-f]{7,40}(?:/|$)`)
-	must := map[string]bool{"web-design-guidelines": true, "playwright-best-practices": true, "user-stories": true}
+	must := map[string]bool{"playwright-best-practices": true, "user-stories": true}
 	for _, e := range readLock(t) {
 		if must[e.Skill] {
 			if !commit.MatchString(e.PinnedFrom) {

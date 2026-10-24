@@ -2,7 +2,7 @@
 
 [English](README.md) | [Português](README.pt-BR.md) | **Español**
 
-Una organización de ingeniería como un único grafo: un gerente enruta la solicitud, un product owner la especifica, un arquitecto evalúa el riesgo, un tech leader la divide en tareas y cuatro ingenieros construyen en paralelo; cada tarea pasa por code review y QA antes de la entrega. Todos los agents corren en un solo proceso.
+Una organización de ingeniería como un único grafo: un gerente enruta la solicitud, un product owner la especifica, un arquitecto evalúa el riesgo, un tech leader la divide en tareas y cuatro ingenieros construyen en paralelo; cada tarea pasa por code review y QA antes de la entrega. Todos los agents corren en un solo proceso. Los agents corren con `middleware.Compaction()`: los turnos antiguos se comprimen al estilo caveman, se añade una nota Ponytail cuando la conversación tiene una parte real de código, los resultados JSON de tools pasan a TOON, todo decidido por reglas, sin necesidad de modelo.
 
 ## Qué hace
 

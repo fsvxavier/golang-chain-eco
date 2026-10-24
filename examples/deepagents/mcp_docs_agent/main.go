@@ -13,6 +13,7 @@ import (
 	"log"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
@@ -69,6 +70,7 @@ func main() {
 			messages.AI("Use a checkpointer: it saves state for each thread_id."),
 		),
 		Tools: ts, SystemPrompt: "Answer from the docs tool only.",
+		Middleware: []agents.Middleware{middleware.Compaction()},
 	})
 	if err != nil {
 		log.Fatal(err)

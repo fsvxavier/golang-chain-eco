@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -313,5 +314,50 @@ func TestCompressionDeciderNoLeavesUntouched(t *testing.T) {
 	}
 	if calls != 1 || !reflect.DeepEqual(in, orig) {
 		t.Fatal("request changed although every answer is no")
+	}
+}
+
+// Compaction needs no model: the rules alone must shrink a long (over 4000 tokens), wordy history
+// before the call, and leave a short one alone.
+func TestCompactionDefaultShrinksLongHistory(t *testing.T) {
+	size := func(ms []messages.Message) (n int) {
+		for _, m := range ms {
+			n += len(m.Text())
+		}
+		return
+	}
+	run := func(in []messages.Message) []messages.Message {
+		var got []messages.Message
+		_, err := Compaction().WrapModelCall(context.Background(), &agents.ModelRequest{Messages: in},
+			func(_ context.Context, r *agents.ModelRequest) (messages.Message, error) {
+				got = r.Messages
+				return messages.AI("ok"), nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	long := append(turns(120), messages.Human(verbose)) // the rules compress above 4000 estimated tokens
+	if got := run(long); size(got) >= size(long) {
+		t.Fatalf("long history not shrunk: %d >= %d", size(got), size(long))
+	}
+	short := []messages.Message{messages.Human(verbose)}
+	if got := run(short); !reflect.DeepEqual(got, short) {
+		t.Fatalf("a short history must pass untouched: %+v", got)
+	}
+}
+
+func TestOldBigToolResultsAreElided(t *testing.T) {
+	big := strings.Repeat("x", 10000)
+	msgs := []messages.Message{{Role: messages.RoleHuman, Content: "go"}}
+	for i := 0; i < 4; i++ {
+		msgs = append(msgs, messages.Message{Role: messages.RoleTool, ToolCallID: fmt.Sprint(i), Content: big})
+	}
+	if n := elideOldToolResults(msgs); n != 2 {
+		t.Fatalf("cut %d, want 2", n)
+	}
+	if len(msgs[1].Content) > 1200 || len(msgs[2].Content) > 1200 || len(msgs[3].Content) != 10000 || len(msgs[4].Content) != 10000 {
+		t.Fatalf("wrong results elided: %d %d %d %d", len(msgs[1].Content), len(msgs[2].Content), len(msgs[3].Content), len(msgs[4].Content))
 	}
 }

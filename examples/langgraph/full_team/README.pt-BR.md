@@ -61,7 +61,7 @@ go run ./examples/langgraph/full_team serve
 go build -o bin/team-mcp ./examples/langgraph/full_team && ./bin/team-mcp serve
 ```
 
-O stdout leva só o protocolo MCP. As linhas de inicialização (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) vão para o stderr. Ele para no fim da entrada (Ctrl-D) ou com um sinal. O modo serve difere da demo em três pontos: nenhum worker recebe a ferramenta `shell`, o manager roda com uma API key aleatória gerada na partida (um `MANAGER_API_KEY` definido pelo operador é ignorado; só a bridge deste processo conhece a chave) e nenhuma demanda é enviada até o chat chamar `team_submit`. As ferramentas são `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume`.
+O stdout leva só o protocolo MCP. As linhas de inicialização (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) vão para o stderr. Ele para no fim da entrada (Ctrl-D) ou com um sinal. O modo serve difere da demo em três pontos: nenhum worker recebe a ferramenta `shell`, o manager roda com uma API key aleatória gerada na partida (um `MANAGER_API_KEY` definido pelo operador é ignorado; só a bridge deste processo conhece a chave) e nenhuma demanda é enviada até o chat chamar `team_submit`. As ferramentas são `team_submit`, `team_status`, `team_queue`, `team_cancel`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume`.
 
 Mais dois fatos sobre o modo serve. O argumento `url` de `graph_run`, `graph_state` e `graph_resume` permite que o chat faça a bridge chamar qualquer URL de Agent Server; a chave do manager só é enviada quando `url` está vazio ou é igual à URL do próprio manager, e qualquer outra URL não recebe chave. O hub e os servidores dos workers escutam em `127.0.0.1` e não têm autenticação, então qualquer processo local pode alcançá-los.
 
@@ -127,6 +127,32 @@ ROLL CALL
 
 Com um worker fora, as últimas linhas são `10 of 11 present` e `Absent: qa-2`.
 
+## Skills vendorizadas
+
+Quatro papéis carregam skills de terceiros em `skills/<papel>/references/<nome>/SKILL.md`; o carregador as acrescenta ao prompt de sistema do papel, ordenadas por nome, sob `## Skill: <nome>`. Elas estão fixadas em `skills/skills.lock` (SHA-256 de cada arquivo) e creditadas em [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md); todas são MIT, cópias aparadas e saneadas das que estão em [full_team_front](../full_team_front/README.pt-BR.md), não os arquivos originais.
+
+| Pasta da persona | Skills | Tamanho |
+|---|---|---|
+| `product-owner` | `contract-first`, `user-stories` | 7,0 KB |
+| `engineering-manager` | `planning-and-task-breakdown` | 3,0 KB |
+| `tech-leader` | `code-review`, `planning-and-task-breakdown` | 5,8 KB |
+| `specialist-reviewer` | `performance-optimization` | 3,9 KB |
+
+O arquiteto, o QA e os três desenvolvedores não têm nenhuma: as skills genéricas disponíveis aqui não servem para eles, e as de front-end (React, design, Playwright) pertencem ao `full_team_front`. Toda referência é reenviada a cada chamada ao modelo do seu papel, então só acrescente uma quando ela compensar os tokens. `skills/skills_test.go` confere que cada entrada do lock está embutida com hash igual, que nenhum arquivo passa de 8 KB nem nenhum papel de 24 KB, que toda referência embutida está no lock e que os avisos cobrem cada origem e licença.
+
+## O PO mantém os documentos do projeto
+
+O product owner é o único papel que pode gravar, e só por `project_doc_write`: arquivos markdown (`.md`, até 256 KB), com `replace` ou `append`. O local é definido por cada demanda: o campo opcional `docs_roots` do `team_submit` lista os diretórios (relativos ao workspace, ou absolutos sob `WORKSPACE_ROOT`, senão o diretório de trabalho do servidor) onde o PO pode gravar, e um caminho relativo na ferramenta começa no primeiro. Uma demanda sem `docs_roots` não dá ao PO nenhum acesso de escrita. Todo o resto é recusado: outras extensões, caminhos fora dos diretórios citados, `..` e symlinks que levam para fora. Os diretórios chegam à ferramenta pelo hub, pela thread exata do job (`internal/docs`), e o manager os lista no prompt do PO. Um modelo decide o conteúdo: revise o `git diff` desses arquivos depois de uma execução. Código-fonte, e todos os outros papéis, continuam somente leitura para ele.
+
+## Painel de acompanhamento e cancelamento
+
+Uma página web somente leitura mostra cada pedido e tarefa com status, barra de progresso, tempo de execução e uso de tokens, e cada persona (worker) com estado, job atual, skill, o que está fazendo agora (a referência que consulta, a ferramenta que chama ou o modelo), jobs concluídos, tempo ocupado e tokens. Os tokens também são somados por tarefa, por pedido e no projeto; as chamadas do modelo de conhecimento não entram na conta. Atualiza a cada 2 segundos e mostra apenas status, tempos e contagem de tokens, nunca prompts ou saídas.
+
+- O modo `serve` abre em `http://127.0.0.1:8088` (somente loopback); as outras execuções só o servem com `DASHBOARD_ADDR=host:porta`. A página não tem autenticação: para outra máquina use `DASHBOARD_ADDR=0.0.0.0:8088` atrás de um proxy com autenticação.
+- Cada projeto tem sua própria URL, `http://127.0.0.1:8088/p/<projeto>/` (`/?project=<projeto>` redireciona para ela), e o cabeçalho tem um seletor de projeto. O primeiro time a subir é dono da porta e lista os demais; um time que a encontra ocupada serve numa porta de loopback livre e se registra no dono (somente loopback). O projeto é `WORKSPACE_ROOT`, senão o diretório de trabalho.
+- `team_cancel` (ferramenta MCP, argumento `thread_id`) cancela um pedido: os jobs na fila são descartados, os agentes em execução param no próximo heartbeat e a entrega termina como `cancelled`. A chamada ao modelo em curso do manager ainda termina, e os tokens de um job cancelado não são contados. Enviar a mesma thread de novo começa uma execução limpa.
+- Uso de tokens: o agente do próprio manager passa pelo mesmo middleware de compressão dos workers. A compressão só toca turnos antigos e resultados JSON de ferramentas; o prompt de sistema e os schemas das ferramentas (a maior parte do que uma demanda envia) são reenviados a cada chamada, e o demo offline imprime a parcela deles junto das cifras de compressão. Para modelos Anthropic o prompt de sistema é marcado como ponto de cache, o que também cobre as ferramentas (`PROMPT_CACHE=off` desliga; conferido contra um stub da API, não contra a real). O dossiê do pedido vai só no primeiro prompt de uma thread; os seguintes apontam para a primeira mensagem. `ANTHROPIC_BASE_URL` envia as chamadas Anthropic por um gateway, e `ANTHROPIC_AUTH_TOKEN` vai como `Authorization: Bearer`, sozinho ou junto de `ANTHROPIC_API_KEY`.
+
 ## Como testar
 
 ```bash
@@ -145,3 +171,13 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # inclui TestStartLo
 
 - [independent_engineering_team](../independent_engineering_team/README.pt-BR.md): a origem do time copiado, sem compressão
 - [compress_history_summary](../compress_history_summary/README.pt-BR.md), [compress_shell_rtk](../compress_shell_rtk/README.pt-BR.md), [decider_laya_http](../decider_laya_http/README.pt-BR.md), [decider_laya_native](../decider_laya_native/README.pt-BR.md)
+
+## Assinatura em vez de API
+
+todo papel responde por `claude -p`, cobrado na assinatura do Claude em vez do crédito da API; exige `claude` logado, sem chave de API (qualquer credencial `ANTHROPIC_*` é removida do ambiente do processo filho). Mais lento que a API e o uso de ferramentas é emulado no prompt; `CLAUDE_CLI_CONCURRENCY` (padrão 3) limita os processos, `CLAUDE_BIN` aponta o binário. Confira os termos do seu plano antes de rodar sem supervisão. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mistura por papel
+
+`AGENT_BACKEND=claude-cli` (`providers/claudecli`).
+
+## Dashboard: chamadas CLI, conversas e agentes do chat
+
+Com `AGENT_BACKEND=claude-cli` o dashboard lista cada chamada ao CLI do Claude (agente, modelo, tempo, tokens, custo de tabela; a assinatura não cobra por token) e abre a conversa de cada uma. As chamadas mantêm a sessão do Claude Code (em `~/.claude/projects`) salvo `CLAUDE_CLI_TRANSCRIPTS=off`. Também lista os sub-agentes definidos em `.claude/agents` do projeto (e `~/.claude/agents`) com as execuções recentes no chat, e abre as conversas deles. As conversas mostram prompts e respostas: `DASHBOARD_TRANSCRIPTS=off` remove esse endpoint (a página é só loopback).

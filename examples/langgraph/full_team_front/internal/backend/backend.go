@@ -40,6 +40,9 @@ type Config struct {
 	// logged and never fails the tool call: the hub's count is then short, which
 	// the manager treats as unverified.
 	Report func(ctx context.Context, requestID string) error
+	// Run executes a code graph engine (codegraph, graphify) for backend_graph.
+	// Nil runs the real binary without a shell, with a timeout and a size cap.
+	Run func(ctx context.Context, name string, args []string) (string, error)
 }
 
 func (c Config) withDefaults() Config {
@@ -69,7 +72,7 @@ func Tools(scope func(ctx context.Context) (team.Scope, error), cfg Config) []to
 }
 
 // RoleTools is a team.LocalOptions.RoleTools that gives the po role the
-// backend tools. The scope and request id come from the hub by the job's exact
+// backend tools and every other role backend_graph. The scope and request id come from the hub by the job's exact
 // thread; hub may return nil until the team is up, which means no access.
 func RoleTools(hub func() *team.HubClient, cfg Config) func(role string) []tools.Tool {
 	if cfg.Report == nil {
@@ -83,17 +86,31 @@ func RoleTools(hub func() *team.HubClient, cfg Config) func(role string) []tools
 	ts := newTools(func(ctx context.Context) (string, team.Scope, error) {
 		return team.RequestScopeFromContext(ctx, hub())
 	}, cfg)
+	// Every role may ask a root's code graph (it only reads, within the demand's
+	// roots, and saves tokens in any role's searches); the other tools are the PO's.
+	var graph []tools.Tool
+	for _, t := range ts {
+		if t.Name() == "backend_graph" {
+			graph = append(graph, t)
+		}
+	}
 	return func(role string) []tools.Tool {
 		if role == "po" {
 			return ts
 		}
-		return nil
+		return graph
 	}
 }
 
 type readArgs struct {
-	Path string `json:"path" jsonschema:"file or directory, relative to the first root or absolute inside a root"`
+	Path   string `json:"path" jsonschema:"file or directory, relative to the first root or absolute inside a root"`
+	Offset int    `json:"offset,omitempty" jsonschema:"byte offset to continue a file that ended with [truncated]"`
 }
+
+// maxRead caps one backend_read: every byte stays in the history and is billed
+// again on each later step, so a big file is read in pages, or searched with
+// backend_grep, instead of dumped whole.
+const maxRead = 32 << 10
 
 type grepArgs struct {
 	Pattern string `json:"pattern" jsonschema:"Go regular expression"`
@@ -127,7 +144,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 		return id, s, nil
 	}
 	return []tools.Tool{
-		tools.New("backend_read", "Read one file (or list one directory) of the backend source the demand named. Read-only; use it to see endpoints, payloads and errors as written.",
+		tools.New("backend_read", "Read one file (or list one directory) of the backend source the demand named, at most 32 KB per call (use offset to page, backend_grep to search big files). Read-only; use it to see endpoints, payloads and errors as written.",
 			func(ctx context.Context, a readArgs) (any, error) {
 				id, s, err := scope(ctx, "backend_read")
 				if err != nil {
@@ -137,7 +154,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 				if err != nil {
 					return nil, tools.Errorf("backend_read: %v", err)
 				}
-				out, err := read(p, cfg.MaxBytes)
+				out, err := read(p, min(cfg.MaxBytes, maxRead), a.Offset)
 				if err != nil {
 					return nil, tools.Errorf("backend_read: %v", err)
 				}
@@ -165,6 +182,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 				count(ctx, id)
 				return out, nil
 			}),
+		graphTool(cfg, resolve, count),
 		tools.New("backend_get", "HTTP GET one URL of the backend the demand named (GET only); returns status, content type and body. Use it to see real responses and the API description.",
 			func(ctx context.Context, a getArgs) (any, error) {
 				id, s, err := scope(ctx, "backend_get")
@@ -255,7 +273,7 @@ func capped(r io.Reader, max int) (string, error) {
 	return string(b), nil
 }
 
-func read(p string, max int) (string, error) {
+func read(p string, max, offset int) (string, error) {
 	info, err := os.Stat(p)
 	if err != nil {
 		return "", err
@@ -280,7 +298,16 @@ func read(p string, max int) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	return capped(f, max)
+	if offset > 0 {
+		if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
+			return "", err
+		}
+	}
+	out, err := capped(f, max)
+	if strings.HasSuffix(out, truncated) {
+		out += fmt.Sprintf(" at byte %d of %d; call again with offset=%d, or use backend_grep", offset+max, info.Size(), offset+max)
+	}
+	return out, err
 }
 
 // maxGrepFiles caps the files one grep opens, so a node_modules tree cannot

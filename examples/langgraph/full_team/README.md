@@ -61,7 +61,7 @@ go run ./examples/langgraph/full_team serve
 go build -o bin/team-mcp ./examples/langgraph/full_team && ./bin/team-mcp serve
 ```
 
-Stdout carries only the MCP protocol. Startup lines (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) go to stderr. It stops on end of input (Ctrl-D) or on a signal. Serve mode differs from the demo in three ways: no worker gets the `shell` tool, the manager runs with a random API key generated at start (an operator-set `MANAGER_API_KEY` is ignored; only this process's bridge knows the key), and no demand is submitted until the chat calls `team_submit`. The tools are `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` and `graph_resume`.
+Stdout carries only the MCP protocol. Startup lines (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) go to stderr. It stops on end of input (Ctrl-D) or on a signal. Serve mode differs from the demo in three ways: no worker gets the `shell` tool, the manager runs with a random API key generated at start (an operator-set `MANAGER_API_KEY` is ignored; only this process's bridge knows the key), and no demand is submitted until the chat calls `team_submit`. The tools are `team_submit` (field `request`, and optionally `docs_roots`), `team_status`, `team_queue`, `team_cancel`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` and `graph_resume`.
 
 Two more facts about serve mode. The `url` argument of `graph_run`, `graph_state` and `graph_resume` lets the chat make the bridge call any Agent Server URL; the manager's key is sent only when `url` is empty or equals the manager's own URL, and any other URL gets no key. The hub and the workers' servers listen on `127.0.0.1` and are not authenticated, so any local process can reach them.
 
@@ -127,6 +127,32 @@ ROLL CALL
 
 With a worker down the last lines read `10 of 11 present` and `Absent: qa-2`.
 
+## Vendored skills
+
+Four roles carry third-party skills under `skills/<role>/references/<name>/SKILL.md`; the loader appends them to the role's system prompt, sorted by name, under `## Skill: <name>`. They are pinned in `skills/skills.lock` (SHA-256 of each file) and credited in [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md); all are MIT, trimmed and sanitised copies of the ones in [full_team_front](../full_team_front/README.md), not the upstream files.
+
+| Persona folder | Skills | Size |
+|---|---|---|
+| `product-owner` | `contract-first`, `user-stories` | 7.0 KB |
+| `engineering-manager` | `planning-and-task-breakdown` | 3.0 KB |
+| `tech-leader` | `code-review`, `planning-and-task-breakdown` | 5.8 KB |
+| `specialist-reviewer` | `performance-optimization` | 3.9 KB |
+
+The architect, QA and the three developers have none: the generic skills available here do not fit them, and the front-end ones (React, design, Playwright) belong to `full_team_front`. Every reference is resent on each model call of its role, so add one only when it earns its tokens. `skills/skills_test.go` checks that each lock entry is embedded with a matching hash, that no file is over 8 KB or any role over 24 KB, that every embedded reference is locked, and that the notices cover each source and licence.
+
+## The PO keeps the project documents
+
+The product owner is the only role that can write, and only through `project_doc_write`: markdown files (`.md`, up to 256 KB), with `replace` or `append`. Where is set by each demand: the optional `docs_roots` field of `team_submit` lists the directories (relative to the workspace, or absolute under `WORKSPACE_ROOT`, else the server's working directory) where the PO may write, and a relative path in the tool starts at the first one. A demand with no `docs_roots` gives the PO no write access at all. Anything else is refused: other extensions, paths outside the named directories, `..`, and symlinks that lead out. The directories reach the tool through the hub, by the job's exact thread (`internal/docs`), and the manager lists them in the PO prompt. A model decides the content: review `git diff` of those files after a run. Source code, and every other role, stay read-only for it.
+
+## Progress dashboard and cancelling
+
+A read-only web page shows every request and task with its status, progress bar, execution time and token use, and every persona (worker) with its state, current job, skill, what it is doing now (the reference it consults, the tool it calls, or the model), jobs done, busy time and tokens. Tokens are also totalled per task, per request and for the project; the knowledge model's own calls are not counted. It refreshes every 2 seconds and shows statuses, timings and token counts only, never prompts or outputs.
+
+- `serve` mode opens it on `http://127.0.0.1:8088` (loopback only); other runs serve it only when `DASHBOARD_ADDR=host:port` is set. The page has no authentication: for another machine use `DASHBOARD_ADDR=0.0.0.0:8088` behind your own auth proxy.
+- Every project has its own URL, `http://127.0.0.1:8088/p/<project>/` (`/?project=<project>` redirects there), and the header has a project selector. The first team to start owns the port and lists the others; a team that finds it taken serves on a free loopback port and registers with the owner (loopback only). The project is `WORKSPACE_ROOT`, else the working directory.
+- `team_cancel` (MCP tool, argument `thread_id`) cancels a request: queued jobs are dropped, running agents are stopped on their next heartbeat and the delivery ends as `cancelled`. The manager's current model call still finishes, and the tokens of a cancelled job are not counted. Sending the same thread again starts a clean run.
+- Token use: the manager's own agent runs through the same compression middleware as the workers. Compression only touches old turns and JSON tool results; the system prompt and the tool schemas (most of what a demand sends) are resent on every call, and the offline demo prints their share next to the compression figures. For Anthropic models the system prompt is marked as a cache breakpoint, which also covers the tools (`PROMPT_CACHE=off` disables it; checked against a stub of the API, not the real one). The request dossier goes only in the first prompt of a thread; later prompts on it point at the first message. `ANTHROPIC_BASE_URL` sends the Anthropic calls through a gateway, and `ANTHROPIC_AUTH_TOKEN` is sent as `Authorization: Bearer`, alone or next to `ANTHROPIC_API_KEY`.
+
 ## Test it
 
 ```bash
@@ -145,3 +171,13 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # includes TestStart
 
 - [independent_engineering_team](../independent_engineering_team/README.md): the source of the copied team, without compression
 - [compress_history_summary](../compress_history_summary/README.md), [compress_shell_rtk](../compress_shell_rtk/README.md), [decider_laya_http](../decider_laya_http/README.md), [decider_laya_native](../decider_laya_native/README.md)
+
+## Subscription instead of API
+
+every role answers through `claude -p`, billed to your Claude subscription instead of API credit; needs `claude` logged in, no API key (any `ANTHROPIC_*` credential is removed from the child's environment). Slower than the API and tool use is emulated in the prompt; `CLAUDE_CLI_CONCURRENCY` (default 3) bounds the processes, `CLAUDE_BIN` points at the binary. Check your plan's terms before running it unattended. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mixes it per role
+
+`AGENT_BACKEND=claude-cli` (`providers/claudecli`).
+
+## Dashboard: CLI calls, conversations and chat agents
+
+With `AGENT_BACKEND=claude-cli` the dashboard lists every claude CLI call (agent, model, time, tokens, list-price cost; the subscription is not charged per token) and opens the conversation of each one. The calls keep their Claude Code session (under `~/.claude/projects`) unless `CLAUDE_CLI_TRANSCRIPTS=off`. It also lists the sub-agents defined in the project's `.claude/agents` (and `~/.claude/agents`) with their recent runs from the chat, and opens their conversations. Conversations show prompts and answers: `DASHBOARD_TRANSCRIPTS=off` removes that endpoint (the page is loopback only).

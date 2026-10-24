@@ -2,7 +2,7 @@
 
 **English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
 
-An agent that curates its own long-term memory with `manage_memory` and `search_memory` tools, isolated per user.
+An agent that curates its own long-term memory with `manage_memory` and `search_memory` tools, isolated per user. The agent runs through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation has a real share of code, and JSON tool results are re-encoded as TOON, all decided by rules with no model needed.
 
 ## What it does
 

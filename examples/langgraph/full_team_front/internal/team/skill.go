@@ -52,3 +52,13 @@ func Skill(role string) (string, error) {
 	}
 	return out, nil
 }
+
+// skillRefs lists the names of the reference skills vendored into the role's skill.
+func skillRefs(role string) []string {
+	refs, _ := skills.FS.ReadDir(skillDir[role] + "/references")
+	var out []string
+	for _, r := range refs {
+		out = append(out, r.Name())
+	}
+	return out
+}

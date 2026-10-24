@@ -31,6 +31,11 @@ func serve(ctx context.Context, in io.Reader, out, errw io.Writer) error {
 	// No shell for any role: serve handles real demands, and the developer's
 	// output is text. Backend reads are limited to WORKSPACE_ROOT, else the cwd.
 	st := newStack(dir, "", false)
+	// The progress page is on by default here, loopback only; DASHBOARD_ADDR moves it.
+	// shortcut: the first team to start owns :8088, later ones log and go without.
+	if os.Getenv("DASHBOARD_ADDR") == "" {
+		os.Setenv("DASHBOARD_ADDR", "127.0.0.1:8088")
+	}
 	// Only the bridge may call the manager: a random key per run (an operator's
 	// MANAGER_API_KEY is ignored here).
 	kb := make([]byte, 32)

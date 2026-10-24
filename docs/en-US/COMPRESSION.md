@@ -174,3 +174,13 @@ All run offline with a fake model unless a real service is configured. Each has 
 | `langgraph/full_team` | the team of `independent_engineering_team` with call compression; fake decider and model by default. With `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, the shell tool offers only `ls`, `grep` and `echo` |
 
 Test in production mode: set the real decider URL or the native bundle, and run `go test -race -count=1` as usual.
+
+## Default compaction and the audit
+
+`middleware.Compaction()` is the compaction every agent should carry: `middleware.NewCompression(compress.RuleDecider{})`, so it needs no model and no network. Old Human and AI turns are caveman-compressed, the last Human message gets the Ponytail note when code is a real share of the chat (at least 10%), and JSON tool results become TOON when that is shorter (at least 2 KB of JSON). History is only compressed above the rules' threshold of 4000 estimated tokens, so short conversations pass untouched. For a model-decided version use `NewCompression` with another decider (see the sections above).
+
+- `deepagents.Create` applies it by default (`Options.NoCompaction` turns it off; a `middleware.Compression` in `Options.Middleware` replaces it).
+- `agents.Create` does not add it by itself; pass `middleware.Compaction()` in `Middleware`.
+- `examples/internal/audit` is the check: `go test ./examples/internal/audit` fails for any example (a directory with a `main.go`) that calls `agents.Create` and uses none of `Compaction`, `NewCompression` or `Compression`, and for one that gives agents a `backends.Filesystem` or `LocalShell` directory without `integrations/codegraph`. An example that cannot follow a rule says why in a comment: `// audit:exempt compaction: <reason>` or `// audit:exempt codegraph: <reason>`.
+
+What compaction cannot reach: the system prompt and the tool schemas are resent on every call and are not compressed; the `full_team` examples print their share next to the compression figures.

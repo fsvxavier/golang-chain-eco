@@ -45,6 +45,7 @@ func main() {
 			middleware.ModelFallback{Fallbacks: []models.ChatModel{backup}},
 			middleware.ModelCallLimit{RunLimit: 5},
 			middleware.ToolCallLimit{RunLimit: 3},
+			middleware.Compaction(),
 		},
 	})
 	if err != nil {

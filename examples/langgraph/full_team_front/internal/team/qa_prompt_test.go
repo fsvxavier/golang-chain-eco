@@ -32,12 +32,22 @@ func TestQAPromptCarriesSpec(t *testing.T) {
 	if len(qa) == 0 {
 		t.Fatal("QA never ran")
 	}
+	// The dossier (spec and app URL) goes in the first prompt of a QA thread; a
+	// later prompt on the same thread points at it instead of repeating it.
+	full := 0
 	for _, p := range qa {
+		if strings.Contains(p, "(The request and the specification are in the first message of this thread.)") {
+			continue
+		}
+		full++
 		for _, want := range []string{"AC1", "UI_STATES", "TRACE:", "http://127.0.0.1:5173"} {
 			if !strings.Contains(p, want) {
 				t.Fatalf("QA prompt lacks %q:\n%s", want, p)
 			}
 		}
+	}
+	if full == 0 {
+		t.Fatal("no QA prompt carried the dossier")
 	}
 }
 

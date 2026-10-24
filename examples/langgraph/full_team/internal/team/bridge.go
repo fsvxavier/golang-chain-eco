@@ -42,7 +42,8 @@ func NewBridge() *Bridge {
 
 type (
 	submitArgs struct {
-		Request string `json:"request" jsonschema:"what the team must deliver"`
+		Request  string   `json:"request" jsonschema:"what the team must deliver"`
+		DocRoots []string `json:"docs_roots,omitempty" jsonschema:"optional directories (relative to the workspace, or absolute under it) where the product owner may write markdown documents: documentation, plan, next steps. Leave it empty when the request names a folder to save a plan or document in: the folder is taken from the request text. With no folder anywhere the PO writes nothing"`
 	}
 	threadArgs struct {
 		Thread string `json:"thread_id" jsonschema:"thread_id returned by team_submit"`
@@ -75,16 +76,46 @@ type (
 	}
 )
 
+// listArgs wraps a tool so that a string given where it takes a list of strings
+// becomes a one-item list: some clients send a single path as plain text, and
+// refusing the whole demand over that costs more than reading it.
+type listArgs struct {
+	tools.Tool
+	keys []string
+}
+
+func (l listArgs) Call(ctx context.Context, args map[string]any) (any, error) {
+	for _, k := range l.keys {
+		if s, ok := args[k].(string); ok {
+			args[k] = []any{s}
+			if s == "" {
+				args[k] = []any{}
+			}
+		}
+	}
+	return l.Tool.Call(ctx, args)
+}
+
 // Tools returns the bridge tools.
 func (b *Bridge) Tools() []tools.Tool {
+	ts := b.tools()
+	for i, t := range ts {
+		if t.Name() == "team_submit" {
+			ts[i] = listArgs{t, []string{"backend_roots", "backend_urls", "docs_roots"}}
+		}
+	}
+	return ts
+}
+
+func (b *Bridge) tools() []tools.Tool {
 	return []tools.Tool{
-		tools.New("team_submit", "Send a demand to the engineering team. Returns at once with thread_id and run_id; follow it with team_status.",
+		tools.New("team_submit", "Send a demand to the engineering team. A folder named in the request for saving a plan or document is enough for the PO to write there (no other argument needed). Returns at once with thread_id and run_id; follow it with team_status.",
 			func(ctx context.Context, a submitArgs) (any, error) {
 				tid, err := b.Manager.CreateThread(ctx, map[string]any{"request": a.Request})
 				if err != nil {
 					return nil, tools.Errorf("team_submit: %v", err)
 				}
-				run, err := b.Manager.CreateRun(ctx, tid, remote.RunRequest{AssistantID: "engineering_team", Input: map[string]any{"request": a.Request}})
+				run, err := b.Manager.CreateRun(ctx, tid, remote.RunRequest{AssistantID: "engineering_team", Input: map[string]any{"request": a.Request, "scope": map[string]any{"doc_roots": a.DocRoots}}})
 				if err != nil {
 					return nil, tools.Errorf("team_submit: %v", err)
 				}
@@ -94,6 +125,9 @@ func (b *Bridge) Tools() []tools.Tool {
 			func(ctx context.Context, a threadArgs) (any, error) {
 				s, err := b.Manager.GetState(ctx, a.Thread)
 				if err != nil {
+					if strings.Contains(err.Error(), "404") {
+						return nil, tools.Errorf("team_status: thread %s not found: the team keeps threads in memory, so a restart of team-mcp (reconnecting the MCP, a new binary) ends them; submit the demand again", a.Thread)
+					}
 					return nil, tools.Errorf("team_status: %v", err)
 				}
 				out, _ := json.MarshalIndent(map[string]any{
@@ -101,6 +135,14 @@ func (b *Bridge) Tools() []tools.Tool {
 					"history": s.Values["history"], "running": s.Next,
 				}, "", "  ")
 				return string(out), nil
+			}),
+		tools.New("team_cancel", "Cancel a request (end its thread): queued jobs are dropped, running agents are stopped and the delivery ends as cancelled. Use the thread_id from team_submit.",
+			func(ctx context.Context, a threadArgs) (any, error) {
+				n, err := b.Hub.CancelScope(ctx, a.Thread)
+				if err != nil {
+					return nil, tools.Errorf("team_cancel: %v", err)
+				}
+				return fmt.Sprintf("thread %s cancelled: %d job(s) ended; the delivery stops at its next step", a.Thread, n), nil
 			}),
 		tools.New("team_queue", "List the registered workers (role, current job) and the queued jobs.",
 			func(ctx context.Context, _ struct{}) (any, error) {

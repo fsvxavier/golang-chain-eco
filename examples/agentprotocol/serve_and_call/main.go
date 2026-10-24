@@ -14,6 +14,7 @@ import (
 
 	"github.com/fsvxavier/golang-chain-eco/agentprotocol"
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
@@ -44,7 +45,8 @@ func main() {
 		return messages.AI("Let me check.", messages.ToolCall{ID: fmt.Sprintf("call_%d", calls), Name: "weather", Args: map[string]any{"city": "Lisbon"}}), nil
 	}}
 	agent, err := agents.Create(agents.Options{Model: model, Tools: []tools.Tool{weather},
-		Compile: []graph.CompileOption{graph.WithCheckpointer(checkpoint.NewMemory())}})
+		Middleware: []agents.Middleware{middleware.Compaction()},
+		Compile:    []graph.CompileOption{graph.WithCheckpointer(checkpoint.NewMemory())}})
 	if err != nil {
 		log.Fatal(err)
 	}

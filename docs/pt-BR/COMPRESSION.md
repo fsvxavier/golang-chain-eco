@@ -174,3 +174,13 @@ Todos rodam offline com um modelo falso, a menos que um serviço real esteja con
 | `langgraph/full_team` | o time de `independent_engineering_team` com compressão de chamadas; decider e modelo falsos por padrão. Com `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY`, a ferramenta de shell oferece só `ls`, `grep` e `echo` |
 
 Teste em modo de produção: configure a URL real do decider ou o bundle nativo, e rode `go test -race -count=1` como de costume.
+
+## Compactação padrão e a auditoria
+
+`middleware.Compaction()` é a compactação que todo agente deveria carregar: `middleware.NewCompression(compress.RuleDecider{})`, então não precisa de modelo nem de rede. Os turnos antigos de Human e AI são comprimidos em caveman, a última mensagem Human recebe a nota Ponytail quando o código é uma parcela real da conversa (pelo menos 10%), e resultados JSON de ferramentas viram TOON quando isso é menor (pelo menos 2 KB de JSON). O histórico só é comprimido acima do limiar das regras, 4000 tokens estimados, então conversas curtas passam intactas. Para uma versão decidida por modelo use `NewCompression` com outro decider (veja as seções acima).
+
+- `deepagents.Create` a aplica por padrão (`Options.NoCompaction` desliga; um `middleware.Compression` em `Options.Middleware` a substitui).
+- `agents.Create` não a acrescenta sozinho; passe `middleware.Compaction()` em `Middleware`.
+- `examples/internal/audit` é a verificação: `go test ./examples/internal/audit` falha para qualquer exemplo (um diretório com `main.go`) que chame `agents.Create` e não use nenhum de `Compaction`, `NewCompression` ou `Compression`, e para o que dá aos agentes um diretório `backends.Filesystem` ou `LocalShell` sem `integrations/codegraph`. Um exemplo que não pode seguir uma regra diz por quê num comentário: `// audit:exempt compaction: <motivo>` ou `// audit:exempt codegraph: <motivo>`.
+
+O que a compactação não alcança: o prompt de sistema e os schemas das ferramentas são reenviados a cada chamada e não são comprimidos; os exemplos `full_team` imprimem a parcela deles junto das cifras de compressão.

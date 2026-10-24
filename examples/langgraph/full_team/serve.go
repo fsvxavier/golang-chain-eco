@@ -7,25 +7,29 @@ import (
 	"errors"
 	"io"
 	"log"
+	"sync/atomic"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
 	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/compress"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/docs"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/team"
 	"github.com/fsvxavier/golang-chain-eco/remote"
 )
 
 // serveOptions are the demo's options minus the shell: a chat reaches the team
 // through the bridge, so no role gets a tool that runs commands here.
-func serveOptions(key string) (team.LocalOptions, *meter) {
+func serveOptions(key string, hub *atomic.Pointer[team.HubClient]) (team.LocalOptions, *meter) {
 	dec, _ := decider()
 	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
 	return team.LocalOptions{
-		Middleware: []agents.Middleware{m},
-		Tools:      []tools.Tool{tasksTool()},
-		Offline:    team.OfflineWithTool(tasksToolName),
-		ManagerKey: key,
+		Middleware:        []agents.Middleware{m},
+		ManagerMiddleware: []agents.Middleware{middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}},
+		Tools:             append([]tools.Tool{tasksTool()}, graphTools()...),
+		Offline:           team.OfflineWithTool(tasksToolName),
+		RoleTools:         docs.DocTools(hub.Load, docs.DocsConfig{}), // WORKSPACE_ROOT, else the cwd
+		ManagerKey:        key,
 	}, m
 }
 
@@ -46,7 +50,8 @@ func serve(ctx context.Context, in io.Reader, out, errw io.Writer) error {
 		return err
 	}
 	key := hex.EncodeToString(kb)
-	opts, m := serveOptions(key)
+	hub := new(atomic.Pointer[team.HubClient])
+	opts, m := serveOptions(key, hub)
 	l, err := team.StartLocalWith(ctx, opts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) { // stopped while starting: a clean stop
@@ -60,6 +65,7 @@ func serve(ctx context.Context, in io.Reader, out, errw io.Writer) error {
 		m.print(errw)
 	}()
 
+	hub.Store(team.NewHubClient(l.HubURL))
 	mc := remote.NewClient(l.ManagerURL)
 	mc.APIKey = key
 	b := &team.Bridge{Manager: mc, Hub: team.NewHubClient(l.HubURL), HubURL: l.HubURL}

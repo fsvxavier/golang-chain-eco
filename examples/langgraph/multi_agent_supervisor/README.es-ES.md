@@ -2,7 +2,7 @@
 
 [English](README.md) | [Português](README.pt-BR.md) | **Español**
 
-Un supervisor enruta el trabajo a agents especialistas hasta que decide que la tarea terminó.
+Un supervisor enruta el trabajo a agents especialistas hasta que decide que la tarea terminó. El agent se ejecuta con `middleware.Compaction()`: los turnos antiguos se comprimen al estilo caveman, se añade una nota Ponytail cuando la conversación tiene una parte real de código, y los resultados JSON de tools se recodifican en TOON, todo decidido por reglas, sin necesitar modelo.
 
 ## Qué hace
 

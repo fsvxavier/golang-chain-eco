@@ -2,7 +2,7 @@
 
 [English](README.md) | **Português** | [Español](README.es-ES.md)
 
-Um agent que termina com uma resposta tipada e validada em vez de texto livre.
+Um agent que termina com uma resposta tipada e validada em vez de texto livre. O agent roda com `middleware.Compaction()`: turnos antigos são comprimidos no estilo caveman, uma nota Ponytail entra quando a conversa tem uma parcela real de código, e resultados JSON de tools são recodificados em TOON, tudo decidido por regras, sem precisar de modelo.
 
 ## O que faz
 

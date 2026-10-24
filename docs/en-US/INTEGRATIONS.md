@@ -191,3 +191,20 @@ managed sandboxes (E2B, Daytona, Modal, Runloop) are not included; the full list
 [PROVIDERS-ANALISE.md](PROVIDERS-ANALISE.md). The extension paths are: a `tools.Tool` (`tools.New`), an MCP server
 (`mcp.LoadTools`, which gives access to thousands of existing integrations), a `vectorstore.Backend`, a `checkpoint.Saver`/`store.Store`, a
 command runner plugged into `backends.Remote` (any sandbox becomes a file and shell backend) or a `callbacks.Handler`.
+
+## Code graph (`integrations/codegraph`)
+
+Searching a project by meaning costs far fewer tokens than grepping and reading files. When a directory has a CodeGraph index (`.codegraph` or `.codegraph-wsl`) or a graphify one (`graphify-out/graph.json`), the `codegraph` and `graphify` programs answer a question with the relevant symbols' source and their call paths in one call.
+
+```go
+if t := codegraph.ProjectTool("."); t != nil { // nil when the directory has no index
+	opts.Tools = append(opts.Tools, t) // the agent gets code_graph
+}
+```
+
+- `Detect(dir)` lists the engines whose index sits directly in `dir` (CodeGraph first; for graphify, the newest `graph.json` with at least one node anywhere under `graphify-out/`, because graphify keeps dated snapshots such as `graphify-out/2026-10-13/graph.json` and the top-level file can be empty after an update that indexed nothing); an index above `dir` is ignored on purpose, since it could cover directories the caller did not mean to expose.
+- `Ask(ctx, run, dir, engine, query)` runs one question; `Tool(name, resolve, run, done)` builds a tool whose `resolve` decides which directories the agent may ask (the `full_team_front` `backend_graph` limits it to the demand's roots and the workspace); `ProjectTool(root)` is the one-directory version.
+- The engines run without a shell, with a minimal environment, a 30 second timeout and a 24 KB cap on the answer; the query is one argument that is not empty, not longer than 500 bytes and does not start with `-`.
+- `deepagents.Create` adds `code_graph` by itself when its local backend has an index; every agent of `full_team_front` has `backend_graph`.
+
+Test it: `go test -race -count=1 ./integrations/codegraph`; with a real index, `GRAPH_TEST_ROOT=/path/to/project go test -run TestRealCodeGraphIfAvailable ./examples/langgraph/full_team_front/internal/backend`.

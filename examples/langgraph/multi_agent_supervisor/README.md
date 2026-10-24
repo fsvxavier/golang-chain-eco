@@ -2,7 +2,7 @@
 
 **English** | [Português](README.pt-BR.md) | [Español](README.es-ES.md)
 
-A supervisor routes work to specialist agents until it decides the task is finished.
+A supervisor routes work to specialist agents until it decides the task is finished. The agent runs through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation has a real share of code, and JSON tool results are re-encoded as TOON, all decided by rules with no model needed.
 
 ## What it does
 

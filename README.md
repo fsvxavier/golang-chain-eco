@@ -112,6 +112,7 @@ go test -race ./...
 | `integrations/{redis,mongo,dynamodb,s3}` | `checkpoint.Saver` and `store.Store` on Redis, MongoDB, DynamoDB and S3 (AWS, MinIO, Tigris, R2...); Redis, MongoDB/Atlas and FalkorDB also as vector stores | checkpointers/stores |
 | `integrations/{search,loaders,retrieval}` | ~30 search engines and scrapers (Tavily, Exa, Brave, You.com, Zotero, YouTube...), loaders, BM25 and rerank | `langchain-community` |
 | `integrations/graphstore` | `kag.GraphStore` on Neo4j (HTTP) and Memgraph (Bolt), with validated relation types | knowledge graphs |
+| `integrations/codegraph` | search a project through its code graph: CodeGraph (`.codegraph`) and graphify (`graphify-out`) answer with the relevant symbols' source and call paths in one call (`code_graph` tool; no shell, timeout, size cap, index must sit in the searched directory) | fewer tokens in searches |
 | `integrations/{graphretriever,spicedb,permit,vectara,aws}` | Graph RAG, permission-filtered retrievers (SpiceDB, Permit), Vectara, Bedrock Knowledge Bases, Kendra, Lambda tool | retrievers |
 | `integrations/{kubernetes,jenkins,salesforce,messaging,memgraph,agui}` | Pod sandbox, Jenkins, read-only SOQL, SMS (Plivo/Telnyx), Memgraph (Bolt), AG-UI protocol | tools / protocols |
 | `providers/{google,cohere,bedrock,watsonx,replicate}` | Gemini/Vertex, Cohere (chat, embeddings, rerank), Bedrock Converse, IBM watsonx.ai, Replicate | partners |

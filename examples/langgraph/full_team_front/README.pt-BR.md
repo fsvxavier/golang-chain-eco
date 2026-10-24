@@ -30,9 +30,10 @@ Offline, roda com modelos falsos e um backend falso, então o fluxo inteiro func
 
 - **O retrabalho volta ao mesmo desenvolvedor.** Quando a revisão conjunta ou o QA rejeita uma tarefa, o feedback vai ao desenvolvedor que a escreveu, na mesma thread. Esse job de retrabalho é fixado (pinned): espera por aquele desenvolvedor em vez de ir a outro. Se o lease do desenvolvedor expirou, o job cai para um desenvolvedor livre do mesmo papel. Toda rejeição, da revisão ou do QA, custa uma rodada; uma tarefa rejeitada em `MaxRounds` (3) rodadas é registrada como `blocked` no relatório do manager e no histórico de handoffs (o status dela no tracker fica na última rejeição). A requisição ainda termina `completed`.
 
-- **O PO lê o backend citado na demanda.** O PO tem três ferramentas somente de leitura, e só ele as tem. O PO nunca tem ferramenta de shell (veja Shell em Como aplicar). As raízes e as URLs vêm só dos campos estruturados de `team_submit` (`backend_roots`, `backend_urls`), nunca de texto livre do pedido. Uma demanda sem raízes e sem URLs não dá ao PO nenhum acesso: cada ferramenta recusa.
+- **O PO lê o backend citado na demanda.** O PO tem quatro ferramentas somente de leitura, e só ele as tem. Ele também tem uma ferramenta de escrita, `project_doc_write`, limitada a documentos markdown do projeto (veja [O PO mantém os documentos do projeto](#o-po-mantém-os-documentos-do-projeto)). O PO nunca tem ferramenta de shell (veja Shell em Como aplicar). As raízes e as URLs vêm só dos campos estruturados de `team_submit` (`backend_roots`, `backend_urls`), nunca de texto livre do pedido. Uma demanda sem raízes e sem URLs não dá ao PO nenhum acesso: cada ferramenta recusa.
   - `backend_read`: lê um arquivo ou lista um diretório. O caminho pode ser relativo à primeira raiz ou absoluto dentro de uma raiz. Qualquer elemento `..` é recusado, e também um caminho real (depois de resolver symlinks) fora das raízes citadas. Toda raiz citada precisa estar dentro da raiz do workspace (`WORKSPACE_ROOT`, senão o diretório de trabalho); uma raiz relativa é tomada em relação à raiz do workspace, e uma raiz vazia não concede nada. A saída é limitada a 1 MB.
   - `backend_grep`: procura em um arquivo ou diretório sob as mesmas raízes com uma expressão regular de Go e devolve `caminho:linha: texto`. Nunca segue symlinks, para quando a saída chega a 1 MB e abre no máximo 5000 arquivos (`[truncated: stopped after 5000 files]`).
+  - `backend_graph`: consulta uma raiz que tem índice próprio do CodeGraph (`.codegraph` ou `.codegraph-wsl`) ou do graphify (um `graph.json` com nós sob `graphify-out/`, inclusive snapshots por data) e responde com o código e os caminhos de chamada dos símbolos relevantes numa só chamada, o que costuma custar bem menos tokens que várias chamadas de `backend_grep` e `backend_read`. O índice precisa estar na própria raiz (um índice acima poderia cobrir diretórios que a demanda não citou), o motor roda sem shell, com ambiente mínimo, timeout de 30 segundos e limite de 24 KB, e a consulta é um único argumento que não pode começar com `-`. Sem índice ele avisa e o PO volta às outras ferramentas. O prompt do PO no manager sugere tentá-lo primeiro.
   - `backend_get`: apenas `GET` HTTP; não há argumento de método. O esquema deve ser http ou https, a URL não pode conter credenciais, e seu host e porta devem ser iguais aos de uma URL citada na demanda. Um redirect é verificado pela mesma regra (no máximo 5), então um redirect para outro host é recusado. Nenhum proxy é usado. O endereço realmente discado também é verificado: loopback, link-local (que contém o endereço de metadados `169.254.169.254`), não especificado e os endereços IPv6 de metadados da Alibaba e da AWS são recusados, a menos que esse `ip:porta` exato tenha sido citado como literal de IP. O nome `localhost`, quando a demanda o cita, pode alcançar endereços de loopback e nada além. Endereços privados (RFC 1918) são permitidos. O corpo é limitado a 1 MB e a chamada expira em 10 segundos.
 
   `WORKSPACE_ROOT` é lida pelas ferramentas de backend quando o servidor inicia; veja a seção de MCP para saber qual processo é esse.
@@ -59,24 +60,24 @@ Offline, roda com modelos falsos e um backend falso, então o fluxo inteiro func
 
 ## Skills vendorizadas
 
-`skills/skills.lock` tem 29 entradas, uma por cópia: cada pasta de persona tem sua própria cópia de toda skill que carrega, em `skills/<papel>/references/<nome>/SKILL.md`. O carregador as acrescenta ao prompt de sistema da persona, ordenadas por nome, sob `## Skill: <nome>`.
+`skills/skills.lock` tem 19 entradas, uma por cópia: cada pasta de persona tem sua própria cópia de toda skill que carrega, em `skills/<papel>/references/<nome>/SKILL.md`. O carregador as acrescenta ao prompt de sistema da persona, ordenadas por nome, sob `## Skill: <nome>`.
 
 | Pasta da persona | Skills (cópias) | Tamanho |
 |---|---|---|
-| `product-owner` | `contract-first`, `openapi-spec-generation`, `user-stories` (3) | 9,1 KB |
-| `engineering-manager` | `code-review`, `planning-and-task-breakdown` (2) | 5,9 KB |
-| `tech-leader` | as mesmas duas (2) | 5,9 KB |
-| `software-engineer-junior`, `-mid`, `-senior` | `frontend-design`, `frontend-patterns`, `react-testing`, `ui-ux-pro-max`, `vercel-react-best-practices` (5 cada, 15) | 17,3 KB cada |
-| `specialist-reviewer` | `accessibility`, `frontend-code-review`, `performance-optimization`, `web-design-guidelines` (4) | 18,3 KB |
-| `qa-engineer` | `playwright-best-practices`, `playwright-cli`, `webapp-testing` (3) | 10,7 KB |
+| `product-owner` | `contract-first`, `user-stories` (2) | 7,0 KB |
+| `engineering-manager` | `planning-and-task-breakdown` (1) | 3,0 KB |
+| `tech-leader` | `code-review`, `planning-and-task-breakdown` (2) | 5,8 KB |
+| `software-engineer-junior`, `-mid`, `-senior` | `frontend-patterns`, `react-testing`, `vercel-react-best-practices` (3 cada, 9) | 10,3 KB cada |
+| `specialist-reviewer` | `accessibility`, `frontend-code-review`, `performance-optimization` (3) | 10,0 KB |
+| `qa-engineer` | `playwright-best-practices`, `webapp-testing` (2) | 7,3 KB |
 
-São 17 skills distintas em 29 cópias. Fatos sobre elas:
+São 12 skills distintas em 19 cópias. Elas foram podadas para reduzir o prompt de sistema, que toda chamada ao modelo reenvia: as skills de design visual (`frontend-design`, `ui-ux-pro-max`, `web-design-guidelines`) e `playwright-cli` saíram, assim como `openapi-spec-generation` (o PO lê o backend, não gera specs) e o `code-review` do manager (o manager só roteia). Fatos sobre elas:
 
 - **São cópias reduzidas e saneadas, não os arquivos originais.** Exemplos e texto padrão foram cortados para caber no orçamento, e foram removidos comandos de instalação, instruções de busca remota, chamadas a scripts que não estão vendorizados e concessões de permissão de ferramentas (`allowed-tools`). Toda entrada do lock tem `"trimmed": true`.
 - **Campos do lock.** Cada linha de `skills/skills.lock` é um objeto JSON: `role`, `source` (`dono/repo@skill`), `skill`, `installs` (a contagem de instalações que o `skills` mostrou, pode ser vazia), `hash` (SHA-256 do arquivo embutido), `license`, `trimmed` e, para os três snapshots, `pinned_from` (a URL do commit original).
-- **Snapshots fixados.** `web-design-guidelines` é um snapshot fixado do `command.md` de vercel-labs/web-interface-guidelines no commit `434b7f9` (a skill original só buscava suas regras em uma URL em tempo de execução, e a cópia não busca nada). `playwright-best-practices` é uma cópia condensada de currents-dev/playwright-best-practices-skill em `283d5cb` (o original é um índice de muitos arquivos de referência). `user-stories` está fixada em phuryn/pm-skills em `07b34f6`.
+- **Snapshots fixados.** `playwright-best-practices` é uma cópia condensada de currents-dev/playwright-best-practices-skill em `283d5cb` (o original é um índice de muitos arquivos de referência). `user-stories` está fixada em phuryn/pm-skills em `07b34f6`.
 - **Uma skill pedida não foi vendorizada.** `user-story` de deanpeters/product-manager-skills é CC BY-NC-SA 4.0 (uso não comercial, compartilhamento pela mesma licença), o que não serve para redistribuição aqui. O PO usa `user-stories` de phuryn/pm-skills (MIT) no lugar. Uma skill cuja licença não permite redistribuição é descartada, não parafraseada.
-- **Licenças.** MIT na maioria; Apache-2.0 em `frontend-design`, `webapp-testing` e `playwright-cli`. `frontend-code-review` (especialista) está sob a Apache-2.0 modificada da Dify, com duas condições adicionais; elas estão citadas por inteiro nos avisos. [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md) lista cada repositório de origem, skill, licença e titular de copyright como declarado na origem, com os textos das licenças, e também é embutido.
+- **Licenças.** MIT na maioria; Apache-2.0 em `webapp-testing`. `frontend-code-review` (especialista) está sob a Apache-2.0 modificada da Dify, com duas condições adicionais; elas estão citadas por inteiro nos avisos. [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md) lista cada repositório de origem, skill, licença e titular de copyright como declarado na origem, com os textos das licenças, e também é embutido.
 - **Fixadas.** Nada as atualiza automaticamente.
 
 ### Atualizar ou adicionar uma skill vendorizada
@@ -133,7 +134,11 @@ Como o time roda no processo do servidor, toda variável vem do ambiente do serv
 | Variável | Lida por | Efeito |
 |---|---|---|
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AGENT_MODEL`, `AGENT_MODEL_<PAPEL>` | cada worker, o manager e o hub ao iniciar (`internal/team/models.go`) | modelos reais em vez dos roteirizados |
+| `AGENT_BACKEND=claude-cli` | o provider do CLI do Claude Code (`providers/claudecli`) | todo papel responde por `claude -p`, cobrado na assinatura do Claude em vez do crédito da API; exige `claude` logado, sem chave de API (qualquer credencial `ANTHROPIC_*` é removida do ambiente do processo filho). Mais lento que a API e o uso de ferramentas é emulado no prompt; `CLAUDE_CLI_CONCURRENCY` (padrão 3) limita os processos, `CLAUDE_BIN` aponta o binário. Confira os termos do seu plano antes de rodar sem supervisão. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mistura por papel |
 | `WORKSPACE_ROOT` | as ferramentas de backend do PO (`internal/backend/backend.go`) | toda entrada de `backend_roots` deve estar dentro dela; o padrão é o diretório de trabalho do servidor |
+| `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` | o provider Anthropic (`providers/anthropic`) | envia as chamadas por um gateway em vez de `api.anthropic.com`; o token vai como `Authorization: Bearer` (o que o Claude Code faz), sozinho ou junto de `ANTHROPIC_API_KEY`; qualquer um dos dois seleciona os padrões Anthropic |
+| `PROMPT_CACHE` | todo agente (`internal/team/cache.go`) | `off` para de marcar o prompt de sistema como ponto de cache; padrão ligado, só para modelos Anthropic |
+| `DASHBOARD_ADDR` | o painel de acompanhamento (`internal/team/dashboard_gw.go`) | `host:porta` onde servi-lo; o modo serve usa `127.0.0.1:8088` por padrão, as outras execuções não servem nada sem ela; veja [Painel de acompanhamento](#painel-de-acompanhamento) |
 | `PLAYWRIGHT_CMD` | a ferramenta `browser_test` do QA, lida na partida (`main.go`) | comando que executa a spec; vazio significa `NOT RUN` |
 | `PLAYWRIGHT_ENV_ALLOW` | o executor de comando do `browser_test` (`internal/qa/qa.go`) | variáveis do processo pai repassadas à execução no navegador |
 | `NOTIFY`, `NOTIFY_STATUSES`, ... | o notificador de status do manager (`internal/tasktrack`) | para onde vão as linhas de status; `console` (stderr no modo serve) é o padrão |
@@ -146,9 +151,10 @@ Como o time roda no processo do servidor, toda variável vem do ambiente do serv
 
 O servidor se chama `engineering-team` e serve:
 
-- `team_submit`: envia uma demanda. Seus campos são `request` e, opcionalmente, `backend_roots`, `backend_urls` e `app_url`. Devolve na hora `thread_id`, `run_id` e um status.
+- `team_submit`: envia uma demanda. Seus campos são `request` e, opcionalmente, `backend_roots`, `backend_urls`, `docs_roots` e `app_url`. Devolve na hora `thread_id`, `run_id` e um status.
 - `team_status`: para um `thread_id`, devolve `status` (a requisição e cada tarefa), `report`, `history` (os handoffs, incluindo cada rejeição de revisão e de QA e para quem voltou) e `running`. `status`, `report` e o `history` completo são preenchidos quando o último passo termina; enquanto a execução anda, o notificador de console imprime cada mudança de status em stderr.
 - `team_queue`: os workers registrados (com o job atual) e os jobs na fila.
+- `team_cancel`: cancela um pedido pelo `thread_id` (encerra a thread): os jobs na fila são descartados, os agentes em execução são parados (eles sabem no próximo heartbeat) e a entrega termina como `cancelled`. O fluxo do manager para no próximo passo; a chamada ao modelo em curso ainda termina. Os tokens de um job cancelado não são contados. Enviar a mesma thread de novo começa uma execução limpa.
 - `team_ask_worker`: faz uma pergunta a um worker, fora do fluxo de entrega. Um worker que responde assim não tem escopo de demanda, então as ferramentas de backend do PO recusam.
 - `team_present`: chamada, veja [Chamada /present](#chamada-present). Cada worker esperado responde `Presente!` com id, papel e modelo.
 - `team_memory`: recupera o que o time registrou para uma requisição (argumentos `scope`, o `thread_id` da requisição, e `query`).
@@ -220,7 +226,7 @@ claude mcp add --transport stdio --scope user \
   front-team -- /abs/path/to/this/repo/bin/team-mcp serve
 ```
 
-Servidores com escopo de projeto pedem aprovação na primeira vez. Confira o servidor com `claude mcp list`, ou com `/mcp` no chat: `front-team` deve aparecer como conectado e listar estas ferramentas: `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume` (mais as ferramentas de `BRIDGE_CIAM_CMD` e `BRIDGE_KNOWLEDGE_CMD`, se você as definir); o servidor também lista o prompt `present`. Não foi testado aqui se o painel de chat da extensão do Claude Code no VS Code usa os mesmos arquivos de configuração e mostra a mesma tela `/mcp` que a CLI.
+Servidores com escopo de projeto pedem aprovação na primeira vez. Confira o servidor com `claude mcp list`, ou com `/mcp` no chat: `front-team` deve aparecer como conectado e listar estas ferramentas: `team_submit`, `team_status`, `team_queue`, `team_cancel`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume` (mais as ferramentas de `BRIDGE_CIAM_CMD` e `BRIDGE_KNOWLEDGE_CMD`, se você as definir); o servidor também lista o prompt `present`. Não foi testado aqui se o painel de chat da extensão do Claude Code no VS Code usa os mesmos arquivos de configuração e mostra a mesma tela `/mcp` que a CLI.
 
 Se não conectar:
 
@@ -380,6 +386,24 @@ Absent: qa-2
 - `browser_test` executa o comando que você definiu em `PLAYWRIGHT_CMD`, sem shell, com um ambiente mínimo: suas chaves de provedor não chegam a ele, a menos que listadas em `PLAYWRIGHT_ENV_ALLOW`. A spec que ele executa é escrita por um modelo.
 - No modo serve o manager exige uma chave aleatória por execução que só a bridge do próprio processo possui; uma `MANAGER_API_KEY` definida pelo operador é ignorada. O hub e os servidores dos workers escutam em `127.0.0.1` e não têm autenticação, então qualquer processo local pode alcançá-los.
 - O contador de chamadas da regra de evidência fica no hub (`POST /calls/{id}`, `GET /calls/{id}`), que escuta só em loopback e não tem autenticação: qualquer cliente local pode somar chamadas a uma requisição, enquanto o modelo não o alcança. Uma chamada tardia de uma execução anterior na mesma thread ainda pode contar depois que uma nova execução zera o contador.
+- O `project_doc_write` do PO pode sobrescrever ou estender qualquer arquivo `.md` dos `docs_roots` que o chat passa no `team_submit`, com as permissões do seu usuário, desde que fiquem sob `WORKSPACE_ROOT`. Não grava outras extensões, outros diretórios, nem por symlinks que saem deles. Um modelo decide o conteúdo: revise o diff (`git diff`) desses arquivos depois de uma execução.
+- O painel não tem autenticação. Ele escuta em loopback por padrão e mostra apenas status, tempos e contagem de tokens (sem prompts, sem saídas). Os projetos se registram no dono em `POST /api/register`, que aceita só pares de loopback e URLs de loopback. `POST /cancel/{scope}`, `POST /usage/{id}` e `POST /workers/{id}/activity` do hub são tão abertos quanto o resto do hub: loopback, sem autenticação.
+
+## O PO mantém os documentos do projeto
+
+O product owner é o único papel que pode gravar, e só por `project_doc_write`: arquivos markdown (`.md`, até 256 KB), com `replace` ou `append`. O local é definido por cada demanda: o campo `docs_roots` do `team_submit` lista os diretórios (relativos ao workspace, ou absolutos sob `WORKSPACE_ROOT`) onde o PO pode gravar, e um caminho relativo na ferramenta começa no primeiro. Uma demanda sem `docs_roots` não dá ao PO nenhum acesso de escrita, como uma demanda sem raízes de backend não dá acesso de leitura. Todo o resto é recusado: outras extensões, caminhos fora dos diretórios citados, `..` e symlinks que levam para fora. O manager lista os diretórios no prompt do PO e manda manter a documentação, o plano e os próximos passos atualizados. Código-fonte, e todos os outros papéis, continuam somente leitura para ele.
+
+Uso de tokens: todo worker e o agente do próprio manager passam pelo mesmo middleware de compressão (turnos antigos comprimidos em caveman, a nota Ponytail quando as regras pedem, TOON para resultados JSON de ferramentas). A compressão só toca turnos antigos e resultados JSON de ferramentas; o prompt de sistema e os schemas das ferramentas, cerca de três quartos do que uma demanda envia, são reenviados a cada chamada e não podem ser comprimidos. Para modelos Anthropic o prompt de sistema é marcado como ponto de cache (`PROMPT_CACHE=off` desliga), o que também cobre as ferramentas, então depois da primeira chamada de um role elas são cobradas pela tarifa de leitura de cache; isso foi conferido contra um stub da API, não contra a real. O dossiê do pedido vai só no primeiro prompt de uma thread: os seguintes (retrabalho, o próximo gate) apontam para a primeira mensagem, e um worker que nunca viu a thread recebe o dossiê completo. O demo offline imprime a parcela de prompt de sistema e schemas junto das cifras de compressão.
+
+## Painel de acompanhamento
+
+Uma página web somente leitura mostra cada pedido e tarefa com status, barra de progresso e tempo de execução, e cada persona (worker) com estado, job atual, jobs concluídos e tempo ocupado. Atualiza a cada 2 segundos e mostra apenas status, tempos e contagem de tokens, nunca prompts ou saídas. Os tokens aparecem por persona (o manager conta como uma), por tarefa, por pedido e no total do projeto; as chamadas do modelo de conhecimento não entram na conta. Cada linha de persona também informa a pasta da skill (com as referências vendorizadas no tooltip) e, enquanto trabalha, o que está fazendo: a referência que consulta (`rag_answer`, `cag_answer`, `knowledge_answer`, memória do time), a ferramenta que chama ou o modelo.
+
+Cada projeto tem sua própria URL, `http://127.0.0.1:8088/p/<projeto>/` (`/?project=<projeto>` redireciona para ela), e o cabeçalho tem um seletor de projeto. O primeiro time a subir é dono da porta e lista os demais; um time que encontra a porta ocupada serve numa porta de loopback livre e se registra no dono (somente loopback), então um endereço cobre todos os projetos. Um projeto que para de responder aparece como offline; se o dono sair, os outros se registram de novo no próximo time que ocupar a porta.
+
+- O modo `serve` (o que `team-mcp-run serve` inicia) abre em `http://127.0.0.1:8088` (somente loopback).
+- Demo e outras execuções: defina `DASHBOARD_ADDR=host:porta` (o demo termina ao fim da execução).
+- Para acessar de outra máquina, use `DASHBOARD_ADDR=0.0.0.0:8088` atrás de um proxy com autenticação; a página não tem autenticação.
 
 ## Como testar
 
@@ -395,6 +419,8 @@ Um teste: `go test -race -count=1 -run TestJointReviewNeedsBothApprovals ./examp
 - `internal/backend`: `TestReadRefusesOutsideRoots`, `TestReadWithinRoot`, `TestGrepStaysInsideRoot`, `TestGrepLimits`, `TestRootsResolveAgainstWorkspace`, `TestGetRefusesNonGetAndUnnamedHost`, `TestGetRefusesRedirectToOtherHost`, `TestGetRefusesLoopbackUnlessNamed`, `TestGetNamedLocalhost`, `TestGetBodyCapped`, `TestNoScopeMeansNoAccess`, `TestReportsGuardedCallsPerRequest`, `TestReportFailureDoesNotFailTheCall`.
 - `internal/qa`: `TestBrowserTestNotRunWithoutCommand`, `TestBrowserTestNotRunWithoutAppURL`, `TestBrowserTestRejectsNonHTTPAppURL`, `TestBrowserTestRunsRunnerWithScopeURL`, `TestCommandRunnerUsesNoShell`, `TestCommandRunnerCapsOutput`, `TestCommandRunnerMinimalEnv`, `TestCommandRunnerTimeoutKillsProcessGroup`, `TestToolNotGivenToOtherRoles`.
 - `internal/tasktrack`: `TestTaskFlowAllowsRework`, `TestIllegalMoveIsRejectedAndNotRecorded`, `TestWebhookSinksAndFilter`, `TestNotifierFailureDoesNotBlock`, `TestFromEnvAndEmailMessage`.
+- `internal/team` (painel, tokens, cancelamento): `TestBuildDash`, `TestBuildDashNoTasksIsEmptyArray`, `TestBuildDashTokens`, `TestDashboardHandler`, `TestGatewayProxiesRegisteredProject`, `TestCancelScope`, `TestUsageMeter`.
+- `internal/backend` (documentos do PO e grafo de código): `TestDocPath`, `TestDocToolWritesOnlyForPO`, `TestBackendGraph`, `TestBackendGraphNeedsScopeAndOwnIndex`, `TestBackendGraphPrefersCodeGraphThenGraphify`, `TestRealCodeGraphIfAvailable` (precisa de `GRAPH_TEST_ROOT`).
 - `skills`: `TestEveryLockEntryIsEmbedded`, `TestVendoredSkillWithinBudget`, `TestEveryLockEntryHasLicense`, `TestEveryRoleDirHasOwnCopies`, `TestNoticesCoverLockedLicensesAndSources`, `TestPinnedFromIsPlausibleCommit`.
 
 Os testes de serve que acionam o time offline (`TestServeListsTeamTools`, `TestServeSubmitCompletesOffline`, `TestServeStopsOnEOF`) são pulados quando algum papel tem especificação de modelo (uma chave ou `AGENT_MODEL*` está definida).
@@ -408,9 +434,15 @@ Os testes de serve que acionam o time offline (`TestServeListsTeamTools`, `TestS
 5. Tente uma demanda que cita um host que o PO não deveria alcançar, e uma URL que redireciona para outro host. As duas devem ser recusadas na saída da ferramenta.
 6. Sem `PLAYWRIGHT_CMD`, ou sem `app_url`, o resultado do `browser_test` do QA deve dizer `NOT RUN` com o motivo. Com as duas definidas (e `PLAYWRIGHT_BROWSERS_PATH`, e o Chrome instalado onde o servidor roda), deve mostrar a saída do Playwright.
 7. Mantenha `WORKSPACE_ROOT` e as raízes de backend tão estreitas quanto o trabalho permitir: as ferramentas de backend leem arquivos no host que roda o servidor. No modo serve nenhum papel tem shell. Se você rodar a demonstração com um modelo real, mantenha enxuta a lista de comandos permitidos do shell (`ls`, `grep` e `echo`); o shell não tem sandbox.
+8. Abra o painel (`http://127.0.0.1:8088/` redireciona para a página do projeto; a linha de log `dashboard: ...` traz a URL) enquanto uma demanda roda. O pedido e suas tarefas devem passar pelos status, cada persona deve aparecer `busy` com sua skill e o que está fazendo, e a contagem de tokens deve crescer (modelo real; offline não há). Suba um segundo projeto com outro `WORKSPACE_ROOT`: ele deve aparecer no seletor de projetos.
+9. Chame `team_cancel` com o `thread_id` de uma demanda em execução. O painel deve mostrar o pedido e suas tarefas abertas como `cancelled`, os workers devem voltar a `idle` e o `team_status` deve parar de avançar. Depois de uma demanda que muda o que é verdade, rode `git diff` nos `docs_roots` que você passou para ver o que o PO gravou.
 
 ## Veja também
 
 - [full_team](../full_team/README.pt-BR.md): o time copiado, com a camada de compressão documentada por completo
 - [independent_engineering_team](../independent_engineering_team/README.pt-BR.md): o mesmo time dividido em serviços, com Docker compose, e os trechos de registro de cada cliente MCP
 - [compress_shell_rtk](../compress_shell_rtk/README.pt-BR.md), [compress_toon](../compress_toon/README.pt-BR.md), [compress_ponytail](../compress_ponytail/README.pt-BR.md)
+
+## Dashboard: chamadas CLI, conversas e agentes do chat
+
+Com `AGENT_BACKEND=claude-cli` o dashboard lista cada chamada ao CLI do Claude (agente, modelo, tempo, tokens, custo de tabela; a assinatura não cobra por token) e abre a conversa de cada uma. As chamadas mantêm a sessão do Claude Code (em `~/.claude/projects`) salvo `CLAUDE_CLI_TRANSCRIPTS=off`. Também lista os sub-agentes definidos em `.claude/agents` do projeto (e `~/.claude/agents`) com as execuções recentes no chat, e abre as conversas deles. As conversas mostram prompts e respostas: `DASHBOARD_TRANSCRIPTS=off` remove esse endpoint (a página é só loopback).

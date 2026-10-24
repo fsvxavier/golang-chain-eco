@@ -32,7 +32,7 @@ func normalize(spec string) string {
 		return spec
 	}
 	model = strings.ReplaceAll(model, "_", "-")
-	if prov == "anthropic" && !strings.HasPrefix(model, "claude-") {
+	if (prov == "anthropic" || prov == "claude-cli") && !strings.HasPrefix(model, "claude-") {
 		model = "claude-" + model
 	}
 	return prov + ":" + model
@@ -42,7 +42,10 @@ func normalize(spec string) string {
 //
 //	AGENT_MODEL_<ROLE>   e.g. AGENT_MODEL_PO=anthropic:opus_5_5
 //	AGENT_MODEL          one model for every role
-//	ANTHROPIC_API_KEY    per-role defaults above
+//	AGENT_BACKEND        "claude-cli": per-role defaults below through the Claude Code CLI, billed to the
+//	                     Claude subscription (no API key; the CLI must be logged in)
+//	ANTHROPIC_API_KEY    per-role defaults above (ANTHROPIC_AUTH_TOKEN, a gateway token, works too;
+//	                     ANTHROPIC_BASE_URL points the Anthropic provider at the gateway)
 //	OPENAI_API_KEY       openai:gpt-4o-mini
 //
 // An empty result means "run offline with the scripted model".
@@ -54,7 +57,9 @@ func ModelSpec(role string) string {
 		return normalize(s)
 	}
 	switch {
-	case os.Getenv("ANTHROPIC_API_KEY") != "":
+	case os.Getenv("AGENT_BACKEND") == "claude-cli":
+		return normalize("claude-cli:" + anthropicDefaults[role])
+	case os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("ANTHROPIC_AUTH_TOKEN") != "":
 		return normalize("anthropic:" + anthropicDefaults[role])
 	case os.Getenv("OPENAI_API_KEY") != "":
 		return "openai:gpt-4o-mini"

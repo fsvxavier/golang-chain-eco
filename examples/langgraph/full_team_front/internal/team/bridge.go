@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -41,10 +42,11 @@ func NewBridge() *Bridge {
 
 type (
 	submitArgs struct {
-		Request string   `json:"request" jsonschema:"what the team must deliver"`
-		Roots   []string `json:"backend_roots,omitempty" jsonschema:"optional absolute paths of the backend source trees the product owner may read"`
-		URLs    []string `json:"backend_urls,omitempty" jsonschema:"optional base URLs of the backend APIs the product owner may call"`
-		AppURL  string   `json:"app_url,omitempty" jsonschema:"optional URL of the running front-end that QA may open in a browser"`
+		Request  string   `json:"request" jsonschema:"what the team must deliver"`
+		Roots    []string `json:"backend_roots,omitempty" jsonschema:"optional absolute paths of the backend source trees the product owner may read"`
+		URLs     []string `json:"backend_urls,omitempty" jsonschema:"optional base URLs of the backend APIs the product owner may call"`
+		DocRoots []string `json:"docs_roots,omitempty" jsonschema:"optional directories (relative to the workspace, or absolute under it) where the product owner may write markdown documents: documentation, plan, next steps. Leave it empty when the request names a folder to save a plan or document in: the folder is taken from the request text. With no folder anywhere the PO writes nothing"`
+		AppURL   string   `json:"app_url,omitempty" jsonschema:"optional URL of the running front-end that QA may open in a browser"`
 	}
 	threadArgs struct {
 		Thread string `json:"thread_id" jsonschema:"thread_id returned by team_submit"`
@@ -77,26 +79,86 @@ type (
 	}
 )
 
+// docDest finds the folder a request asks to save a document in: an absolute
+// path after "save/write/plan ... in/to/folder". The last one wins, as the
+// first path in a request is usually what to read. The PO's write guards still
+// confine it to the workspace and to .md files.
+var docDest = regexp.MustCompile(`(?i)(?:grav\w*|salv\w*|escrev\w*|write|save|plano|plan|documenta\w*)[^/]{0,80}?(?:pasta|folder|diret\w+|directory|em|in|to|para)\s+(/[^\s,;"')]+)`)
+
+func inferDocRoot(request string) string {
+	m := docDest.FindAllStringSubmatch(request, -1)
+	if len(m) == 0 {
+		return ""
+	}
+	return strings.TrimRight(m[len(m)-1][1], ".:")
+}
+
+// listArgs wraps a tool so that a string given where it takes a list of strings
+// becomes a one-item list: some clients send a single path as plain text, and
+// refusing the whole demand over that costs more than reading it.
+type listArgs struct {
+	tools.Tool
+	keys []string
+}
+
+func (l listArgs) Call(ctx context.Context, args map[string]any) (any, error) {
+	for _, k := range l.keys {
+		if s, ok := args[k].(string); ok {
+			args[k] = []any{s}
+			if s == "" {
+				args[k] = []any{}
+			}
+		}
+	}
+	return l.Tool.Call(ctx, args)
+}
+
 // Tools returns the bridge tools.
 func (b *Bridge) Tools() []tools.Tool {
+	ts := b.tools()
+	for i, t := range ts {
+		if t.Name() == "team_submit" {
+			ts[i] = listArgs{t, []string{"backend_roots", "backend_urls", "docs_roots"}}
+		}
+	}
+	return ts
+}
+
+func (b *Bridge) tools() []tools.Tool {
 	return []tools.Tool{
-		tools.New("team_submit", "Send a demand to the engineering team. Returns at once with thread_id and run_id; follow it with team_status.",
+		tools.New("team_submit", "Send a demand to the engineering team. A folder named in the request for saving a plan or document is enough for the PO to write there (no other argument needed). Returns at once with thread_id and run_id; follow it with team_status.",
 			func(ctx context.Context, a submitArgs) (any, error) {
+				inferred := false
+				if len(a.DocRoots) == 0 {
+					if r := inferDocRoot(a.Request); r != "" {
+						a.DocRoots, inferred = []string{r}, true
+					}
+				}
 				tid, err := b.Manager.CreateThread(ctx, map[string]any{"request": a.Request})
 				if err != nil {
 					return nil, tools.Errorf("team_submit: %v", err)
 				}
 				run, err := b.Manager.CreateRun(ctx, tid, remote.RunRequest{AssistantID: "engineering_team", Input: map[string]any{"request": a.Request,
-					"scope": map[string]any{"roots": a.Roots, "urls": a.URLs, "app_url": a.AppURL}}})
+					"scope": map[string]any{"roots": a.Roots, "urls": a.URLs, "app_url": a.AppURL, "doc_roots": a.DocRoots}}})
 				if err != nil {
 					return nil, tools.Errorf("team_submit: %v", err)
 				}
-				return fmt.Sprintf("thread_id=%s run_id=%s status=%s", tid, run.RunID, run.Status), nil
+				docs := "docs_roots=none (the PO writes nothing; pass docs_roots to let it save a plan)"
+				if len(a.DocRoots) > 0 {
+					docs = "docs_roots=" + strings.Join(a.DocRoots, ",")
+					if inferred {
+						docs += " (taken from the request)"
+					}
+				}
+				return fmt.Sprintf("thread_id=%s run_id=%s status=%s %s", tid, run.RunID, run.Status, docs), nil
 			}),
 		tools.New("team_status", "Show the delivery state of a request: task statuses (received ... completed), report and handoff history.",
 			func(ctx context.Context, a threadArgs) (any, error) {
 				s, err := b.Manager.GetState(ctx, a.Thread)
 				if err != nil {
+					if strings.Contains(err.Error(), "404") {
+						return nil, tools.Errorf("team_status: thread %s not found: the team keeps threads in memory, so a restart of team-mcp (reconnecting the MCP, a new binary) ends them; submit the demand again", a.Thread)
+					}
 					return nil, tools.Errorf("team_status: %v", err)
 				}
 				out, _ := json.MarshalIndent(map[string]any{
@@ -104,6 +166,14 @@ func (b *Bridge) Tools() []tools.Tool {
 					"history": s.Values["history"], "running": s.Next,
 				}, "", "  ")
 				return string(out), nil
+			}),
+		tools.New("team_cancel", "Cancel a request (end its thread): queued jobs are dropped, running agents are stopped and the delivery ends as cancelled. Use the thread_id from team_submit.",
+			func(ctx context.Context, a threadArgs) (any, error) {
+				n, err := b.Hub.CancelScope(ctx, a.Thread)
+				if err != nil {
+					return nil, tools.Errorf("team_cancel: %v", err)
+				}
+				return fmt.Sprintf("thread %s cancelled: %d job(s) ended; the delivery stops at its next step", a.Thread, n), nil
 			}),
 		tools.New("team_queue", "List the registered workers (role, current job) and the queued jobs.",
 			func(ctx context.Context, _ struct{}) (any, error) {

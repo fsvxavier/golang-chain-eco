@@ -2,7 +2,8 @@
 // (init_chat_model), embedders (init_embeddings) and rerankers.
 //
 // Native providers: openai, azure_openai, anthropic, google_genai (alias
-// google), google_vertexai, cohere, bedrock (alias bedrock_converse), ollama.
+// google), google_vertexai, cohere, bedrock (alias bedrock_converse), ollama,
+// claude-cli (the Claude Code CLI, billed to the subscription, not the API).
 // Every entry of OpenAICompatible is served through the OpenAI client; set
 // $<PROVIDER>_API_KEY and optionally $<PROVIDER>_BASE_URL.
 package chatmodels
@@ -18,6 +19,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/providers/anthropic"
 	"github.com/fsvxavier/golang-chain-eco/providers/bedrock"
+	"github.com/fsvxavier/golang-chain-eco/providers/claudecli"
 	"github.com/fsvxavier/golang-chain-eco/providers/cohere"
 	"github.com/fsvxavier/golang-chain-eco/providers/google"
 	"github.com/fsvxavier/golang-chain-eco/providers/ollama"
@@ -98,7 +100,7 @@ var OpenAICompatible = map[string]string{
 
 // Providers lists every provider name Init understands.
 func Providers() []string {
-	names := []string{"openai", "azure_openai", "anthropic", "google_genai", "google", "google_vertexai", "cohere", "bedrock", "bedrock_converse", "ollama", "ibm", "watsonx", "replicate", "router", "fake"}
+	names := []string{"openai", "azure_openai", "anthropic", "claude-cli", "google_genai", "google", "google_vertexai", "cohere", "bedrock", "bedrock_converse", "ollama", "ibm", "watsonx", "replicate", "router", "fake"}
 	for k := range OpenAICompatible {
 		names = append(names, k)
 	}
@@ -135,6 +137,8 @@ func Init(spec string, defaults ...models.Option) (models.ChatModel, error) {
 		return c, nil
 	case "anthropic":
 		return anthropic.New(model, defaults...), nil
+	case "claude-cli", "claude_cli", "claude-code":
+		return claudecli.New(model, defaults...), nil
 	case "google_genai", "google":
 		return google.New(model, defaults...), nil
 	case "google_vertexai":

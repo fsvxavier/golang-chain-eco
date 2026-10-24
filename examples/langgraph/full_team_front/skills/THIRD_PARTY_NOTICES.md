@@ -2,24 +2,20 @@
 
 The persona folders under `skills/<role>/references/` carry copies of third-party agent skills, fetched with the `skills` CLI (`npx skills add <owner/repo@skill>`) and pinned in `skills.lock` (SHA-256 of each embedded file). Each role folder has its own copy.
 
-**Provenance.** The copies are trimmed and sanitised: examples and boilerplate were cut to fit the size budget (8 KB per file, 24 KB per role), and installer commands, remote-fetch instructions, script invocations for scripts that are not vendored, and tool permission grants (`allowed-tools`) were removed. They are not the upstream files. Where a skill only fetched its rules from a URL at run time (`web-design-guidelines`) or was only an index to other files (`playwright-best-practices`), the copy carries a pinned, trimmed snapshot of those rules instead. The skill `user-story` from deanpeters/product-manager-skills (CC BY-NC-SA 4.0) is not redistributed; `user-stories` from phuryn/pm-skills (MIT) is used instead.
+**Provenance.** The copies are trimmed and sanitised: examples and boilerplate were cut to fit the size budget (8 KB per file, 24 KB per role), and installer commands, remote-fetch instructions, script invocations for scripts that are not vendored, and tool permission grants (`allowed-tools`) were removed. They are not the upstream files. Where a skill was only an index to other files (`playwright-best-practices`), the copy carries a pinned, trimmed snapshot of those rules instead. The skill `user-story` from deanpeters/product-manager-skills (CC BY-NC-SA 4.0) is not redistributed; `user-stories` from phuryn/pm-skills (MIT) is used instead.
 
 ## Sources
 
 | Repository | Skills | Licence | Copyright holder as stated in the source |
 |---|---|---|---|
-| https://github.com/wshobson/agents | `openapi-spec-generation` | MIT | Copyright (c) 2024 Seth Hobson |
 | https://github.com/affaan-m/ecc | `contract-first`, `frontend-patterns`, `react-testing` | MIT | Copyright (c) 2026 Affaan Mustafa |
 | https://github.com/addyosmani/agent-skills | `planning-and-task-breakdown`, `performance-optimization` | MIT | Copyright (c) 2025 Addy Osmani |
 | https://github.com/mattpocock/skills | `code-review` | MIT | Copyright (c) 2026 Matt Pocock |
 | https://github.com/vercel-labs/agent-skills | `vercel-react-best-practices` | MIT | Vercel. The repository has no LICENSE file; its README states "MIT" and the skill file declares `license: MIT` (author vercel). No copyright line is stated. |
-| https://github.com/vercel-labs/web-interface-guidelines | `web-design-guidelines` (pinned snapshot of `command.md` at commit 434b7f91364665f2f733b310ec54809bf8f37937) | MIT | Copyright (c) 2025 Vercel Labs |
-| https://github.com/nextlevelbuilder/ui-ux-pro-max-skill | `ui-ux-pro-max` | MIT | Copyright (c) 2024 Next Level Builder |
 | https://github.com/addyosmani/web-quality-skills | `accessibility` | MIT | Copyright (c) 2026 Addy Osmani |
 | https://github.com/currents-dev/playwright-best-practices-skill | `playwright-best-practices` | MIT | Copyright (c) 2026 Currents Software Inc. |
 | https://github.com/phuryn/pm-skills | `user-stories` | MIT | Copyright (c) 2026 Pawel Huryn |
-| https://github.com/anthropics/skills | `frontend-design`, `webapp-testing` | Apache-2.0 | Anthropic, PBC. The skill folders carry the Apache License 2.0 text in `LICENSE.txt` and declare `license: Complete terms in LICENSE.txt`; no named copyright holder appears in that file. |
-| https://github.com/microsoft/playwright-cli | `playwright-cli` | Apache-2.0 | Microsoft Corporation (owner of the repository). Its LICENSE file is the Apache License 2.0 and names no holder. |
+| https://github.com/anthropics/skills | `webapp-testing` | Apache-2.0 | Anthropic, PBC. The skill folders carry the Apache License 2.0 text in `LICENSE.txt` and declare `license: Complete terms in LICENSE.txt`; no named copyright holder appears in that file. |
 | https://github.com/langgenius/dify | `frontend-code-review` | Dify Open Source License (Apache-2.0 with additional conditions) | (c) 2025 LangGenius, Inc. |
 
 ## Licence texts

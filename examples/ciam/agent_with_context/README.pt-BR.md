@@ -4,6 +4,8 @@
 
 Um agent que consulta o gerenciador de contexto do projeto antes de alterar código e, assim, respeita uma decisão que ninguém mencionou.
 
+O agent roda com `middleware.Compaction()`: turnos antigos são comprimidos no estilo caveman, uma nota Ponytail é adicionada quando a conversa tem uma parcela real de código, resultados JSON de tools viram TOON, e tudo é decidido por regras, sem precisar de modelo.
+
 ## O que faz
 
 - Cria um projeto com um tipo de fatura e um ADR que diz "nunca use float para dinheiro".

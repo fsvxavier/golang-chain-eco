@@ -12,6 +12,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/fsvxavier/golang-chain-eco/agents"
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/tasktrack"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
@@ -64,11 +65,12 @@ var Console io.Writer // nil: os.Stdout
 // RunManager serves the manager's delivery graph as an Agent Server
 // (remote/server, the LangGraph Platform subset). Clients call it with
 // remote.Graph. apiKey is the key the server requires; empty reads MANAGER_API_KEY.
-func RunManager(ctx context.Context, hubURL string, ln net.Listener, apiKey string) error {
+func RunManager(ctx context.Context, hubURL string, ln net.Listener, apiKey string, mw ...agents.Middleware) error {
 	chat, label, err := NewModel("manager", offline)
 	if err != nil {
 		return err
 	}
+	observeCLI(chat, NewHubClient(hubURL), "manager", "manager")
 	console := Console
 	if console == nil {
 		console = os.Stdout
@@ -78,7 +80,7 @@ func RunManager(ctx context.Context, hubURL string, ln net.Listener, apiKey stri
 		return err
 	}
 	track.OnError = func(err error) { log.Print(err) }
-	app, err := NewManager(NewHubClient(hubURL), chat, track)
+	app, err := NewManager(NewHubClient(hubURL), chat, track, mw...)
 	if err != nil {
 		return err
 	}

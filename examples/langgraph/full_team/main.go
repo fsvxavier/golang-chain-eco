@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -27,6 +28,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,7 +38,9 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/deepagents/backends"
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/docs"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/team"
+	"github.com/fsvxavier/golang-chain-eco/integrations/codegraph"
 )
 
 func main() {
@@ -57,6 +61,20 @@ func main() {
 
 // run plays the demo once and prints the report to w. It returns the meter, so
 // the test can check what the middleware did.
+// graphTools is code_graph for the workspace (WORKSPACE_ROOT, else the working
+// directory) when it has a CodeGraph or graphify index, for every worker: a search
+// by meaning costs far fewer tokens than grepping and reading. Nil without an index.
+func graphTools() []tools.Tool {
+	root := os.Getenv("WORKSPACE_ROOT")
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	if t := codegraph.ProjectTool(root); t != nil {
+		return []tools.Tool{t}
+	}
+	return nil
+}
+
 func run(ctx context.Context, w io.Writer) (*meter, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -73,14 +91,20 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 	// turn to compress. NewCompression's guard is kept by wrapping it here.
 	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
 
+	hub := new(atomic.Pointer[team.HubClient]) // known once the team is up; until then no write access
 	l, err := team.StartLocalWith(ctx, team.LocalOptions{
 		Middleware: []agents.Middleware{m},
-		Tools:      []tools.Tool{shell, tasksTool()},
-		Offline:    team.OfflineWithTool(tasksToolName),
+		// The manager's agent gets the same compression (old turns caveman-compressed,
+		// Ponytail note, TOON) as the workers; it has no meter, which counts worker calls only.
+		ManagerMiddleware: []agents.Middleware{middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}},
+		RoleTools:         docs.DocTools(hub.Load, docs.DocsConfig{WorkspaceRoot: dir}),
+		Tools:             append([]tools.Tool{shell, tasksTool()}, graphTools()...),
+		Offline:           team.OfflineWithTool(tasksToolName),
 	})
 	if err != nil {
 		return nil, err
 	}
+	hub.Store(team.NewHubClient(l.HubURL))
 	fmt.Fprintf(w, "decider %s; hub %s, manager %s, %d workers\n", source, l.HubURL, l.ManagerURL, len(l.Workers))
 
 	out, err := team.Invoke(ctx, l.ManagerURL, messages.NewID(), team.DefaultRequest)
@@ -539,6 +563,7 @@ type meter struct {
 	mu               sync.Mutex
 	calls, rewritten int
 	before, after    int
+	system, tools    int // bytes of system prompts and of tool schemas sent: compression does not touch either
 	ponytail         int // model calls whose last Human message carries the Ponytail note
 	toonResults      int // tool results rewritten to TOON
 	toonSaved        int // bytes those rewrites saved
@@ -551,7 +576,10 @@ func (m *meter) WrapModelCall(ctx context.Context, req *agents.ModelRequest, nex
 	orig := req.Messages // the middleware copies the slice, so this stays as it was
 	return m.comp.WrapModelCall(ctx, req, func(ctx context.Context, r *agents.ModelRequest) (messages.Message, error) {
 		out := textBytes(r.Messages)
+		sys, tl := len(r.System), toolBytes(r.Tools)
 		m.mu.Lock()
+		m.system += sys
+		m.tools += tl
 		m.calls++
 		m.before += in
 		m.after += out
@@ -573,6 +601,24 @@ func (m *meter) WrapModelCall(ctx context.Context, req *agents.ModelRequest, nex
 	})
 }
 
+// toolBytes is the size of what the tools add to a request: name, description
+// and parameter schema.
+func toolBytes(ts []tools.Tool) int {
+	n := 0
+	for _, t := range ts {
+		b, _ := json.Marshal(t.Schema())
+		n += len(t.Name()) + len(t.Description()) + len(b)
+	}
+	return n
+}
+
+func pct(part, whole int) int {
+	if whole == 0 {
+		return 0
+	}
+	return 100 * part / whole
+}
+
 func (m *meter) print(w io.Writer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -580,6 +626,8 @@ func (m *meter) print(w io.Writer) {
 	fmt.Fprintln(w, "== compression ==")
 	fmt.Fprintf(w, "model calls: %d, rewritten by compression: %d\n", m.calls, m.rewritten)
 	fmt.Fprintf(w, "estimated tokens: %d before, %d after\n", m.before/4, m.after/4)
+	fmt.Fprintf(w, "not compressible, sent on every call: %d system prompt tokens, %d tool schema tokens (%d%% of the input)\n",
+		m.system/4, m.tools/4, pct(m.system+m.tools, m.system+m.tools+m.after))
 	fmt.Fprintf(w, "calls with the Ponytail note: %d\n", m.ponytail)
 	fmt.Fprintf(w, "tool results rewritten to TOON: %d, bytes saved: %d\n", m.toonResults, m.toonSaved)
 	fmt.Fprintf(w, "rtk on PATH: %v\n", rtkErr == nil)

@@ -37,9 +37,14 @@ func listen() (net.Listener, string, error) {
 type LocalOptions struct {
 	Middleware []agents.Middleware
 	Tools      []tools.Tool
-	Offline    func([]messages.Message) messages.Message
+	// RoleTools adds tools to the workers of one role only, after Tools (the PO's
+	// project_doc_write). Nil, or nil for a role, adds nothing.
+	RoleTools func(role string) []tools.Tool
+	Offline   func([]messages.Message) messages.Message
 	// ManagerKey is the manager's API key. Empty reads MANAGER_API_KEY.
 	ManagerKey string
+	// ManagerMiddleware is added to the manager's own agent (the workers get Middleware).
+	ManagerMiddleware []agents.Middleware
 }
 
 // StartLocal brings up hub, manager and the 11 workers. It returns when the hub
@@ -62,11 +67,18 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
 	l.HubURL, l.ManagerURL = hubURL, mgrURL
 	l.wg.Add(2)
 	go func() { defer l.wg.Done(); _ = RunHub(ctx, hubLn) }()
-	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn, opts.ManagerKey) }()
+	go func() {
+		defer l.wg.Done()
+		_ = RunManager(ctx, hubURL, mgrLn, opts.ManagerKey, opts.ManagerMiddleware...)
+	}()
 	for _, c := range Cast {
 		ln, _, err := listen()
 		if err != nil {
 			return nil, err
+		}
+		ts := opts.Tools
+		if opts.RoleTools != nil {
+			ts = append(append([]tools.Tool(nil), opts.Tools...), opts.RoleTools(c.Role)...)
 		}
 		wctx, cancel := context.WithCancel(ctx)
 		l.Workers[c.ID] = cancel
@@ -74,7 +86,7 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
 		go func() {
 			defer l.wg.Done()
 			_ = RunWorker(wctx, WorkerConfig{ID: c.ID, Role: c.Role, Hub: hubURL,
-				Middleware: opts.Middleware, Tools: opts.Tools, Offline: opts.Offline}, ln)
+				Middleware: opts.Middleware, Tools: ts, Offline: opts.Offline}, ln)
 		}()
 	}
 	hc := NewHubClient(hubURL)
