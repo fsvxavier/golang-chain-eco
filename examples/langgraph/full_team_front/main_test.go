@@ -339,3 +339,60 @@ func TestDemoShellRejectsStructuralGlobBypasses(t *testing.T) {
 		}
 	}
 }
+
+// Bare bracket globs with a symlink to the outside in the workspace: Go's
+// dialect and bash's differ ([!x], []x], [[:alpha:]], [a-z-]).
+func TestDemoShellRejectsBareBracketGlobThroughSymlink(t *testing.T) {
+	clearModelEnv(t)
+	parent := t.TempDir()
+	dir, outside := parent+"/work", parent+"/outside"
+	for _, d := range []string{dir, outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(outside+"/secret.txt", []byte("SECRETMARK"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/f.txt", []byte("123\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir+"/link"); err != nil {
+		t.Fatal(err)
+	}
+	sh := shellTool(dir, compress.NewRTK(compress.FuncDecider(scripted)))
+	run := func(cmd string) (string, error) {
+		out, err := sh.Call(context.Background(), map[string]any{"command": cmd})
+		return fmt.Sprint(out), err
+	}
+	for _, cmd := range []string{
+		"ls [!q]ink", "grep -r SECRETMARK [!q]ink", "grep -r SECRETMARK [!z]*", "ls []l]ink", "ls [[:alpha:]]ink", "grep -r SECRETMARK [a-z-]ink",
+		"ls [l-l]ink", "ls [^q]ink",
+	} {
+		out, err := run(cmd)
+		if err == nil || strings.Contains(out, "SECRETMARK") || strings.Contains(out, "link ->") {
+			t.Errorf("%q accepted (err %v), output %.80q", cmd, err, out)
+		}
+	}
+	for _, cmd := range []string{"grep '[0-9]' f.txt", "grep -E '[0-9]+' f.txt", "ls f.[t]xt"} {
+		if _, err := run(cmd); err != nil {
+			t.Errorf("%q rejected: %v", cmd, err)
+		}
+	}
+}
+
+// bash <= 5.1 expands .* and .? to "..": refused by the rule itself, since the
+// host's bash may hide it (globskipdots).
+func TestShellRefusesDotGlobs(t *testing.T) {
+	dir := t.TempDir()
+	for _, tok := range []string{".*", ".?", "..*", ".*.", "./.*", "src/.*", "src/..*", ".?/", "..*/", ".*./", dir + "/..*"} {
+		if outsideWorkspace(dir, "ls "+tok) == "" {
+			t.Errorf("%q accepted", tok)
+		}
+	}
+	for _, tok := range []string{"*", "*.go", "src/*", "...*", ".git*", "./*", "f.?"} {
+		if got := outsideWorkspace(dir, "ls "+tok); got != "" {
+			t.Errorf("%q rejected: %s", tok, got)
+		}
+	}
+}

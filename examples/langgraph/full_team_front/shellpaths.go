@@ -44,7 +44,15 @@ func outsideWorkspace(dir, command string) string {
 			if pathLike(tok) && badGlob(dir, root, tok) {
 				return true
 			}
-			for _, g := range []string{p, filepath.Clean(p)} { // Clean covers "x/*/", "x/*/." and "x/*//"
+			if dotGlob(tok) {
+				return true
+			}
+			gs := []string{p, filepath.Clean(p)} // Clean covers "x/*/", "x/*/." and "x/*//"
+			if strings.Contains(p, "[") {        // bash and Go read brackets differently: also try a superset
+				sp := bracketsToAny(p)
+				gs = append(gs, sp, filepath.Clean(sp))
+			}
+			for _, g := range gs {
 				m, _ := filepath.Glob(g)
 				cands = append(cands, m...)
 			}
@@ -103,14 +111,68 @@ func outsideWorkspace(dir, command string) string {
 	return ""
 }
 
+// dotGlob reports a wildcard component that starts with "." and can match "."
+// or "..": bash before 5.2 (globskipdots off) expands .* and .? to "..".
+// shortcut: this also refuses a bare grep regex such as '.*'; use another form.
+func dotGlob(tok string) bool {
+	for _, c := range strings.Split(tok, "/") {
+		if strings.HasPrefix(c, ".") && strings.ContainsAny(c, "*?[") {
+			if ok1, _ := filepath.Match(c, "."); ok1 {
+				return true
+			}
+			if ok2, _ := filepath.Match(c, ".."); ok2 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// bracketsToAny replaces every bracket expression with "?": in both dialects
+// it matches exactly one character, so the copy matches a superset. An
+// unterminated "[" is literal in bash and left as is.
+func bracketsToAny(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '[' {
+			b.WriteByte(s[i])
+			continue
+		}
+		j := i + 1
+		if j < len(s) && (s[j] == '!' || s[j] == '^') {
+			j++
+		}
+		if j < len(s) && s[j] == ']' {
+			j++
+		}
+		for j < len(s) && s[j] != ']' {
+			if s[j] == '[' && j+1 < len(s) && strings.IndexByte(":.=", s[j+1]) >= 0 {
+				if k := strings.Index(s[j+2:], string(s[j+1])+"]"); k >= 0 {
+					j += k + 4
+					continue
+				}
+			}
+			j++
+		}
+		if j >= len(s) {
+			b.WriteByte('[')
+			continue
+		}
+		b.WriteByte('?')
+		i = j
+	}
+	return b.String()
+}
+
 // pathLike: a token with a slash, or starting with "." or "~", names a path;
 // a bare word is a grep pattern or a workspace-relative name.
 func pathLike(tok string) bool {
 	return strings.Contains(tok, "/") || strings.HasPrefix(tok, ".") || strings.HasPrefix(tok, "~")
 }
 
-// badGlob decides a path-like glob structurally, without trusting Go's glob
-// dialect (bash reads [!x], []x] and [[:alpha:]] differently): it is rejected
+// badGlob decides a path-like glob structurally, not by Go's matches (bash
+// reads [!x], []x] and [[:alpha:]] differently; bare globs are checked through
+// a superset instead, see bracketsToAny): it is rejected
 // when it holds "[", when the literal prefix before the first wildcard
 // component is not inside the workspace, or when ".." follows a wildcard.
 func badGlob(dir, root, tok string) bool {
