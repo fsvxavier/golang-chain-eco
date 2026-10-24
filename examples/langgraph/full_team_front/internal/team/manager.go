@@ -227,8 +227,19 @@ func (m *manager) step(role, label string, st tasktrack.Status, prompt func(grap
 }
 
 func dossier(s graph.State) string {
-	return fmt.Sprintf("## Request\n%v\n\n## Specification\n%v", s["request"], s["spec"])
+	d := fmt.Sprintf("## Request\n%v\n\n## Specification\n%v", s["request"], s["spec"])
+	if u := scopeOf(s).AppURL; u != "" {
+		d += "\n\n## App\nAPP_URL: " + u // informational; browser_test takes the URL from the hub scope
+	}
+	return d
 }
+
+// qaGuide tells QA how to turn the specification into tests and judge them.
+const qaGuide = `
+## How to test
+Write one test set for this task. Name each test after the acceptance criterion or UI state it covers (AC1.. and UI_STATES in the specification), and add one line per criterion: "TRACE: AC1 -> <test name>". If browser_test is available you may run the tests with it (APP_URL above is informational; the tool uses the demand's own app URL).
+Answer "VERDICT: APPROVE" when the tests cover the specification, or "VERDICT: RETURN" with "FEEDBACK:" naming the spec item the screen code cannot satisfy.
+`
 
 // build asks the leader for a plan, then runs every task through
 // dev -> review -> QA concurrently. The hub decides who works on what and
@@ -421,6 +432,9 @@ func (m *manager) gate(ctx context.Context, w *work, role, label string, hist *[
 	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), start, role, "built by "+w.Assignee)
 	prompt := fmt.Sprintf("ROLE: %s\n\n%s\n\n## Task under %s\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nATTEMPT: %d\n\n## Submitted work\n%s\n",
 		role, brief, label, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
+	if role == "qa" {
+		prompt += qaGuide
+	}
 	j, err := m.dispatch(ctx, []string{role}, w.ID+"-"+label, prompt, w.Title+" "+w.Desc)
 	if err != nil {
 		return false, err

@@ -37,6 +37,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/deepagents/backends"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/backend"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/backend/fake"
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/qa"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/team"
 )
 
@@ -79,7 +80,7 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 	l, err := team.StartLocalWith(ctx, team.LocalOptions{
 		Middleware:  []agents.Middleware{m},
 		Tools:       []tools.Tool{shell, tasksTool()},
-		RoleTools:   backend.RoleTools(hub.Load, backend.Config{WorkspaceRoot: dir}),
+		RoleTools:   roleTools(backend.RoleTools(hub.Load, backend.Config{WorkspaceRoot: dir}), qa.RoleTools(hub.Load, os.Getenv("PLAYWRIGHT_CMD"))),
 		CallCounter: backend.Calls,
 		Offline:     team.OfflineWithTool(tasksToolName),
 	})
@@ -297,4 +298,15 @@ func textBytes(msgs []messages.Message) int {
 		}
 	}
 	return n
+}
+
+// roleTools joins per-role tool sets: a role gets the tools of every set.
+func roleTools(sets ...func(role string) []tools.Tool) func(role string) []tools.Tool {
+	return func(role string) []tools.Tool {
+		var out []tools.Tool
+		for _, f := range sets {
+			out = append(out, f(role)...)
+		}
+		return out
+	}
 }

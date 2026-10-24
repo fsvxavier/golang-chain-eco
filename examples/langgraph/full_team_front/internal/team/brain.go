@@ -66,7 +66,10 @@ func Brain(prompt string) string {
 		return "VERDICT: RETURN\nFEEDBACK: 1. The reservation is not safe when two payments race: make the check and the decrement one atomic step (constraint: atomic consumption)."
 	case role == "qa" && id == "T4" && attempt == "1":
 		return "VERDICT: RETURN\nFEEDBACK: 1. AC2 fails: an expired coupon returns 200 instead of a rejection. Input: code EXPIRED10, expected 422, got 200."
-	case role == "specialist", role == "qa":
+	case role == "qa":
+		return "VERDICT: APPROVE\nTRACE: AC1 -> test_valid_coupon_shows_discount\nTRACE: AC2 -> test_expired_coupon_is_rejected\n" +
+			"TRACE: AC3 -> test_coupon_consumed_once_on_payment\nTRACE: AC4 -> test_coupon_released_when_payment_fails\nFEEDBACK: none"
+	case role == "specialist":
 		return "VERDICT: APPROVE\nFEEDBACK: none"
 	}
 	return "OK"

@@ -1,0 +1,63 @@
+package team
+
+import (
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/fsvxavier/golang-chain-eco/core/messages"
+)
+
+// The QA worker gets the PO's spec (AC lines and UI states) and the app URL.
+func TestQAPromptCarriesSpec(t *testing.T) {
+	c := ctx(t)
+	var mu sync.Mutex
+	var qa []string
+	l, err := StartLocalWith(c, LocalOptions{Offline: func(msgs []messages.Message) messages.Message {
+		if last, ok := messages.Last(msgs); ok && strings.Contains(last.Text(), "ROLE: qa") {
+			mu.Lock()
+			qa = append(qa, last.Text())
+			mu.Unlock()
+		}
+		return offline(msgs)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InvokeWithScope(c, l.ManagerURL, "req-qa-prompt", DefaultRequest, Scope{AppURL: "http://127.0.0.1:5173"}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(qa) == 0 {
+		t.Fatal("QA never ran")
+	}
+	for _, p := range qa {
+		for _, want := range []string{"AC1", "UI_STATES", "TRACE:", "http://127.0.0.1:5173"} {
+			if !strings.Contains(p, want) {
+				t.Fatalf("QA prompt lacks %q:\n%s", want, p)
+			}
+		}
+	}
+}
+
+func TestQAOutputTracesCriteria(t *testing.T) {
+	out := Brain("ROLE: qa\nTASK: T1\nATTEMPT: 1\n")
+	for _, ac := range []string{"AC1", "AC2", "AC3", "AC4"} {
+		var ok bool
+		for _, l := range strings.Split(out, "\n") {
+			if strings.HasPrefix(l, "TRACE:") && strings.Contains(l, ac) {
+				ok = true
+			}
+		}
+		if !ok {
+			t.Fatalf("no TRACE line for %s:\n%s", ac, out)
+		}
+	}
+	if !strings.HasPrefix(field(out, "VERDICT:"), "APPROVE") {
+		t.Fatalf("verdict: %s", out)
+	}
+	if rej := Brain("ROLE: qa\nTASK: T4\nATTEMPT: 1\n"); !strings.HasPrefix(field(rej, "VERDICT:"), "RETURN") {
+		t.Fatalf("T4 attempt 1 must still be returned: %s", rej)
+	}
+}
