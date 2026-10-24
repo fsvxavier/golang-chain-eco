@@ -98,6 +98,7 @@ type Hub struct {
 	mgrUse    map[string]messages.Usage // manager model tokens per request id
 	calls     map[string]int            // backend calls per request id; one entry per request, like scopes and jobs
 	queue     []string
+	cli       []CLICall // calls of the claude CLI provider, newest last
 	wake      chan struct{}
 	seq       int
 	now       func() time.Time

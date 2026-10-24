@@ -442,3 +442,7 @@ The serve tests that drive the offline team (`TestServeListsTeamTools`, `TestSer
 - [full_team](../full_team/README.md): the copied team, with the compression layer documented in full
 - [independent_engineering_team](../independent_engineering_team/README.md): the same team split into services, with Docker compose, and the registration snippets for each MCP client
 - [compress_shell_rtk](../compress_shell_rtk/README.md), [compress_toon](../compress_toon/README.md), [compress_ponytail](../compress_ponytail/README.md)
+
+## Dashboard: CLI calls, conversations and chat agents
+
+With `AGENT_BACKEND=claude-cli` the dashboard lists every claude CLI call (agent, model, time, tokens, list-price cost; the subscription is not charged per token) and opens the conversation of each one. The calls keep their Claude Code session (under `~/.claude/projects`) unless `CLAUDE_CLI_TRANSCRIPTS=off`. It also lists the sub-agents defined in the project's `.claude/agents` (and `~/.claude/agents`) with their recent runs from the chat, and opens their conversations. Conversations show prompts and answers: `DASHBOARD_TRANSCRIPTS=off` removes that endpoint (the page is loopback only).

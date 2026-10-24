@@ -62,6 +62,7 @@ func RunWorker(ctx context.Context, cfg WorkerConfig, ln net.Listener) error {
 		return err
 	}
 	hub := NewHubClient(cfg.Hub)
+	observeCLI(model, hub, cfg.ID, cfg.Role)
 	if cfg.URL == "" {
 		cfg.URL = "http://" + ln.Addr().String()
 	}

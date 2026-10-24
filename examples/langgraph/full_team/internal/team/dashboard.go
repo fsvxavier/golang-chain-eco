@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -95,6 +96,10 @@ type DashState struct {
 	HubError string            `json:"hub_error,omitempty"`
 	Project  string            `json:"project"`      // name of the workspace this team serves
 	Root     string            `json:"project_root"` // its absolute path
+
+	CLICalls   []CLICall   `json:"cli_calls"`   // claude CLI calls of the agents, newest first
+	ChatAgents []ChatAgent `json:"chat_agents"` // sub-agents of the project's .claude/agents
+	ChatRuns   []ChatRun   `json:"chat_runs"`   // their recent runs in the chat
 }
 
 // taskProgress is how far along a task is, by status. A rejection sends the
@@ -277,9 +282,15 @@ func (p project) state(ctx context.Context) DashState {
 	st, err1 := p.hub.State(ctx)
 	jobs, err2 := p.hub.Jobs(ctx)
 	mgr, err3 := p.hub.MgrUsage(ctx)
+	cli, err4 := p.hub.CLICalls(ctx)
 	d := BuildDash(time.Now(), p.track.History(), st, jobs, mgr)
 	d.Root, d.Project = p.root, filepath.Base(p.root)
-	if err := errors.Join(err1, err2, err3); err != nil {
+	d.CLICalls = []CLICall{}
+	for i := len(cli) - 1; i >= 0 && len(d.CLICalls) < 100; i-- {
+		d.CLICalls = append(d.CLICalls, cli[i])
+	}
+	d.ChatAgents, d.ChatRuns = ChatAgents(p.root)
+	if err := errors.Join(err1, err2, err3, err4); err != nil {
 		d.HubError = err.Error()
 	}
 	return d
@@ -304,6 +315,41 @@ func (p project) handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(p.state(ctx))
+	})
+	// The conversation of one CLI call or one chat sub-agent run. It shows
+	// prompts and answers, so it is on by default only because the page is
+	// loopback; DASHBOARD_TRANSCRIPTS=off removes it.
+	mux.HandleFunc("GET /api/transcript", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		fail := func(code int, msg string) {
+			w.WriteHeader(code)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+		}
+		if os.Getenv("DASHBOARD_TRANSCRIPTS") == "off" {
+			fail(http.StatusForbidden, "transcripts are off (DASHBOARD_TRANSCRIPTS=off)")
+			return
+		}
+		var path string
+		var err error
+		switch r.URL.Query().Get("kind") {
+		case "cli":
+			path, err = CLITranscriptPath(r.URL.Query().Get("id"))
+		case "chat":
+			path, err = ChatTranscriptPath(p.root, r.URL.Query().Get("id"))
+		default:
+			err = errors.New("kind must be cli or chat")
+		}
+		if err != nil {
+			fail(http.StatusNotFound, err.Error())
+			return
+		}
+		turns, err := ReadTranscript(path)
+		if err != nil {
+			fail(http.StatusInternalServerError, err.Error())
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"turns": turns})
 	})
 	return mux
 }

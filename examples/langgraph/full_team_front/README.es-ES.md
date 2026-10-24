@@ -442,3 +442,7 @@ Las pruebas de serve que activan el equipo sin conexión (`TestServeListsTeamToo
 - [full_team](../full_team/README.es-ES.md): el equipo copiado, con la capa de compresión documentada por completo
 - [independent_engineering_team](../independent_engineering_team/README.es-ES.md): el mismo equipo dividido en servicios, con Docker compose, y los fragmentos de registro de cada cliente MCP
 - [compress_shell_rtk](../compress_shell_rtk/README.es-ES.md), [compress_toon](../compress_toon/README.es-ES.md), [compress_ponytail](../compress_ponytail/README.es-ES.md)
+
+## Dashboard: llamadas CLI, conversaciones y agentes del chat
+
+Con `AGENT_BACKEND=claude-cli` el dashboard lista cada llamada al CLI de Claude (agente, modelo, tiempo, tokens, costo de lista; la suscripción no cobra por token) y abre la conversación de cada una. Las llamadas conservan su sesión de Claude Code (en `~/.claude/projects`) salvo `CLAUDE_CLI_TRANSCRIPTS=off`. También lista los sub-agentes definidos en `.claude/agents` del proyecto (y `~/.claude/agents`) con sus ejecuciones recientes en el chat, y abre sus conversaciones. Las conversaciones muestran prompts y respuestas: `DASHBOARD_TRANSCRIPTS=off` quita ese endpoint (la página es solo loopback).

@@ -15,7 +15,7 @@ func fake(result string, got *struct {
 	stdin string
 	env   []string
 }) *Chat {
-	return &Chat{Model: "haiku", Run: func(_ context.Context, _ string, args []string, stdin string, env []string) ([]byte, error) {
+	return &Chat{Model: "haiku", Run: func(_ context.Context, _ string, args []string, stdin string, env []string, _ string) ([]byte, error) {
 		if got != nil {
 			got.args, got.stdin, got.env = args, stdin, env
 		}
@@ -80,10 +80,23 @@ func TestToolCallsAreParsed(t *testing.T) {
 }
 
 func TestCLIErrorIsAnError(t *testing.T) {
-	c := &Chat{Run: func(context.Context, string, []string, string, []string) ([]byte, error) {
+	c := &Chat{Run: func(context.Context, string, []string, string, []string, string) ([]byte, error) {
 		return []byte(`{"is_error":true,"result":"Credit balance is too low"}`), nil
 	}}
 	if _, err := c.Generate(context.Background(), []messages.Message{messages.Human("x")}); err == nil || !strings.Contains(err.Error(), "Credit") {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestObserverSeesStartAndEnd(t *testing.T) {
+	var evs []Event
+	c := fake("hi", nil)
+	c.Persist = true
+	c.Observer = func(e Event) { evs = append(evs, e) }
+	if _, err := c.Generate(context.Background(), []messages.Message{messages.Human("x")}); err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 || evs[0].Done || !evs[1].Done || evs[0].ID != evs[1].ID || len(evs[0].Session) != 36 || evs[1].Usage == nil {
+		t.Fatalf("%+v", evs)
 	}
 }

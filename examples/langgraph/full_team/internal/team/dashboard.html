@@ -28,6 +28,9 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:6px 8px;
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--mut)}.dot.busy{background:var(--run)}.dot.idle{background:var(--ok)}.dot.offline{background:var(--bad)}
 .ev{font-size:12px;padding:3px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}.ev:first-child{border-top:0}
 #err{color:var(--bad);margin:0 16px}.empty{color:var(--mut)}
+button.lnk{background:none;border:0;color:var(--run);cursor:pointer;padding:0;font:inherit;text-decoration:underline}
+#tr{position:fixed;inset:5% 8%;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;overflow:auto;box-shadow:0 8px 40px #0006;z-index:5}
+#tr .t{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0;padding:6px 8px;border-radius:6px;background:var(--bg);font-size:12px}#tr .t.assistant{border-left:3px solid var(--run)}#tr .t.tool{color:var(--mut)}
 </style>
 </head>
 <body>
@@ -39,7 +42,12 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:6px 8px;
   <section style="margin-top:16px"><h2>Recent events</h2><div id="events"></div></section>
 </div>
 <section><h2>Personas</h2><div style="overflow-x:auto"><table><thead><tr><th>Persona / skill</th><th>State</th><th>Now</th><th>Done</th><th>Busy</th><th>Tokens</th></tr></thead><tbody id="personas"></tbody></table></div></section>
+<div style="grid-column:1/-1;display:grid;gap:16px;grid-template-columns:minmax(0,1fr) minmax(0,1fr)" id="more">
+  <section><h2>Claude CLI calls</h2><div style="overflow-x:auto"><table><thead><tr><th>When / agent</th><th>Model</th><th>Time</th><th>Tokens</th><th>List cost</th><th></th></tr></thead><tbody id="cli"></tbody></table></div><p class="mut" id="clinote"></p></section>
+  <section><h2>Chat agents (.claude/agents)</h2><div style="overflow-x:auto"><table><thead><tr><th>Agent</th><th>Runs</th></tr></thead><tbody id="chatag"></tbody></table></div><h2 style="margin-top:14px">Recent runs in the chat</h2><div id="chatruns"></div></section>
+</div>
 </main>
+<div id="tr" hidden><div class="row"><b id="trt"></b><button class="lnk" id="trx" style="margin-left:auto">close</button></div><div id="trb"></div></div>
 <script>
 const $=id=>document.getElementById(id);
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
@@ -78,12 +86,49 @@ function render(d){
     tr.append(c1,c2,c3,el("td",null,p.done+(p.failed?" (+"+p.failed+" failed)":"")),el("td","time",dur(p.busy_ms)),el("td","time",p.tokens.total?p.tokens.total.toLocaleString():"-"));
     pb.append(tr);
   }
+  const cb=$("cli");cb.replaceChildren();
+  const cl=d.cli_calls||[];
+  $("clinote").textContent=cl.length?"List cost is the price-list equivalent the CLI reports; the subscription is not charged per token.":"No claude CLI calls yet (AGENT_BACKEND=claude-cli).";
+  for(const c of cl){
+    const tr=el("tr"),a=el("td"),m=el("td");
+    a.append(el("b",null,c.worker),el("div","mut",new Date(c.started_ms).toLocaleTimeString()+" · "+c.role));
+    m.textContent=(c.model||"").replace("claude-","");
+    const st=c.error?"failed":c.done?"":"running";
+    const t=el("td","time",c.done?dur(c.duration_ms):dur(now-c.started_ms));if(st)t.append(" ",el("span","badge "+(c.error?"s-bad":"s-run"),st));if(c.error){t.title=c.error}
+    const v=el("td");if(c.session){const b=el("button","lnk","conversation");b.onclick=()=>openTr("cli",c.session,c.worker);v.append(b)}
+    tr.append(a,m,t,el("td","time",c.tokens.total?c.tokens.total.toLocaleString():"-"),el("td","time",c.cost_usd?"$"+c.cost_usd.toFixed(4):"-"),v);cb.append(tr);
+  }
+  const ca=$("chatag");ca.replaceChildren();
+  const ags=d.chat_agents||[];
+  if(!ags.length){const tr=el("tr");tr.append(el("td","empty","No .claude/agents in this project."));ca.append(tr)}
+  for(const a of ags){
+    const tr=el("tr"),c=el("td");c.append(el("b",null,a.name),el("span","mut"," · "+a.source+(a.model?" · "+a.model:"")));if(a.description)c.append(el("div","mut",a.description));
+    if(a.tools)c.title="tools: "+a.tools;
+    const r=el("td","time",a.runs?String(a.runs):"-");if(a.active)r.append(" ",el("span","badge s-run",a.active+" running"));
+    tr.append(c,r);ca.append(tr);
+  }
+  const cr=$("chatruns");cr.replaceChildren();
+  for(const r of d.chat_runs||[]){
+    const x=el("div","ev");x.append(el("span","dot "+(r.running?"busy":"idle")),el("b",null,r.agent),el("span","mut"," "+(r.description||"")+" · "+new Date(r.started_ms).toLocaleString()+" · "+dur(r.updated_ms-r.started_ms)+" "));
+    const b=el("button","lnk","conversation");b.onclick=()=>openTr("chat",r.id,r.agent);x.append(b);cr.append(x);
+  }
+  if(!(d.chat_runs||[]).length)cr.append(el("div","empty","No sub-agent runs in this project's chat yet."));
   const ev=$("events");ev.replaceChildren();
   for(const e of d.events){
     const x=el("div","ev");x.textContent=new Date(e.time).toLocaleTimeString()+" ["+e.subject+"] "+(e.from||"new")+" → "+e.to+(e.agent?" ("+e.agent+")":"")+(e.detail?": "+e.detail:"");
     ev.append(x);
   }
 }
+async function openTr(kind,id,name){
+  const box=$("tr"),b=$("trb");box.hidden=false;$("trt").textContent="conversation · "+name;b.replaceChildren(el("div","empty","loading…"));
+  try{
+    const r=await fetch("api/transcript?kind="+kind+"&id="+encodeURIComponent(id),{cache:"no-store"}),j=await r.json();
+    if(!r.ok)throw new Error(j.error||"http "+r.status);
+    b.replaceChildren();for(const t of j.turns||[])b.append(el("div","t "+t.role,t.role+": "+t.text));
+    if(!(j.turns||[]).length)b.append(el("div","empty","empty"));
+  }catch(e){b.replaceChildren(el("div","empty",e.message))}
+}
+$("trx").onclick=()=>{$("tr").hidden=true};
 async function tick(){
   try{const r=await fetch("api/state",{cache:"no-store"});if(!r.ok)throw new Error("http "+r.status);render(await r.json())}
   catch(e){$("meta").textContent="connection lost: "+e.message}

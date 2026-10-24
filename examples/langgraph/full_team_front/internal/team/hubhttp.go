@@ -139,6 +139,16 @@ func (h *Hub) Handler(mcp http.Handler) http.Handler {
 		reply(w, 200, threadScope{s, id})
 	})
 	mux.HandleFunc("GET /state", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.Snapshot()) })
+	mux.HandleFunc("POST /cli", func(w http.ResponseWriter, r *http.Request) {
+		var c CLICall
+		if err := read(r, &c); err != nil || c.ID == "" {
+			reply(w, 400, map[string]string{"error": "id is required"})
+			return
+		}
+		h.AddCLI(c)
+		reply(w, 200, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("GET /cli", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.CLICalls()) })
 	mux.HandleFunc("GET /jobs", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.Jobs()) })
 	mux.HandleFunc("POST /usage/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var u messages.Usage

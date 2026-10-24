@@ -72,6 +72,7 @@ func RunManager(ctx context.Context, hubURL string, ln net.Listener, apiKey stri
 	if err != nil {
 		return err
 	}
+	observeCLI(chat, NewHubClient(hubURL), "manager", "manager")
 	console := Console
 	if console == nil {
 		console = os.Stdout

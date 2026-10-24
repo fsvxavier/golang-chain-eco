@@ -93,6 +93,7 @@ type Hub struct {
 	workers   map[string]*WorkerInfo
 	jobs      map[string]*Job
 	queue     []string
+	cli       []CLICall // calls of the claude CLI provider, newest last
 	wake      chan struct{}
 	seq       int
 	now       func() time.Time

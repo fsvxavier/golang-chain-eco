@@ -442,3 +442,7 @@ Os testes de serve que acionam o time offline (`TestServeListsTeamTools`, `TestS
 - [full_team](../full_team/README.pt-BR.md): o time copiado, com a camada de compressão documentada por completo
 - [independent_engineering_team](../independent_engineering_team/README.pt-BR.md): o mesmo time dividido em serviços, com Docker compose, e os trechos de registro de cada cliente MCP
 - [compress_shell_rtk](../compress_shell_rtk/README.pt-BR.md), [compress_toon](../compress_toon/README.pt-BR.md), [compress_ponytail](../compress_ponytail/README.pt-BR.md)
+
+## Dashboard: chamadas CLI, conversas e agentes do chat
+
+Com `AGENT_BACKEND=claude-cli` o dashboard lista cada chamada ao CLI do Claude (agente, modelo, tempo, tokens, custo de tabela; a assinatura não cobra por token) e abre a conversa de cada uma. As chamadas mantêm a sessão do Claude Code (em `~/.claude/projects`) salvo `CLAUDE_CLI_TRANSCRIPTS=off`. Também lista os sub-agentes definidos em `.claude/agents` do projeto (e `~/.claude/agents`) com as execuções recentes no chat, e abre as conversas deles. As conversas mostram prompts e respostas: `DASHBOARD_TRANSCRIPTS=off` remove esse endpoint (a página é só loopback).

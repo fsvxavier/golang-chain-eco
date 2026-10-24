@@ -177,3 +177,7 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # includes TestStart
 every role answers through `claude -p`, billed to your Claude subscription instead of API credit; needs `claude` logged in, no API key (any `ANTHROPIC_*` credential is removed from the child's environment). Slower than the API and tool use is emulated in the prompt; `CLAUDE_CLI_CONCURRENCY` (default 3) bounds the processes, `CLAUDE_BIN` points at the binary. Check your plan's terms before running it unattended. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mixes it per role
 
 `AGENT_BACKEND=claude-cli` (`providers/claudecli`).
+
+## Dashboard: CLI calls, conversations and chat agents
+
+With `AGENT_BACKEND=claude-cli` the dashboard lists every claude CLI call (agent, model, time, tokens, list-price cost; the subscription is not charged per token) and opens the conversation of each one. The calls keep their Claude Code session (under `~/.claude/projects`) unless `CLAUDE_CLI_TRANSCRIPTS=off`. It also lists the sub-agents defined in the project's `.claude/agents` (and `~/.claude/agents`) with their recent runs from the chat, and opens their conversations. Conversations show prompts and answers: `DASHBOARD_TRANSCRIPTS=off` removes that endpoint (the page is loopback only).

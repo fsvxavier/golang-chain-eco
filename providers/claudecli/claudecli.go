@@ -19,11 +19,13 @@ package claudecli
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"iter"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -41,9 +43,18 @@ type Chat struct {
 	Effort     string        // optional --effort level
 	KeepAPIEnv bool          // keep ANTHROPIC_* credentials in the child's environment
 	Defaults   []models.Option
+	// Persist keeps each call's session on disk (~/.claude/projects) instead of
+	// discarding it, so the conversation of every call can be read afterwards;
+	// Dir is the working directory of the calls (default a temp folder), which
+	// names the project folder those sessions land in.
+	Persist bool
+	Dir     string
+	// Observer is told when a call starts (Done false, Session set) and when it
+	// ends (Done true, with duration, cost, usage and error).
+	Observer func(Event)
 	// Run executes the CLI with the prompt on stdin and returns its stdout.
 	// Nil runs the real binary; tests replace it.
-	Run func(ctx context.Context, bin string, args []string, stdin string, env []string) ([]byte, error)
+	Run func(ctx context.Context, bin string, args []string, stdin string, env []string, dir string) ([]byte, error)
 }
 
 // New creates a claude CLI chat model.
@@ -66,10 +77,24 @@ var slots = func() chan struct{} {
 
 const maxArg = 100 << 10 // a command-line argument is limited to 128 KiB on Linux
 
+// Event is one CLI call, as Observer sees it.
+type Event struct {
+	ID         string // unique per call
+	Session    string // the Claude Code session id; its transcript is <session>.jsonl when Persist is on
+	Model      string
+	StartedMS  int64
+	DurationMS int64
+	CostUSD    float64 // list-price equivalent reported by the CLI, not what the subscription is charged
+	Usage      *messages.Usage
+	Done       bool
+	Err        string
+}
+
 type cliResult struct {
-	Result  string `json:"result"`
-	IsError bool   `json:"is_error"`
-	Subtype string `json:"subtype"`
+	CostUSD float64 `json:"total_cost_usd"`
+	Result  string  `json:"result"`
+	IsError bool    `json:"is_error"`
+	Subtype string  `json:"subtype"`
 	Usage   struct {
 		In     int `json:"input_tokens"`
 		Out    int `json:"output_tokens"`
@@ -102,8 +127,14 @@ func (c *Chat) Generate(ctx context.Context, msgs []messages.Message, opts ...mo
 		if o.Model != "" {
 			model = o.Model
 		}
+		session := newUUID()
 		args := []string{"-p", "--output-format", "json", "--tools", "", "--strict-mcp-config",
-			"--disable-slash-commands", "--no-session-persistence", "--setting-sources", ""}
+			"--disable-slash-commands", "--setting-sources", ""}
+		if c.Persist {
+			args = append(args, "--session-id", session)
+		} else {
+			args = append(args, "--no-session-persistence")
+		}
 		if model != "" {
 			args = append(args, "--model", model)
 		}
@@ -127,22 +158,34 @@ func (c *Chat) Generate(ctx context.Context, msgs []messages.Message, opts ...mo
 		if run == nil {
 			run = execRun
 		}
-		out, err := run(ctx, bin, args, prompt, c.env())
+		ev := Event{ID: session, Model: model, StartedMS: time.Now().UnixMilli()}
+		if c.Persist {
+			ev.Session = session
+		}
+		c.observe(ev)
+		fail := func(err error) (messages.Message, error) {
+			ev.Done, ev.Err, ev.DurationMS = true, err.Error(), time.Now().UnixMilli()-ev.StartedMS
+			c.observe(ev)
+			return messages.Message{}, err
+		}
+		out, err := run(ctx, bin, args, prompt, c.env(), c.workDir())
 		if err != nil {
-			return messages.Message{}, fmt.Errorf("claudecli: %w", err)
+			return fail(fmt.Errorf("claudecli: %w", err))
 		}
 		var r cliResult
 		if err := json.Unmarshal(out, &r); err != nil {
-			return messages.Message{}, fmt.Errorf("claudecli: unreadable output: %w", err)
+			return fail(fmt.Errorf("claudecli: unreadable output: %w", err))
 		}
 		if r.IsError {
-			return messages.Message{}, fmt.Errorf("claudecli: %s", strings.TrimSpace(r.Result))
+			return fail(fmt.Errorf("claudecli: %s", strings.TrimSpace(r.Result)))
 		}
 		in := r.Usage.In + r.Usage.Read + r.Usage.Create
 		msg := messages.Message{Role: messages.RoleAI, Usage: &messages.Usage{
 			InputTokens: in, OutputTokens: r.Usage.Out, TotalTokens: in + r.Usage.Out,
 			CacheReadTokens: r.Usage.Read, CacheCreationTokens: r.Usage.Create,
 		}}
+		ev.Done, ev.CostUSD, ev.Usage, ev.DurationMS = true, r.CostUSD, msg.Usage, time.Now().UnixMilli()-ev.StartedMS
+		c.observe(ev)
 		return parse(msg, r.Result, o), nil
 	})
 }
@@ -152,6 +195,30 @@ func (c *Chat) Stream(ctx context.Context, msgs []messages.Message, opts ...mode
 	return func(yield func(messages.Message, error) bool) {
 		yield(c.Generate(ctx, msgs, opts...))
 	}
+}
+
+func (c *Chat) observe(e Event) {
+	if c.Observer != nil {
+		c.Observer(e)
+	}
+}
+
+// workDir is where the CLI runs: no project CLAUDE.md or settings are picked
+// up from there, and with Persist its name tells where the sessions are kept.
+func (c *Chat) workDir() string {
+	d := c.Dir
+	if d == "" {
+		d = filepath.Join(os.TempDir(), "claudecli")
+	}
+	_ = os.MkdirAll(d, 0o700)
+	return d
+}
+
+func newUUID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6], b[8] = b[6]&0x0f|0x40, b[8]&0x3f|0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 func (c *Chat) env() []string {
@@ -170,11 +237,11 @@ func (c *Chat) env() []string {
 	return out
 }
 
-func execRun(ctx context.Context, bin string, args []string, stdin string, env []string) ([]byte, error) {
+func execRun(ctx context.Context, bin string, args []string, stdin string, env []string, dir string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = env
-	cmd.Dir = os.TempDir() // no project CLAUDE.md or settings are picked up
+	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
