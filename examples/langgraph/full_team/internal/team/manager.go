@@ -315,10 +315,46 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 				return w, hist, nil
 			}
 		}
+		// rejected by review or QA: the PO sees it before the developer does
+		if w.Round < MaxRounds {
+			if err := m.poRework(ctx, &w, &hist, brief); err != nil {
+				return w, hist, err
+			}
+		}
 	}
 	w.Status = "blocked"
 	hist = append(hist, w.ID+": blocked")
 	return w, hist, nil
+}
+
+// poRework sends a rejected task to the PO. The PO decides whether the work
+// needs a fix (the developer gets its direction) or the task's description
+// itself is wrong (it is replaced), and the developer then works from that, with
+// the reviewers' feedback below it. A PO that answers without the markers still
+// has its answer passed on as the direction.
+func (m *manager) poRework(ctx context.Context, w *work, hist *[]any, brief string) error {
+	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.PORework, "po", "returned to the PO")
+	prompt := fmt.Sprintf("ROLE: po\nMODE: rework\n\n%s\n\n## Task returned\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nROUND: %d of %d\n\n## Submitted work\n%s\n\n## Rejection feedback\n%s\n\nDecide whether this is a fix for the developer or the task's description must change, and answer in this form:\nDECISION: FIX or SPEC\nDIRECTION: what the developer must do next, one short paragraph\nDESCRIPTION: (only for SPEC) the task's new description\n",
+		briefToken, w.ID, w.Title, w.Desc, w.Round, MaxRounds, head(w.Code, 4000), w.Feedback)
+	j, err := m.dispatchBrief(ctx, []string{"po"}, w.ID+"-po-rework", prompt, w.Title+" "+w.Desc, brief)
+	if err != nil {
+		return err
+	}
+	decision := strings.ToUpper(strings.Fields(field(j.Output, "DECISION:") + " FIX")[0])
+	dir := after(j.Output, "DIRECTION:")
+	if i := strings.Index(dir, "DESCRIPTION:"); i >= 0 {
+		dir = strings.TrimSpace(dir[:i])
+	}
+	if dir == "" {
+		dir = head(j.Output, 600)
+	}
+	if desc := after(j.Output, "DESCRIPTION:"); decision == "SPEC" && desc != "" {
+		w.Desc = head(desc, 2000)
+	}
+	w.Feedback = fmt.Sprintf("PO direction (%s): %s\n\nWhat the reviewers said:\n%s", decision, head(dir, 1200), w.Feedback)
+	log.Printf("manager: po returned %s to the developer (%s)", w.ID, decision)
+	*hist = append(*hist, fmt.Sprintf("%s: po %s -> %s | %s", w.ID, decision, w.Assignee, head(dir, 120)))
+	return nil
 }
 
 // gate runs one verdict step (review or QA). It reports whether the task passed;

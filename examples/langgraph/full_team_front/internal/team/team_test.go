@@ -375,6 +375,9 @@ func TestRejectedWorkReturnsToSameDeveloper(t *testing.T) {
 		if n, err := strconv.Atoi(fmt.Sprint(res[id]["rounds"])); err != nil || n < 1 {
 			t.Fatalf("%s was never returned (rounds %v)", id, res[id]["rounds"])
 		}
+		if !strings.Contains(hist, id+": po FIX") { // every return passes through the PO first
+			t.Fatalf("%s was returned but never went to the PO: %s", id, hist)
+		}
 		for _, w := range []string{"junior-1", "junior-2", "mid-1", "mid-2", "senior-1", "senior-2"} {
 			if w != res[id]["by"] && strings.Contains(hist, id+": "+w+" -> review") {
 				t.Fatalf("%s was reworked by %s but ended by %v: %s", id, w, res[id]["by"], hist)
