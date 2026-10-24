@@ -128,3 +128,27 @@ func TestShellAllowsPlainFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestShellRejectsGlobsAndQuotedSeparators(t *testing.T) {
+	sh, _ := testShell(t)
+	for _, cmd := range []string{
+		"grep root /etc/passw[d]", "ls /et?", "echo /etc/*", "ls -d /*", "grep -rn x /e*/host*",
+		`grep -E "^| grep " /etc/passwd`, `ls "a; ls " /etc`, `ls "a & ls " /etc`, `echo "unterminated /etc`,
+		"grep --deref x .", "grep --dereference-r x .", "grep -r --exclude-f=pats x .", "grep -r --include-f pats x .", "grep x --fil pats",
+		"X=1 grep -R x .", "git -C . status",
+	} {
+		out, err := runShell(t, sh, cmd)
+		if err == nil {
+			t.Errorf("%q accepted, output %.80q", cmd, out)
+		}
+	}
+}
+
+func TestShellAllowsNarrowedFlags(t *testing.T) {
+	sh, _ := testShell(t)
+	for _, cmd := range []string{"grep -r --include=*.go x .", "grep --color=never x sub", "grep -r --exclude-dir=sub x .", "grep -r --exclude=*.md x .", "git diff -M", "X=1 grep -r x ."} {
+		if _, err := runShell(t, sh, cmd); err != nil && strings.Contains(err.Error(), "shell:") {
+			t.Errorf("%q: %v", cmd, err)
+		}
+	}
+}

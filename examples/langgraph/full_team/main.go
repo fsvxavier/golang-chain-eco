@@ -199,38 +199,52 @@ func errOutside(tok string) error {
 	return tools.Errorf("shell: paths outside the workspace are not allowed: %s", tok)
 }
 
-// shellTokens splits one command segment on spaces, honouring simple '...' and
-// "..." quotes (the quotes are dropped).
-func shellTokens(seg string) []string {
+// shellSegments splits a command line into segments at ; & | and newline, and
+// each segment into words, honouring simple '...' and "..." quotes (dropped).
+// A separator inside quotes or an unterminated quote is an error: the library
+// allowlist splits on separators before quotes, the shell after, so such a line
+// would be read differently by the two.
+func shellSegments(cmd string) ([][]string, error) {
+	var segs [][]string
 	var toks []string
 	var cur strings.Builder
 	var quote rune
 	started := false
-	for _, r := range seg {
+	endWord := func() {
+		if started {
+			toks = append(toks, cur.String())
+			cur.Reset()
+			started = false
+		}
+	}
+	for _, r := range cmd {
 		switch {
 		case quote != 0:
-			if r == quote {
+			switch r {
+			case quote:
 				quote = 0
-			} else {
+			case ';', '&', '|', '\n':
+				return nil, tools.Errorf("shell: a separator (; & |) inside quotes is not allowed")
+			default:
 				cur.WriteRune(r)
 			}
 		case r == '\'' || r == '"':
 			quote, started = r, true
 		case r == ' ' || r == '\t':
-			if started {
-				toks = append(toks, cur.String())
-				cur.Reset()
-				started = false
-			}
+			endWord()
+		case r == ';' || r == '&' || r == '|' || r == '\n':
+			endWord()
+			segs, toks = append(segs, toks), nil
 		default:
 			cur.WriteRune(r)
 			started = true
 		}
 	}
-	if started {
-		toks = append(toks, cur.String())
+	if quote != 0 {
+		return nil, tools.Errorf("shell: unterminated quote")
 	}
-	return toks
+	endWord()
+	return append(segs, toks), nil
 }
 
 // inside reports whether p, with symlinks resolved, is within the resolved dir.
@@ -250,8 +264,8 @@ func inside(realDir, p string) (ok, exists bool) {
 // confine rejects a command line when a non-flag token (a bare name too, it may
 // be a symlink) resolves, symlinks included, outside dir. Tokens that do not exist on disk
 // (a grep pattern such as /api/coupon) pass. A glob is checked through its matches.
-// shortcut: flag values (--file=/etc/passwd) and brace expansion are not parsed,
-// the allowlist (ls, grep, echo, go, git) is what bounds those.
+// Flag values and attached short flags are checked as paths too, and the
+// callers refuse backslashes and braces, so the tokens match what the shell sees.
 func confine(dir, command string) error {
 	realDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
@@ -278,8 +292,14 @@ func confine(dir, command string) error {
 		}
 		return nil
 	}
-	for _, seg := range strings.FieldsFunc(command, func(r rune) bool { return r == ';' || r == '&' || r == '|' || r == '\n' }) {
-		toks := shellTokens(seg)
+	segs, err := shellSegments(command)
+	if err != nil {
+		return err
+	}
+	for _, toks := range segs {
+		for len(toks) > 0 && isAssign(toks[0]) { // VAR=value words come before the program
+			toks = toks[1:]
+		}
 		if len(toks) == 0 {
 			continue
 		}
@@ -321,21 +341,37 @@ func confine(dir, command string) error {
 	return nil
 }
 
+// isAssign reports whether w is a leading VAR=value word.
+func isAssign(w string) bool {
+	name, _, ok := strings.Cut(w, "=")
+	return ok && name != "" && !strings.ContainsAny(name, "-/.~*?[")
+}
+
 // deniedFlag reports flags that read a file of patterns or paths, follow
-// symlinks recursively, or move git/go to another directory. Short ones are
-// matched by prefix and, in an all-letter cluster such as -nf, by letter.
+// symlinks recursively, or move git/go to another directory. A long flag is
+// denied when it is a prefix (3+ characters) of a denied name, since GNU
+// getopt accepts abbreviations, unless it is itself a valid option (--include).
+// Short grep flags match by prefix and, in an all-letter cluster such as -nf, by
+// letter (-efoo is therefore denied too: it cannot be told from -f).
 func deniedFlag(prog, flag string) bool {
-	var short, long []string
+	var short, long, keep []string
+	exactShort := false
 	switch prog {
 	case "grep":
-		short, long = []string{"f", "R"}, []string{"--file", "--exclude-from", "--include-from", "--dereference-recursive"}
+		short, long, keep = []string{"f", "R"}, []string{"--file", "--exclude-from", "--include-from", "--dereference-recursive"}, []string{"--include", "--exclude"}
 	case "git", "go":
-		short, long = []string{"C"}, []string{"--git-dir", "--work-tree"}
+		short, long, exactShort = []string{"C"}, []string{"--git-dir", "--work-tree"}, true
 	}
 	if strings.HasPrefix(flag, "--") {
-		return slices.Contains(long, flag)
+		if len(flag) < 5 || slices.Contains(keep, flag) {
+			return slices.Contains(long, flag)
+		}
+		return slices.ContainsFunc(long, func(l string) bool { return strings.HasPrefix(l, flag) })
 	}
 	letters := strings.TrimPrefix(flag, "-")
+	if exactShort {
+		return slices.Contains(short, letters)
+	}
 	cluster := letters != ""
 	for _, r := range letters {
 		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
