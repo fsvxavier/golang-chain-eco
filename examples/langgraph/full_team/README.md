@@ -52,6 +52,79 @@ CGO_ENABLED=1 go run -tags laya_native ./examples/langgraph/full_team/native
 
 Without `-tags laya_native`, or without `LAYA_BUNDLE_DIR`, the native program uses the scripted decider and prints why. The native build needs linux/amd64 and FP32 models, as in `decider_laya_native`.
 
+## Chat integration and /present
+
+`serve` runs the same team in one process and serves it as an MCP server on stdio, so a chat (Claude Code, Copilot Chat in Agent mode) can drive it:
+
+```bash
+go run ./examples/langgraph/full_team serve
+go build -o bin/team-mcp ./examples/langgraph/full_team && ./bin/team-mcp serve
+```
+
+Stdout carries only the MCP protocol. Startup lines (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) go to stderr. It stops on end of input (Ctrl-D) or on a signal. Serve mode differs from the demo in three ways: no worker gets the `shell` tool, the manager runs with a random API key generated at start (an operator-set `MANAGER_API_KEY` is ignored; only this process's bridge knows the key), and no demand is submitted until the chat calls `team_submit`. The tools are `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` and `graph_resume`.
+
+Register it in the client (same shapes as [Use it from VS Code](../full_team_front/README.md#use-it-from-vs-code) in `full_team_front`, which this follows; the first `go run` compiles the example, and the team gives up after 10 seconds if its workers are not up, so prefer the built binary if the chat times out). `.mcp.json` for Claude Code, at the project root:
+
+```json
+{
+  "mcpServers": {
+    "team": {
+      "command": "go",
+      "args": ["run", "./examples/langgraph/full_team", "serve"]
+    }
+  }
+}
+```
+
+or from the command line:
+
+```bash
+claude mcp add --transport stdio --scope project team -- go run ./examples/langgraph/full_team serve
+claude mcp add --transport stdio --scope user --env ANTHROPIC_API_KEY=... team -- /abs/path/to/this/repo/bin/team-mcp serve
+```
+
+`.vscode/mcp.json` for Copilot Chat (enable the server in the tools picker of Agent mode):
+
+```json
+{
+  "servers": {
+    "team": {
+      "type": "stdio",
+      "command": "go",
+      "args": ["run", "./examples/langgraph/full_team", "serve"]
+    }
+  }
+}
+```
+
+Neither the Claude Code extension panel in VS Code nor the Copilot snippet was tested against this server here; they are the shapes the sibling README uses.
+
+### /present
+
+An easter egg to check that the chat reached the team: a school roll call. Every registered worker is asked, in parallel (30 seconds each at most), to answer one line that starts with `Presente!` and names its id, role and model. The `team_present` tool does the asking and returns the roll. The MCP prompt `present` ("Roll call: every persona answers Presente") only tells the chat to call that tool and print the result, because a prompt alone cannot make anyone answer. If the chat cannot find the tool, the prompt text makes it say the integration is not working.
+
+Slash spellings (UNVERIFIED: not confirmed against the clients, taken from how they name MCP prompts): in Claude Code `/mcp__team__present` when the server is registered as `team`; in Copilot Chat `/mcp.team.present`. If the slash command does not show up, ask in plain words: "call the team_present tool and print the roll call".
+
+The model column comes from the worker itself: it reports the model it was built with when it registers with the hub, so the roll does not depend on the model knowing its own name. Offline every row says `offline`. With `ANTHROPIC_API_KEY` set, each role runs its own model (`po` and `architect` on `anthropic:claude-opus-5-5`; `leader`, `senior` and `specialist` on `anthropic:claude-sonnet-5-5`; `junior`, `mid` and `qa` on `anthropic:claude-haiku-5-5`), unless `AGENT_MODEL` or `AGENT_MODEL_<ROLE>` overrides it, so the roll shows each role on the model configured for it. A worker that fails, times out or answers nothing is listed as absent, and the summary counts only the present ones. Real output of the offline team (11 workers, ordered by id; the answers are the scripted ones, a real model words its own):
+
+```text
+ROLL CALL
+- architect (architect) [model offline] present: Presente! architect (architect), com o diagrama na mão
+- junior-1 (junior) [model offline] present: Presente! junior-1 (junior), de caderno aberto
+- junior-2 (junior) [model offline] present: Presente! junior-2 (junior), de caderno aberto
+- leader (leader) [model offline] present: Presente! leader (leader), organizando a fila
+- mid-1 (mid) [model offline] present: Presente! mid-1 (mid), no ritmo
+- po (po) [model offline] present: Presente! po (po), com o backlog debaixo do braço
+- qa-1 (qa) [model offline] present: Presente! qa-1 (qa), testando até a chamada
+- qa-2 (qa) [model offline] present: Presente! qa-2 (qa), testando até a chamada
+- senior-1 (senior) [model offline] present: Presente! senior-1 (senior), sempre pronto
+- specialist-1 (specialist) [model offline] present: Presente! specialist-1 (specialist), de lupa na mão
+- specialist-2 (specialist) [model offline] present: Presente! specialist-2 (specialist), de lupa na mão
+11 of 11 present
+```
+
+With a worker down the last lines read `10 of 11 present` and `Absent: qa-2`.
+
 ## Test it
 
 ```bash

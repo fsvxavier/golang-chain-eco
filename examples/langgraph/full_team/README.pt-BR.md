@@ -52,6 +52,79 @@ CGO_ENABLED=1 go run -tags laya_native ./examples/langgraph/full_team/native
 
 Sem `-tags laya_native`, ou sem `LAYA_BUNDLE_DIR`, o programa nativo usa o decisor roteirizado e diz o motivo. A build nativa precisa de linux/amd64 e modelos FP32, como em `decider_laya_native`.
 
+## Integração com o chat e /present
+
+`serve` roda o mesmo time em um processo e o expõe como servidor MCP em stdio, para que um chat (Claude Code, Copilot Chat em modo Agent) o controle:
+
+```bash
+go run ./examples/langgraph/full_team serve
+go build -o bin/team-mcp ./examples/langgraph/full_team && ./bin/team-mcp serve
+```
+
+O stdout leva só o protocolo MCP. As linhas de inicialização (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) vão para o stderr. Ele para no fim da entrada (Ctrl-D) ou com um sinal. O modo serve difere da demo em três pontos: nenhum worker recebe a ferramenta `shell`, o manager roda com uma API key aleatória gerada na partida (um `MANAGER_API_KEY` definido pelo operador é ignorado; só a bridge deste processo conhece a chave) e nenhuma demanda é enviada até o chat chamar `team_submit`. As ferramentas são `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume`.
+
+Registre no cliente (mesmos formatos de [Use it from VS Code](../full_team_front/README.pt-BR.md#usar-no-vs-code) no `full_team_front`, que este segue; o primeiro `go run` compila o exemplo, e o time desiste após 10 segundos se os workers não subirem, então prefira o binário compilado se o chat estourar o tempo). `.mcp.json` do Claude Code, na raiz do projeto:
+
+```json
+{
+  "mcpServers": {
+    "team": {
+      "command": "go",
+      "args": ["run", "./examples/langgraph/full_team", "serve"]
+    }
+  }
+}
+```
+
+ou pela linha de comando:
+
+```bash
+claude mcp add --transport stdio --scope project team -- go run ./examples/langgraph/full_team serve
+claude mcp add --transport stdio --scope user --env ANTHROPIC_API_KEY=... team -- /abs/path/to/this/repo/bin/team-mcp serve
+```
+
+`.vscode/mcp.json` para o Copilot Chat (habilite o servidor no seletor de ferramentas do modo Agent):
+
+```json
+{
+  "servers": {
+    "team": {
+      "type": "stdio",
+      "command": "go",
+      "args": ["run", "./examples/langgraph/full_team", "serve"]
+    }
+  }
+}
+```
+
+Nem o painel da extensão Claude Code no VS Code nem o trecho do Copilot foram testados contra este servidor aqui; são os formatos que o README irmão usa.
+
+### /present
+
+Um easter egg para conferir que o chat chegou ao time: uma chamada de escola. Cada worker registrado é consultado, em paralelo (30 segundos no máximo cada), e deve responder uma linha que começa com `Presente!` e cita seu id, papel e modelo. A ferramenta `team_present` faz as consultas e devolve a chamada. O prompt MCP `present` ("Roll call: every persona answers Presente") só manda o chat chamar essa ferramenta e mostrar o resultado, porque um prompt sozinho não faz ninguém responder. Se o chat não achar a ferramenta, o texto do prompt o faz dizer que a integração não está funcionando.
+
+Grafia do slash (NÃO VERIFICADA: não confirmada nos clientes, tirada de como eles nomeiam prompts MCP): no Claude Code `/mcp__team__present` quando o servidor está registrado como `team`; no Copilot Chat `/mcp.team.present`. Se o slash não aparecer, peça em palavras: "chame a ferramenta team_present e mostre a chamada".
+
+A coluna de modelo vem do próprio worker: ele informa ao hub, ao se registrar, o modelo com que foi criado, então a chamada não depende de o modelo saber o próprio nome. Offline toda linha diz `offline`. Com `ANTHROPIC_API_KEY` definida, cada papel roda o seu modelo (`po` e `architect` em `anthropic:claude-opus-5-5`; `leader`, `senior` e `specialist` em `anthropic:claude-sonnet-5-5`; `junior`, `mid` e `qa` em `anthropic:claude-haiku-5-5`), a menos que `AGENT_MODEL` ou `AGENT_MODEL_<ROLE>` o substitua, então a chamada mostra cada papel no modelo configurado para ele. Um worker que falha, estoura o tempo ou não responde nada aparece como ausente, e o resumo conta só os presentes. Saída real do time offline (11 workers, ordenados por id; as respostas são as roteirizadas, um modelo real redige as suas):
+
+```text
+ROLL CALL
+- architect (architect) [model offline] present: Presente! architect (architect), com o diagrama na mão
+- junior-1 (junior) [model offline] present: Presente! junior-1 (junior), de caderno aberto
+- junior-2 (junior) [model offline] present: Presente! junior-2 (junior), de caderno aberto
+- leader (leader) [model offline] present: Presente! leader (leader), organizando a fila
+- mid-1 (mid) [model offline] present: Presente! mid-1 (mid), no ritmo
+- po (po) [model offline] present: Presente! po (po), com o backlog debaixo do braço
+- qa-1 (qa) [model offline] present: Presente! qa-1 (qa), testando até a chamada
+- qa-2 (qa) [model offline] present: Presente! qa-2 (qa), testando até a chamada
+- senior-1 (senior) [model offline] present: Presente! senior-1 (senior), sempre pronto
+- specialist-1 (specialist) [model offline] present: Presente! specialist-1 (specialist), de lupa na mão
+- specialist-2 (specialist) [model offline] present: Presente! specialist-2 (specialist), de lupa na mão
+11 of 11 present
+```
+
+Com um worker fora, as últimas linhas são `10 of 11 present` e `Absent: qa-2`.
+
 ## Como testar
 
 ```bash
