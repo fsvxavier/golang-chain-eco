@@ -150,6 +150,7 @@ El servidor se llama `engineering-team` y sirve:
 - `team_status`: para un `thread_id`, devuelve `status` (la solicitud y cada tarea), `report`, `history` (los handoffs, incluido cada rechazo de revisión y de QA y a quién volvió) y `running`. `status`, `report` y el `history` completo se llenan cuando termina el último paso; mientras la ejecución avanza, el notificador de consola imprime cada cambio de estado en stderr.
 - `team_queue`: los workers registrados (con su job actual) y los jobs en cola.
 - `team_ask_worker`: hace una pregunta a un worker, fuera del flujo de entrega. Un worker que responde así no tiene alcance de demanda, así que las herramientas de backend del PO rechazan.
+- `team_present`: pase de lista, véase [Pase de lista /present](#pase-de-lista-present). Cada worker esperado responde `Presente!` con id, rol y modelo.
 - `team_memory`: recupera lo que el equipo registró para una solicitud (argumentos `scope`, el `thread_id` de la solicitud, y `query`).
 - `graph_run`, `graph_state`, `graph_resume`: herramientas genéricas para cualquier grafo en un Agent Server (`url` por defecto es el manager).
 - Las herramientas de los servidores nombrados en `BRIDGE_CIAM_CMD` y `BRIDGE_KNOWLEDGE_CMD`, si están definidas.
@@ -332,6 +333,43 @@ Solución de problemas:
 - `team_submit` vuelve pero `team_status` nunca llega a un `report`: con una clave real, un worker falló o una llamada al modelo está fallando. Lea el stderr del servidor (ejecute el comando en una terminal para verlo) y compruebe la clave, los nombres de modelo (`AGENT_MODEL_<ROL>`) y la red.
 - La spec del PO tiene `UNVERIFIED: no backend evidence` bajo `OPEN ITEMS:`: la demanda nombró un backend pero la spec no tiene bloque `EVIDENCE:` o el PO no hizo ninguna llamada al backend que obtuviera respuesta. Las raíces o URL pueden haberse rechazado (fuera de `WORKSPACE_ROOT`, un host no nombrado, una dirección bloqueada). Corrija los argumentos de `team_submit`.
 - `browser_test` dice `NOT RUN`: `PLAYWRIGHT_CMD` está vacía en el entorno del servidor, o la demanda no tiene una `app_url` válida. El motivo sigue a `NOT RUN:`.
+
+### Pase de lista /present
+
+Un easter egg para comprobar que el chat llegó al equipo: un pase de lista de escuela. La herramienta `team_present` pide a cada worker esperado (los 12 de este ejemplo) que responda una línea que empiece por `Presente!` y diga su id, rol y modelo, en paralelo y con 30 segundos como máximo cada uno. El prompt MCP `present` ("Roll call: every persona answers Presente") solo indica al chat que llame a esa herramienta e imprima el resultado, porque un prompt por sí solo no hace responder a nadie. Si el chat no encuentra la herramienta, el texto del prompt le hace decir que la integración no funciona.
+
+Cómo llamarlo: pídalo en palabras simples, "llama a la herramienta `team_present` e imprime el pase de lista", o use el slash command. Grafías del slash (NO VERIFICADAS: no confirmadas en los clientes, tomadas de cómo nombran los prompts MCP): en Claude Code `/mcp__<servidor>__present`, es decir `/mcp__front-team__present` cuando el servidor se registra como `front-team` como arriba; en Copilot Chat `/mcp.<servidor>.present`, aquí `/mcp.front-team.present`.
+
+Qué muestra el pase: una línea por worker con su id, rol y modelo, luego `N of 12 present`, luego `Absent:` con los ids que no respondieron. La columna del modelo viene del propio worker: informa el modelo con el que se construyó al registrarse en el hub, así que el pase no depende de que el modelo sepa su propio nombre. Sin conexión todas las líneas dicen `offline`. Con `ANTHROPIC_API_KEY` definida, cada rol corre su modelo (`po` en `anthropic:claude-opus-5-5`; `leader`, `specialist` y `qa` en `anthropic:claude-sonnet-5-5`; `junior`, `mid` y `senior` en `anthropic:claude-haiku-5-5`), salvo que `AGENT_MODEL` o `AGENT_MODEL_<ROLE>` lo cambie, así que el pase muestra si cada rol corre en el modelo configurado para él.
+
+El pase se comprueba contra el equipo esperado, no solo contra los workers que el hub conoce. Un worker que cayó y cuyo lease de 15 segundos expiró salió del hub, y aun así recibe una línea: `absent: not registered (lease expired or never started)`, y la cuenta baja. Un worker registrado que falla, agota el tiempo o no responde nada también queda ausente. Un worker registrado que no es uno de los 12 aparece con `extra` y no cuenta en el total. Presente significa una respuesta no vacía: un modelo real que ignore la instrucción `Presente!` aun así cuenta como presente. Un buen pase indica que la integración del chat funciona de extremo a extremo: llamada a la herramienta, hub, agente de cada worker, modelo.
+
+Salida real del equipo sin conexión por stdio (en el orden del elenco; las respuestas son las del guion, un modelo real redacta las suyas):
+
+```
+ROLL CALL
+- po (po) [model offline] present: Presente! po (po), com a spec debaixo do braço
+- leader (leader) [model offline] present: Presente! leader (leader), organizando a fila
+- junior-1 (junior) [model offline] present: Presente! junior-1 (junior), de caderno aberto
+- junior-2 (junior) [model offline] present: Presente! junior-2 (junior), de caderno aberto
+- mid-1 (mid) [model offline] present: Presente! mid-1 (mid), no ritmo
+- mid-2 (mid) [model offline] present: Presente! mid-2 (mid), no ritmo
+- senior-1 (senior) [model offline] present: Presente! senior-1 (senior), sempre pronto
+- senior-2 (senior) [model offline] present: Presente! senior-2 (senior), sempre pronto
+- specialist-1 (specialist) [model offline] present: Presente! specialist-1 (specialist), de lupa na mão
+- specialist-2 (specialist) [model offline] present: Presente! specialist-2 (specialist), de lupa na mão
+- qa-1 (qa) [model offline] present: Presente! qa-1 (qa), testando até a chamada
+- qa-2 (qa) [model offline] present: Presente! qa-2 (qa), testando até a chamada
+12 of 12 present
+```
+
+Con un worker caído más tiempo que el lease (la misma ejecución de test, sin conexión), el pase termina así:
+
+```
+- qa-2 (qa) [model unknown] absent: not registered (lease expired or never started)
+11 of 12 present
+Absent: qa-2
+```
 
 ### Notas de seguridad
 

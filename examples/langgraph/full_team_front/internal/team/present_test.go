@@ -99,6 +99,7 @@ func TestPresentAbsentAfterLeaseExpired(t *testing.T) {
 	b := &Bridge{Hub: NewHubClient(l.HubURL), HubURL: l.HubURL, PresentTimeout: 2 * time.Second}
 	l.Workers["qa-2"]()
 	text := pollRoll(t, b, "not registered")
+	t.Log("\n" + text)
 	row := rowOf(text, "qa-2")
 	if !strings.Contains(row, "absent: not registered (lease expired or never started)") ||
 		!strings.Contains(text, "11 of 12 present") || !strings.Contains(text, "Absent: qa-2") {

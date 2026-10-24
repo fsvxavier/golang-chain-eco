@@ -150,6 +150,7 @@ The server is named `engineering-team` and serves:
 - `team_status`: for a `thread_id`, returns `status` (the request and each task), `report`, `history` (the handoffs, including each review and QA rejection and who it went back to) and `running`. `status`, `report` and the full `history` are filled in when the last step ends; while the run is going, the console notifier prints each status change on stderr.
 - `team_queue`: the registered workers (with their current job) and the queued jobs.
 - `team_ask_worker`: asks one worker a question, outside the delivery flow. A worker answering this way has no demand scope, so the PO's backend tools refuse.
+- `team_present`: roll call, see [/present roll call](#present-roll-call). Every expected worker answers `Presente!` with its id, role and model.
 - `team_memory`: recalls what the team recorded for a request (arguments `scope`, the request's `thread_id`, and `query`).
 - `graph_run`, `graph_state`, `graph_resume`: generic tools for any graph on an Agent Server (`url` defaults to the manager).
 - Any tools of the servers named by `BRIDGE_CIAM_CMD` and `BRIDGE_KNOWLEDGE_CMD`, if set.
@@ -332,6 +333,43 @@ Troubleshooting:
 - `team_submit` returns but `team_status` never reaches a `report`: with a real key, a worker failed or a model call is failing. Read the server's stderr (run the command in a terminal to see it) and check the key, the model names (`AGENT_MODEL_<ROLE>`) and the network.
 - The PO spec has `UNVERIFIED: no backend evidence` under `OPEN ITEMS:`: the demand named a backend but the spec has no `EVIDENCE:` block or the PO made no backend call that got an answer. The roots or URLs may have been refused (outside `WORKSPACE_ROOT`, a host not named, a blocked address). Fix the `team_submit` arguments.
 - `browser_test` says `NOT RUN`: `PLAYWRIGHT_CMD` is empty in the server's environment, or the demand has no valid `app_url`. The reason follows `NOT RUN:`.
+
+### /present roll call
+
+An easter egg to check that the chat reached the team: a school roll call. The `team_present` tool asks every expected worker (the 12 of this example) to answer one line that starts with `Presente!` and names its id, role and model, in parallel and at most 30 seconds each. The MCP prompt `present` ("Roll call: every persona answers Presente") only tells the chat to call that tool and print the result, because a prompt alone cannot make anyone answer. If the chat cannot find the tool, the prompt text makes it say the integration is not working.
+
+How to call it: ask in plain words, "call the `team_present` tool and print the roll call", or use the slash command. Slash spellings (UNVERIFIED: not confirmed against the clients, taken from how they name MCP prompts): in Claude Code `/mcp__<server>__present`, so `/mcp__front-team__present` when the server is registered as `front-team` as above; in Copilot Chat `/mcp.<server>.present`, here `/mcp.front-team.present`.
+
+What the roll shows: one row per worker with its id, role and model, then `N of 12 present`, then `Absent:` with the ids that did not answer. The model column comes from the worker itself: it reports the model it was built with when it registers with the hub, so the roll does not depend on the model knowing its own name. Offline every row says `offline`. With `ANTHROPIC_API_KEY` set, each role runs its own model (`po` on `anthropic:claude-opus-5-5`; `leader`, `specialist` and `qa` on `anthropic:claude-sonnet-5-5`; `junior`, `mid` and `senior` on `anthropic:claude-haiku-5-5`), unless `AGENT_MODEL` or `AGENT_MODEL_<ROLE>` overrides it, so the roll shows whether each role runs on the model configured for it.
+
+The roll is checked against the expected team, not only against the workers the hub knows. A worker that crashed and whose 15 second lease expired has left the hub, and it still gets a row: `absent: not registered (lease expired or never started)`, and the count drops. A worker that is registered but fails, times out or answers nothing is also absent. A registered worker that is not one of the 12 is listed with `extra` and does not count toward the total. Present means a non-empty answer: a real model that ignores the `Presente!` instruction still counts as present. A good roll tells you the chat integration works end to end: tool call, hub, every worker's agent, model.
+
+Real output of the offline team over stdio (ordered as the cast; the answers are the scripted ones, a real model words its own):
+
+```
+ROLL CALL
+- po (po) [model offline] present: Presente! po (po), com a spec debaixo do braço
+- leader (leader) [model offline] present: Presente! leader (leader), organizando a fila
+- junior-1 (junior) [model offline] present: Presente! junior-1 (junior), de caderno aberto
+- junior-2 (junior) [model offline] present: Presente! junior-2 (junior), de caderno aberto
+- mid-1 (mid) [model offline] present: Presente! mid-1 (mid), no ritmo
+- mid-2 (mid) [model offline] present: Presente! mid-2 (mid), no ritmo
+- senior-1 (senior) [model offline] present: Presente! senior-1 (senior), sempre pronto
+- senior-2 (senior) [model offline] present: Presente! senior-2 (senior), sempre pronto
+- specialist-1 (specialist) [model offline] present: Presente! specialist-1 (specialist), de lupa na mão
+- specialist-2 (specialist) [model offline] present: Presente! specialist-2 (specialist), de lupa na mão
+- qa-1 (qa) [model offline] present: Presente! qa-1 (qa), testando até a chamada
+- qa-2 (qa) [model offline] present: Presente! qa-2 (qa), testando até a chamada
+12 of 12 present
+```
+
+With one worker down for longer than the lease (the same test run, offline), the roll ends like this:
+
+```
+- qa-2 (qa) [model unknown] absent: not registered (lease expired or never started)
+11 of 12 present
+Absent: qa-2
+```
 
 ### Security notes
 

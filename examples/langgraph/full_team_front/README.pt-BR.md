@@ -150,6 +150,7 @@ O servidor se chama `engineering-team` e serve:
 - `team_status`: para um `thread_id`, devolve `status` (a requisição e cada tarefa), `report`, `history` (os handoffs, incluindo cada rejeição de revisão e de QA e para quem voltou) e `running`. `status`, `report` e o `history` completo são preenchidos quando o último passo termina; enquanto a execução anda, o notificador de console imprime cada mudança de status em stderr.
 - `team_queue`: os workers registrados (com o job atual) e os jobs na fila.
 - `team_ask_worker`: faz uma pergunta a um worker, fora do fluxo de entrega. Um worker que responde assim não tem escopo de demanda, então as ferramentas de backend do PO recusam.
+- `team_present`: chamada, veja [Chamada /present](#chamada-present). Cada worker esperado responde `Presente!` com id, papel e modelo.
 - `team_memory`: recupera o que o time registrou para uma requisição (argumentos `scope`, o `thread_id` da requisição, e `query`).
 - `graph_run`, `graph_state`, `graph_resume`: ferramentas genéricas para qualquer grafo em um Agent Server (`url` tem como padrão o manager).
 - As ferramentas dos servidores citados em `BRIDGE_CIAM_CMD` e `BRIDGE_KNOWLEDGE_CMD`, se definidas.
@@ -332,6 +333,43 @@ Solução de problemas:
 - `team_submit` retorna mas `team_status` nunca chega a um `report`: com chave real, um worker falhou ou uma chamada de modelo está falhando. Leia o stderr do servidor (execute o comando em um terminal para vê-lo) e confira a chave, os nomes de modelo (`AGENT_MODEL_<PAPEL>`) e a rede.
 - A spec do PO tem `UNVERIFIED: no backend evidence` sob `OPEN ITEMS:`: a demanda citou um backend mas a spec não tem bloco `EVIDENCE:` ou o PO não fez nenhuma chamada ao backend que obtivesse resposta. As raízes ou URLs podem ter sido recusadas (fora de `WORKSPACE_ROOT`, um host não citado, um endereço bloqueado). Corrija os argumentos de `team_submit`.
 - `browser_test` diz `NOT RUN`: `PLAYWRIGHT_CMD` está vazia no ambiente do servidor, ou a demanda não tem `app_url` válida. O motivo vem depois de `NOT RUN:`.
+
+### Chamada /present
+
+Um easter egg para conferir que o chat chegou ao time: uma chamada de escola. A ferramenta `team_present` pede a cada worker esperado (os 12 deste exemplo) que responda uma linha começando com `Presente!` e dizendo seu id, papel e modelo, em paralelo e com no máximo 30 segundos cada. O prompt MCP `present` ("Roll call: every persona answers Presente") só manda o chat chamar essa ferramenta e imprimir o resultado, porque um prompt sozinho não faz ninguém responder. Se o chat não achar a ferramenta, o texto do prompt o faz dizer que a integração não está funcionando.
+
+Como chamar: peça em palavras simples, "chame a ferramenta `team_present` e imprima a chamada", ou use o slash command. Grafias do slash (NÃO VERIFICADAS: não confirmadas nos clientes, tiradas de como eles nomeiam prompts MCP): no Claude Code `/mcp__<servidor>__present`, ou seja `/mcp__front-team__present` quando o servidor é registrado como `front-team` como acima; no Copilot Chat `/mcp.<servidor>.present`, aqui `/mcp.front-team.present`.
+
+O que a chamada mostra: uma linha por worker com id, papel e modelo, depois `N of 12 present`, depois `Absent:` com os ids que não responderam. A coluna do modelo vem do próprio worker: ele informa o modelo com que foi construído ao se registrar no hub, então a chamada não depende de o modelo saber o próprio nome. Offline toda linha diz `offline`. Com `ANTHROPIC_API_KEY` definida, cada papel roda o seu modelo (`po` em `anthropic:claude-opus-5-5`; `leader`, `specialist` e `qa` em `anthropic:claude-sonnet-5-5`; `junior`, `mid` e `senior` em `anthropic:claude-haiku-5-5`), a menos que `AGENT_MODEL` ou `AGENT_MODEL_<ROLE>` o troque, então a chamada mostra se cada papel roda no modelo configurado para ele.
+
+A chamada é conferida contra o time esperado, não só contra os workers que o hub conhece. Um worker que caiu e cujo lease de 15 segundos expirou saiu do hub, e mesmo assim ganha uma linha: `absent: not registered (lease expired or never started)`, e a contagem cai. Um worker registrado que falha, estoura o tempo ou não responde nada também fica ausente. Um worker registrado que não é um dos 12 aparece com `extra` e não conta no total. Presente significa uma resposta não vazia: um modelo real que ignore a instrução `Presente!` ainda conta como presente. Uma chamada boa mostra que a integração do chat funciona de ponta a ponta: chamada da ferramenta, hub, agente de cada worker, modelo.
+
+Saída real do time offline por stdio (na ordem do elenco; as respostas são as do roteiro, um modelo real escreve as suas):
+
+```
+ROLL CALL
+- po (po) [model offline] present: Presente! po (po), com a spec debaixo do braço
+- leader (leader) [model offline] present: Presente! leader (leader), organizando a fila
+- junior-1 (junior) [model offline] present: Presente! junior-1 (junior), de caderno aberto
+- junior-2 (junior) [model offline] present: Presente! junior-2 (junior), de caderno aberto
+- mid-1 (mid) [model offline] present: Presente! mid-1 (mid), no ritmo
+- mid-2 (mid) [model offline] present: Presente! mid-2 (mid), no ritmo
+- senior-1 (senior) [model offline] present: Presente! senior-1 (senior), sempre pronto
+- senior-2 (senior) [model offline] present: Presente! senior-2 (senior), sempre pronto
+- specialist-1 (specialist) [model offline] present: Presente! specialist-1 (specialist), de lupa na mão
+- specialist-2 (specialist) [model offline] present: Presente! specialist-2 (specialist), de lupa na mão
+- qa-1 (qa) [model offline] present: Presente! qa-1 (qa), testando até a chamada
+- qa-2 (qa) [model offline] present: Presente! qa-2 (qa), testando até a chamada
+12 of 12 present
+```
+
+Com um worker fora por mais tempo que o lease (a mesma execução de teste, offline), a chamada termina assim:
+
+```
+- qa-2 (qa) [model unknown] absent: not registered (lease expired or never started)
+11 of 12 present
+Absent: qa-2
+```
 
 ### Notas de segurança
 
