@@ -94,3 +94,11 @@ func TestSubmitAcceptsAStringForAList(t *testing.T) {
 		t.Fatalf("%v %v", err, got)
 	}
 }
+
+func TestInferRoots(t *testing.T) {
+	dir := t.TempDir()
+	got := inferRoots("Analise "+dir+" e grave o plano em "+dir+"/plans/new e veja /nao/existe/aqui", []string{dir + "/plans/new"})
+	if len(got) != 1 || got[0] != dir {
+		t.Fatalf("%v", got)
+	}
+}

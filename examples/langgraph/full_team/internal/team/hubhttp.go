@@ -14,6 +14,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 )
 
+// The client times out at claimWait+10s, so a job wait (15s) always ends first.
 const claimWait = 10 * time.Second
 
 // Handler serves the hub over HTTP. mcp, when set, is mounted at /mcp.
@@ -286,7 +287,7 @@ func (c *HubClient) Run(ctx context.Context, j Job) (Job, error) {
 	}
 	for {
 		var out Job
-		code, err := c.call(ctx, "GET", "/jobs/"+sub.ID+"?wait=20", nil, &out)
+		code, err := c.call(ctx, "GET", "/jobs/"+sub.ID+"?wait=15", nil, &out)
 		if err != nil || code != 200 {
 			if ctx.Err() != nil {
 				return Job{}, ctx.Err()
