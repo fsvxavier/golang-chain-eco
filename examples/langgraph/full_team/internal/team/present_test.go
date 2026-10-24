@@ -79,6 +79,55 @@ func TestPresentAbsentWhenWorkerDown(t *testing.T) {
 	}
 }
 
+// A rostered worker the hub does not list (lease expired or never started) must
+// show as absent and lower the count, not vanish from the roll.
+func TestPresentRosterCatchesUnregisteredWorker(t *testing.T) {
+	c := ctx(t)
+	l, err := StartLocalWith(c, LocalOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Bridge{Hub: NewHubClient(l.HubURL), HubURL: l.HubURL}
+	b.Expected = append(append(b.Expected, Cast...), struct{ ID, Role string }{"ghost-1", "qa"})
+	out, err := presentTool(t, b).Call(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := fmt.Sprint(out)
+	n := len(Cast)
+	for _, want := range []string{fmt.Sprintf("%d of %d present", n, n+1), "Absent: ghost-1",
+		"- ghost-1 (qa) [model unknown] absent: not registered (lease expired or never started)"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("want %q in:\n%s", want, text)
+		}
+	}
+}
+
+// A registered worker outside the roster is listed as extra and not counted.
+func TestPresentExtraWorkerNotCounted(t *testing.T) {
+	c := ctx(t)
+	l, err := StartLocalWith(c, LocalOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Bridge{Hub: NewHubClient(l.HubURL), HubURL: l.HubURL}
+	for _, w := range Cast[1:] { // roster without Cast[0]: that worker is the extra
+		b.Expected = append(b.Expected, w)
+	}
+	out, err := presentTool(t, b).Call(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := fmt.Sprint(out)
+	n := len(Cast) - 1
+	if want := fmt.Sprintf("%d of %d present", n, n); !strings.Contains(text, want) {
+		t.Errorf("want %q in:\n%s", want, text)
+	}
+	if !strings.Contains(text, "- "+Cast[0].ID+" ("+Cast[0].Role+") [model offline] extra") || strings.Contains(text, "Absent:") {
+		t.Errorf("extra not listed or counted as absent:\n%s", text)
+	}
+}
+
 func TestPresentPromptListed(t *testing.T) {
 	b := &Bridge{Hub: NewHubClient("http://127.0.0.1:1"), HubURL: "http://127.0.0.1:1"}
 	s := b.MCPServer(ctx(t))

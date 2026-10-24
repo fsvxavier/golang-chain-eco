@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,8 @@ type Bridge struct {
 	HubURL  string
 	// PresentTimeout bounds each worker's answer to team_present (default 30s).
 	PresentTimeout time.Duration
+	// Expected is the roster team_present checks against; nil means Cast.
+	Expected []struct{ ID, Role string }
 }
 
 // NewBridge reads MANAGER_URL, MANAGER_API_KEY and HUB_URL.
@@ -154,8 +157,11 @@ func rollCallPrompt(w WorkerInfo) string {
 		"Answer with ONE short line that starts with \"Presente!\" and names you (the worker id), your role and your model."
 }
 
-// rollCall asks every registered worker in parallel. The model column comes
-// from the hub (what the worker was built with), never from the model's answer.
+// rollCall asks every worker of the expected roster in parallel and merges the
+// hub's view in: a rostered worker the hub no longer lists (lease expired or
+// never started) is absent, a registered worker outside the roster is an
+// extra and is not counted. The model column comes from the hub (what the
+// worker was built with), never from the model's answer.
 func (b *Bridge) rollCall(ctx context.Context) (any, error) {
 	s, err := b.Hub.State(ctx)
 	if err != nil {
@@ -167,26 +173,64 @@ func (b *Bridge) rollCall(ctx context.Context) (any, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, per+5*time.Second) // overall bound
 	defer cancel()
-	rows := make([]string, len(s.Workers))
-	ok := make([]bool, len(s.Workers))
+	roster := b.Expected
+	if roster == nil {
+		roster = Cast
+	}
+	type entry struct {
+		w          WorkerInfo
+		registered bool
+		extra      bool
+	}
+	reg := map[string]WorkerInfo{}
+	for _, w := range s.Workers {
+		reg[w.ID] = w
+	}
+	var es []entry
+	inRoster := map[string]bool{}
+	for _, e := range roster {
+		inRoster[e.ID] = true
+		w, ok := reg[e.ID]
+		if !ok {
+			w = WorkerInfo{ID: e.ID, Role: e.Role}
+		}
+		es = append(es, entry{w: w, registered: ok})
+	}
+	sort.SliceStable(es, func(i, j int) bool { return es[i].w.ID < es[j].w.ID })
+	for _, w := range s.Workers {
+		if !inRoster[w.ID] {
+			es = append(es, entry{w: w, registered: true, extra: true})
+		}
+	}
+	rows := make([]string, len(es))
+	ok := make([]bool, len(es))
 	var wg sync.WaitGroup
-	for i, w := range s.Workers {
+	for i, e := range es {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			w := e.w
 			model := w.Model
 			if model == "" {
 				model = "unknown"
 			}
-			ans, err := b.askOne(ctx, w, per)
-			status := "present: " + head(ans, 160)
-			if err != nil || strings.TrimSpace(ans) == "" {
-				if err == nil {
-					err = errors.New("empty answer")
-				}
-				status = "absent: " + head(err.Error(), 100)
+			var status string
+			if !e.registered {
+				status = "absent: not registered (lease expired or never started)"
 			} else {
-				ok[i] = true
+				ans, err := b.askOne(ctx, w, per)
+				status = "present: " + head(ans, 160)
+				if err != nil || strings.TrimSpace(ans) == "" {
+					if err == nil {
+						err = errors.New("empty answer")
+					}
+					status = "absent: " + head(err.Error(), 100)
+				} else {
+					ok[i] = true
+				}
+			}
+			if e.extra {
+				status = "extra (not in the roster, not counted): " + status
 			}
 			rows[i] = fmt.Sprintf("- %s (%s) [model %s] %s", w.ID, w.Role, model, status)
 		}()
@@ -194,14 +238,16 @@ func (b *Bridge) rollCall(ctx context.Context) (any, error) {
 	wg.Wait()
 	var absent []string
 	n := 0
-	for i, w := range s.Workers {
-		if ok[i] {
+	for i, e := range es {
+		switch {
+		case e.extra:
+		case ok[i]:
 			n++
-		} else {
-			absent = append(absent, w.ID)
+		default:
+			absent = append(absent, e.w.ID)
 		}
 	}
-	out := "ROLL CALL\n" + strings.Join(rows, "\n") + fmt.Sprintf("\n%d of %d present", n, len(s.Workers))
+	out := "ROLL CALL\n" + strings.Join(rows, "\n") + fmt.Sprintf("\n%d of %d present", n, len(roster))
 	if len(absent) > 0 {
 		out += "\nAbsent: " + strings.Join(absent, ", ")
 	}

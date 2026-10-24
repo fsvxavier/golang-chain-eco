@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +28,24 @@ type rpc struct {
 	mu    sync.Mutex
 	next  int
 	done  chan error
+	errw  *syncBuf // serve's stderr: startup lines name the manager URL
+}
+
+type syncBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func startServe(t *testing.T) *rpc {
@@ -47,9 +67,9 @@ func startServe(t *testing.T) *rpc {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &rpc{t: t, in: inW, lines: make(chan string, 64), done: make(chan error, 1)}
+	c := &rpc{t: t, in: inW, lines: make(chan string, 64), done: make(chan error, 1), errw: &syncBuf{}}
 	go func() {
-		c.done <- serve(ctx, inR, outW, io.Discard)
+		c.done <- serve(ctx, inR, outW, c.errw)
 		close(c.done)
 		outW.Close()
 	}()
@@ -248,4 +268,26 @@ func TestServePresentOverStdio(t *testing.T) {
 	}
 	t.Log("\n" + roll)
 	c.checkStdout()
+}
+
+// The manager is on loopback but still keyed: a raw POST without the random key
+// is refused while the bridge, which holds the key, keeps working.
+func TestServeManagerRejectsUnauthenticated(t *testing.T) {
+	c := startServe(t)
+	m := regexp.MustCompile(`manager: up on (\S+)`).FindStringSubmatch(c.errw.String())
+	if m == nil {
+		t.Fatalf("no manager startup line in stderr:\n%s", c.errw.String())
+	}
+	url := "http://" + m[1] + "/threads"
+	resp, err := http.Post(url, "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 && resp.StatusCode != 403 {
+		t.Fatalf("unauthenticated POST %s: status %d, want 401/403", url, resp.StatusCode)
+	}
+	if out := c.tool("team_submit", map[string]any{"request": "hello"}); !strings.Contains(out, "thread_id=") {
+		t.Fatalf("submit: %q", out)
+	}
 }
