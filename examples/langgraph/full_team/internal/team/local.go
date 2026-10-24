@@ -38,6 +38,8 @@ type LocalOptions struct {
 	Middleware []agents.Middleware
 	Tools      []tools.Tool
 	Offline    func([]messages.Message) messages.Message
+	// ManagerKey is the manager's API key. Empty reads MANAGER_API_KEY.
+	ManagerKey string
 }
 
 // StartLocal brings up hub, manager and the 11 workers. It returns when the hub
@@ -60,7 +62,7 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
 	l.HubURL, l.ManagerURL = hubURL, mgrURL
 	l.wg.Add(2)
 	go func() { defer l.wg.Done(); _ = RunHub(ctx, hubLn) }()
-	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn) }()
+	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn, opts.ManagerKey) }()
 	for _, c := range Cast {
 		ln, _, err := listen()
 		if err != nil {
@@ -78,6 +80,9 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
 	hc := NewHubClient(hubURL)
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if s, err := hc.State(ctx); err == nil && len(s.Workers) == len(Cast) {
 			return l, nil
 		}
