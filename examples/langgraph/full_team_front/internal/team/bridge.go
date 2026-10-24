@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -113,6 +114,26 @@ func (l listArgs) Call(ctx context.Context, args map[string]any) (any, error) {
 	return l.Tool.Call(ctx, args)
 }
 
+var absPath = regexp.MustCompile(`/[\w.@+-]+(?:/[\w.@+-]+)+`)
+
+// inferRoots takes the existing directories named in the request, other than
+// the document folders, as the source the PO may read: "analyze the project in
+// /x/y" needs no separate backend_roots. Read access stays confined to the
+// workspace by the backend tools. At most 3.
+func inferRoots(request string, docRoots []string) []string {
+	var out []string
+	for _, m := range absPath.FindAllString(request, -1) {
+		m = strings.TrimRight(m, ".:")
+		if fi, err := os.Stat(m); err != nil || !fi.IsDir() || slices.Contains(docRoots, m) || slices.Contains(out, m) {
+			continue
+		}
+		if out = append(out, m); len(out) == 3 {
+			break
+		}
+	}
+	return out
+}
+
 // Tools returns the bridge tools.
 func (b *Bridge) Tools() []tools.Tool {
 	ts := b.tools()
@@ -133,6 +154,9 @@ func (b *Bridge) tools() []tools.Tool {
 					if r := inferDocRoot(a.Request); r != "" {
 						a.DocRoots, inferred = []string{r}, true
 					}
+				}
+				if len(a.Roots) == 0 {
+					a.Roots = inferRoots(a.Request, a.DocRoots)
 				}
 				tid, err := b.Manager.CreateThread(ctx, map[string]any{"request": a.Request})
 				if err != nil {

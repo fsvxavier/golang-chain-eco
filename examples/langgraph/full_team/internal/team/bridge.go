@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -76,6 +77,20 @@ type (
 	}
 )
 
+// docDest finds the folder a request asks to save a document in: an absolute
+// path after "save/write/plan ... in/to/folder". The last one wins, as the
+// first path in a request is usually what to read. The PO's write guards still
+// confine it to the workspace and to .md files.
+var docDest = regexp.MustCompile(`(?i)(?:grav\w*|salv\w*|escrev\w*|write|save|plano|plan|documenta\w*)[^/]{0,80}?(?:pasta|folder|diret\w+|directory|em|in|to|para)\s+(/[^\s,;"')]+)`)
+
+func inferDocRoot(request string) string {
+	m := docDest.FindAllStringSubmatch(request, -1)
+	if len(m) == 0 {
+		return ""
+	}
+	return strings.TrimRight(m[len(m)-1][1], ".:")
+}
+
 // listArgs wraps a tool so that a string given where it takes a list of strings
 // becomes a one-item list: some clients send a single path as plain text, and
 // refusing the whole demand over that costs more than reading it.
@@ -111,6 +126,12 @@ func (b *Bridge) tools() []tools.Tool {
 	return []tools.Tool{
 		tools.New("team_submit", "Send a demand to the engineering team. A folder named in the request for saving a plan or document is enough for the PO to write there (no other argument needed). Returns at once with thread_id and run_id; follow it with team_status.",
 			func(ctx context.Context, a submitArgs) (any, error) {
+				inferred := false
+				if len(a.DocRoots) == 0 {
+					if r := inferDocRoot(a.Request); r != "" {
+						a.DocRoots, inferred = []string{r}, true
+					}
+				}
 				tid, err := b.Manager.CreateThread(ctx, map[string]any{"request": a.Request})
 				if err != nil {
 					return nil, tools.Errorf("team_submit: %v", err)
@@ -119,7 +140,14 @@ func (b *Bridge) tools() []tools.Tool {
 				if err != nil {
 					return nil, tools.Errorf("team_submit: %v", err)
 				}
-				return fmt.Sprintf("thread_id=%s run_id=%s status=%s", tid, run.RunID, run.Status), nil
+				docs := "docs_roots=none (the PO writes nothing; pass docs_roots to let it save a plan)"
+				if len(a.DocRoots) > 0 {
+					docs = "docs_roots=" + strings.Join(a.DocRoots, ",")
+					if inferred {
+						docs += " (taken from the request)"
+					}
+				}
+				return fmt.Sprintf("thread_id=%s run_id=%s status=%s %s", tid, run.RunID, run.Status, docs), nil
 			}),
 		tools.New("team_status", "Show the delivery state of a request: task statuses (received ... completed), report and handoff history.",
 			func(ctx context.Context, a threadArgs) (any, error) {

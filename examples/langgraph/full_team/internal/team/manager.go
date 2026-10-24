@@ -75,7 +75,7 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 		"history": graph.Append(), "results": graph.Append(),
 		"report": channels.LastValue(), "status": channels.LastValue(), "scope": channels.LastValue(),
 	})
-	g.AddNode("manager", m.intake)
+	g.AddNode("manager", logged("manager", m.intake))
 	g.AddNode("po", m.step("po", "product-owner", tasktrack.InSpecification, func(s graph.State) string {
 		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v%s", s["request"], s["kickoff"], docsBlock(scopeOf(s)))
 	}, "spec"))
@@ -96,6 +96,18 @@ func scopeOf(s graph.State) Scope {
 		_ = json.Unmarshal(raw, &sc)
 	}
 	return sc
+}
+
+// logged logs the error of a node: a run that fails otherwise leaves the
+// request in its last status with nothing in the log.
+func logged(name string, fn graph.NodeFunc) graph.NodeFunc {
+	return func(ctx context.Context, s graph.State) (any, error) {
+		out, err := fn(ctx, s)
+		if err != nil {
+			log.Printf("manager: request %s failed in %s: %v", requestID(ctx), name, err)
+		}
+		return out, err
+	}
 }
 
 // docsBlock tells the PO where, if anywhere, it may keep project documents.

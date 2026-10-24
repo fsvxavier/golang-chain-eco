@@ -47,3 +47,9 @@ func TestCacheForOnlyAnthropic(t *testing.T) {
 		t.Fatal("other providers must not get cache_control")
 	}
 }
+
+func TestInferDocRoot(t *testing.T) {
+	if got := inferDocRoot("Analise /a/b e faça um plano na pasta /a/b/plans/new"); got != "/a/b/plans/new" {
+		t.Fatalf("got %q", got)
+	}
+}

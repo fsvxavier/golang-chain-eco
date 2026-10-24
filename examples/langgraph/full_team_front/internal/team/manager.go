@@ -78,11 +78,11 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 		"history": graph.Append(), "results": graph.Append(),
 		"report": channels.LastValue(), "status": channels.LastValue(),
 	})
-	g.AddNode("manager", m.intake)
+	g.AddNode("manager", logged("manager", m.intake))
 	po := m.step("po", "product-owner", tasktrack.InSpecification, func(s graph.State) string {
 		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v\n\n%s", s["request"], s["kickoff"], backendBlock(scopeOf(s))+docsBlock(scopeOf(s)))
 	}, "spec")
-	g.AddNode("po", func(ctx context.Context, s graph.State) (any, error) {
+	g.AddNode("po", logged("po", func(ctx context.Context, s graph.State) (any, error) {
 		out, err := po(ctx, s)
 		if err != nil {
 			return nil, err
@@ -96,12 +96,24 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 		}
 		st["spec"] = verifiedSpec(fmt.Sprint(st["spec"]), scopeOf(s), n)
 		return st, nil
-	})
-	g.AddNode("build", m.build)
-	g.AddNode("deliver", m.deliver)
+	}))
+	g.AddNode("build", logged("build", m.build))
+	g.AddNode("deliver", logged("deliver", m.deliver))
 	g.AddEdge(graph.Start, "manager").AddEdge("manager", "po").AddEdge("po", "build").
 		AddEdge("build", "deliver").AddEdge("deliver", graph.End)
 	return g.Compile(graph.WithName("engineering_team"), graph.WithCheckpointer(checkpoint.NewMemory()))
+}
+
+// logged logs the error of a node: a run that fails otherwise leaves the
+// request in its last status with nothing in the log.
+func logged(name string, fn graph.NodeFunc) graph.NodeFunc {
+	return func(ctx context.Context, s graph.State) (any, error) {
+		out, err := fn(ctx, s)
+		if err != nil {
+			log.Printf("manager: request %s failed in %s: %v", requestID(ctx), name, err)
+		}
+		return out, err
+	}
 }
 
 // docsBlock tells the PO where, if anywhere, it may keep project documents.
