@@ -156,7 +156,81 @@ O servidor se chama `engineering-team` e serve:
 
 ### Registrar
 
-VS Code, `.vscode/mcp.json` (stdio; o formato do VS Code usa `servers`). Forma com `go run`, com o diretório de trabalho na raiz do repositório:
+Veja [Usar no VS Code](#usar-no-vs-code) para o registro no VS Code, no Claude Code e em outros clientes.
+
+### Uma demanda
+
+Um exemplo de chamada a `team_submit` (os argumentos em JSON; os caminhos e URLs são marcadores). `backend_roots` deve estar dentro de `WORKSPACE_ROOT` (ou do diretório de trabalho do servidor):
+
+```json
+{
+  "request": "Add a coupon field to the checkout screen. Show a loading state while the coupon is checked, an empty state before any input, and an error message for an invalid code.",
+  "backend_roots": ["/abs/path/to/workspace/backend"],
+  "backend_urls": ["https://api.example.com/v1"],
+  "app_url": "http://localhost:3000/checkout"
+}
+```
+
+Depois chame `team_status` com o `thread_id` devolvido e repita até `report` estar presente e `running` estar vazio:
+
+```json
+{ "thread_id": "<thread_id from team_submit>" }
+```
+
+## Usar no VS Code
+
+### Pré-requisitos
+
+- O toolchain do Go 1.27 no `PATH` (`go version`; o `go.mod` diz `go 1.27`).
+- O repositório clonado e aberto como pasta de workspace do VS Code. Assim `go run ./examples/langgraph/full_team_front serve` funciona com o workspace como diretório de trabalho, e `WORKSPACE_ROOT` tem ele como padrão. A alternativa é o binário compilado (`go build -o bin/team-mcp ./examples/langgraph/full_team_front`) iniciado por caminho absoluto, com `WORKSPACE_ROOT` definida.
+- Opcional: `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY`. Sem chave o time roda offline com modelos roteirizados. No chat isso significa: todo pedido recebe o mesmo plano roteirizado de cupons (cinco tarefas, `T1` a `T5`), não importa o que você peça, e os revisores e o QA roteirizados devolvem `T2`, `T3` e `T4` uma vez. Isso basta para conferir a ligação e ver o fluxo; não é uma entrega real.
+
+### Claude Code no VS Code
+
+O Claude Code lê servidores MCP com escopo de projeto de `.mcp.json` na raiz do projeto (veja [independent_engineering_team](../independent_engineering_team/README.pt-BR.md#claude-code), cujos trechos este segue). Crie `.mcp.json` na raiz do workspace:
+
+```json
+{
+  "mcpServers": {
+    "front-team": {
+      "command": "go",
+      "args": ["run", "./examples/langgraph/full_team_front", "serve"],
+      "env": {
+        "WORKSPACE_ROOT": "/abs/path/to/this/repo",
+        "PLAYWRIGHT_CMD": "",
+        "PLAYWRIGHT_ENV_ALLOW": ""
+      }
+    }
+  }
+}
+```
+
+Os valores são literais. Este README não depende da expansão `${VAR}` no `.mcp.json`, porque nem o README irmão nem o código a mostram. Não grave uma chave em um arquivo que você versiona: acrescente `ANTHROPIC_API_KEY` com `claude mcp add` (abaixo, escopo local) ou exporte-a no shell que inicia o VS Code e confira em `/mcp` que os modelos não estão offline. `PLAYWRIGHT_CMD` e `PLAYWRIGHT_ENV_ALLOW` podem ser omitidas para rodar sem a ferramenta de navegador. A forma com `go run` pressupõe que o servidor inicia com a raiz do repositório como diretório de trabalho; se não iniciar (não testado), use o binário com um `command` absoluto.
+
+O mesmo servidor pela linha de comando (`--scope local` é o padrão; `project` grava `.mcp.json`; `user` vale para todos os projetos; `--` separa as opções do comando):
+
+```bash
+claude mcp add --transport stdio --scope project \
+  --env WORKSPACE_ROOT=/abs/path/to/this/repo \
+  front-team -- go run ./examples/langgraph/full_team_front serve
+
+claude mcp add --transport stdio --scope user \
+  --env WORKSPACE_ROOT=/abs/path/to/this/repo --env ANTHROPIC_API_KEY=... \
+  front-team -- /abs/path/to/this/repo/bin/team-mcp serve
+```
+
+Servidores com escopo de projeto pedem aprovação na primeira vez. Confira o servidor com `claude mcp list`, ou com `/mcp` no chat: `front-team` deve aparecer como conectado e listar estas ferramentas: `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_memory`, `graph_run`, `graph_state` e `graph_resume` (mais as ferramentas de `BRIDGE_CIAM_CMD` e `BRIDGE_KNOWLEDGE_CMD`, se você as definir). Não foi testado aqui se o painel de chat da extensão do Claude Code no VS Code usa os mesmos arquivos de configuração e mostra a mesma tela `/mcp` que a CLI.
+
+Se não conectar:
+
+1. Execute o comando em um terminal, a partir da raiz do repositório: `go run ./examples/langgraph/full_team_front serve`. Ele não deve imprimir nada na saída padrão até um cliente falar (a saída padrão é só protocolo). As linhas de partida (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) aparecem em stderr. Pressione Ctrl-D para parar.
+2. Leia essa saída de stderr. Se um worker não consegue iniciar (tipicamente um valor ruim em `AGENT_MODEL_<PAPEL>` ou a falta de chave do provedor escolhido), o processo termina com `team did not come up` após 10 segundos; o erro do próprio worker não é impresso, então confira primeiro essas variáveis.
+3. Execute `go version` e confira que é 1.27 ou mais novo, e que `go` está no `PATH` do processo que inicia o servidor (um VS Code aberto por um lançador pode ter um `PATH` menor que o do seu shell).
+4. Confira os caminhos: o diretório de trabalho do `go run`, o caminho absoluto do binário, `WORKSPACE_ROOT`. O primeiro `go run` compila o exemplo inteiro, então a primeira conexão pode ser lenta; o time desiste se os workers não subirem em 10 segundos, então prefira o binário compilado.
+
+### Copilot Chat no VS Code (modo Agent)
+
+Crie `.vscode/mcp.json` no workspace (o formato do VS Code usa `servers`, cada um com `"type": "stdio"`, como no [trecho do Copilot](../independent_engineering_team/README.pt-BR.md#github-copilot-vs-code) do README irmão). Forma com `go run`:
 
 ```json
 {
@@ -191,35 +265,82 @@ Forma com binário compilado:
 
 Tire a linha `ANTHROPIC_API_KEY` para rodar offline. Depois abra o arquivo e clique em **Start** acima do servidor. No Copilot Chat escolha **Agent** e habilite `front-team` no seletor de ferramentas.
 
-Claude Code:
-
-```bash
-claude mcp add --transport stdio front-team -- go run ./examples/langgraph/full_team_front serve
-claude mcp add --transport stdio front-team -- /abs/path/bin/team-mcp serve
-```
-
-(Use uma das duas; acrescente `--env ANTHROPIC_API_KEY=...` ou `--env WORKSPACE_ROOT=...` antes do nome para passar variáveis.) Confira com `claude mcp list` ou `/mcp`.
-
 Outros clientes MCP (Cursor, Kilo Code, Opencode) aceitam um comando stdio no mesmo formato (`command`, `args`, `env`); os trechos em [independent_engineering_team](../independent_engineering_team/README.pt-BR.md#4-registre-em-cada-aplicação) mostram o arquivo de cada cliente, com `command` e `args` trocados pelos acima. Eles não foram testados com este servidor.
 
-### Uma demanda
+### Usar a partir do chat
 
-Um exemplo de chamada a `team_submit` (os argumentos em JSON; os caminhos e URLs são marcadores). `backend_roots` deve estar dentro de `WORKSPACE_ROOT` (ou do diretório de trabalho do servidor):
+Passos com prompts que você pode colar no chat do Claude Code (ou no modo Agent do Copilot). O chat decide quando chamar as ferramentas; citar a ferramenta faz com que ele a chame.
+
+1. **Enviar uma demanda.** Prompt:
+
+   > Use a ferramenta `team_submit` com request "Add a coupon field to the checkout screen. Show a loading state while the coupon is checked, an empty state before any input, and an error message for an invalid code.", backend_roots ["/abs/path/to/this/repo/backend"], backend_urls ["http://localhost:8080"], app_url "http://localhost:3000/checkout". Depois me diga o thread_id.
+
+   Os campos: `request` é o que o time deve entregar. `backend_roots` são as árvores de código que o PO pode ler; informe caminhos absolutos, cada um dentro de `WORKSPACE_ROOT` (um relativo é tomado em relação a ela, e um fora dela é recusado). `backend_urls` são as APIs que o PO pode chamar com `GET`; só esses hosts e portas são alcançáveis. `app_url` é o front-end em execução que o QA pode abrir com `browser_test` (exige `PLAYWRIGHT_CMD`). Os três são opcionais; sem raízes e URLs o PO não lê nada e a spec diz isso. A chamada retorna na hora:
+
+   ```text
+   thread_id=35a034fed3493843fc60f393894dd7ed run_id=646bef17962e894921b0a5e4fe5c0d92 status=pending
+   ```
+
+2. **Consultar o status.** Prompt: "Chame `team_status` com esse thread_id a cada poucos segundos até haver um `report`, e então me mostre o resultado." Os campos: `status` mapeia a requisição (chave `""`) e cada tarefa (`T1`...) para sua etapa (`received` ... `completed`); `report` é o resumo do manager; `history` é a lista de handoffs; `running` lista os nós que ainda vão rodar (`null` quando a execução terminou). `status`, `report` e o `history` completo são preenchidos quando o último passo termina, então consulte até `report` estar presente.
+
+3. **Ler o histórico.** As devoluções da revisão conjunta e do QA aparecem em linhas como `T2: review returned by leader -> mid-1 | tech-leader: ...` e `T4: qa returned by qa-1 -> senior-1`. A linha seguinte daquela tarefa, `T2: mid-1 -> review`, mostra o mesmo desenvolvedor construindo de novo.
+
+4. **Ver o time.** Prompt: "Chame `team_queue`." Ele devolve os workers registrados (`id`, `role`, `url`, `seen` e `job` enquanto um está ocupado; são 12) e os jobs em `queued`.
+
+5. **Perguntar a um agente.** Prompt: "Chame `team_ask_worker` com worker `leader` e pergunta: quais desenvolvedores estão ocupados?" O id do worker vem de `team_queue`. A pergunta roda fora do fluxo de entrega, então não tem escopo de demanda: pedir ao `po` que leia o backend assim é recusado.
+
+6. **Recuperar o que o time registrou.** Prompt: "Chame `team_memory` com scope <thread_id> e query `coupon`." O scope é o `thread_id` da requisição.
+
+Para ler a spec do PO, chame `graph_state` com o `thread_id` e olhe `values.spec`.
+
+Um exemplo completo, offline (sem chave, sem backend citado). Prompt do usuário: "Use a ferramenta team_submit com request 'Add a coupon field to checkout'." Chamada da ferramenta:
+
+```json
+{ "name": "team_submit", "arguments": { "request": "Add a coupon field to checkout" } }
+```
+
+Resultado: `thread_id=35a034fe... run_id=646bef17... status=pending`. Prompt do usuário: "Confira com team_status." Chamada da ferramenta `team_status` com `{ "thread_id": "35a034fe..." }`; o resultado offline, reduzido (o real lista todas as tarefas):
 
 ```json
 {
-  "request": "Add a coupon field to the checkout screen. Show a loading state while the coupon is checked, an empty state before any input, and an error message for an invalid code.",
-  "backend_roots": ["/abs/path/to/workspace/backend"],
-  "backend_urls": ["https://api.example.com/v1"],
-  "app_url": "http://localhost:3000/checkout"
+  "history": [
+    "manager -> product-owner",
+    "product-owner (po) done",
+    "tech-leader (leader) -> 5 tasks",
+    "T2: mid-1 -> review",
+    "T2: review returned by leader -> mid-1 | tech-leader: 1. The endpoint design leaks coupon state: ...",
+    "T2: mid-1 -> review",
+    "T2: review approved by specialist-1 and leader",
+    "T2: qa approved by qa-1",
+    "T2: approved",
+    "T4: senior-1 -> review",
+    "T4: review approved by specialist-1 and leader",
+    "T4: qa returned by qa-1 -> senior-1",
+    "T4: senior-1 -> review",
+    "...",
+    "manager -> requester"
+  ],
+  "report": "REPORT:\n- Shipped: T5, T1, T2, T3, T4\n- Blocked: none\n- Next: roll out behind a flag for 5% of checkout traffic.",
+  "running": null,
+  "status": { "": "completed", "T1": "completed", "T2": "completed", "T3": "completed", "T4": "completed", "T5": "completed" }
 }
 ```
 
-Depois chame `team_status` com o `thread_id` devolvido e repita até `report` estar presente e `running` estar vazio:
+Solução de problemas:
 
-```json
-{ "thread_id": "<thread_id from team_submit>" }
-```
+- Ferramentas não listadas: o servidor não conectou; veja "Se não conectar" acima.
+- `team_submit` retorna mas `team_status` nunca chega a um `report`: com chave real, um worker falhou ou uma chamada de modelo está falhando. Leia o stderr do servidor (execute o comando em um terminal para vê-lo) e confira a chave, os nomes de modelo (`AGENT_MODEL_<PAPEL>`) e a rede.
+- A spec do PO tem `UNVERIFIED: no backend evidence` sob `OPEN ITEMS:`: a demanda citou um backend mas a spec não tem bloco `EVIDENCE:` ou o PO não fez nenhuma chamada ao backend que obtivesse resposta. As raízes ou URLs podem ter sido recusadas (fora de `WORKSPACE_ROOT`, um host não citado, um endereço bloqueado). Corrija os argumentos de `team_submit`.
+- `browser_test` diz `NOT RUN`: `PLAYWRIGHT_CMD` está vazia no ambiente do servidor, ou a demanda não tem `app_url` válida. O motivo vem depois de `NOT RUN:`.
+
+### Notas de segurança
+
+- O servidor é um processo stdio local iniciado pelo seu editor, com as permissões do seu usuário e o ambiente que você deu a ele. O chat é a raiz de confiança: o que o chat passa em `team_submit` (`backend_roots`, `backend_urls`, `app_url`) vira o escopo da requisição.
+- As leituras de arquivo do PO são limitadas por `WORKSPACE_ROOT` (o diretório de trabalho do servidor, se não definida) e pelas raízes citadas; symlinks e `..` não podem sair delas. Mantenha `WORKSPACE_ROOT` estreita.
+- O argumento `url` de `graph_run`, `graph_state` e `graph_resume` permite que o chat faça a bridge chamar qualquer URL de Agent Server (a mesma bridge do exemplo irmão). `team_ask_worker` não tem `url`: alcança só os workers registrados no hub, em loopback.
+- Todo papel de worker exceto o PO mantém sua ferramenta `shell`, com a lista de permitidos `ls`, `grep` e `echo` quando há chave (`go` e `git` também offline); ela não tem sandbox. O PO nunca tem shell.
+- `browser_test` executa o comando que você definiu em `PLAYWRIGHT_CMD`, sem shell, com um ambiente mínimo: suas chaves de provedor não chegam a ele, a menos que listadas em `PLAYWRIGHT_ENV_ALLOW`. A spec que ele executa é escrita por um modelo.
+- No modo serve a `MANAGER_API_KEY` do manager não é usada; não a defina (veja Ambiente).
 
 ## Como testar
 
