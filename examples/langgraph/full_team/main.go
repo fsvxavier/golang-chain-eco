@@ -75,8 +75,11 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 
 	l, err := team.StartLocalWith(ctx, team.LocalOptions{
 		Middleware: []agents.Middleware{m},
-		Tools:      []tools.Tool{shell, tasksTool()},
-		Offline:    team.OfflineWithTool(tasksToolName),
+		// The manager's agent gets the same compression (old turns caveman-compressed,
+		// Ponytail note, TOON) as the workers; it has no meter, which counts worker calls only.
+		ManagerMiddleware: []agents.Middleware{middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}},
+		Tools:             []tools.Tool{shell, tasksTool()},
+		Offline:           team.OfflineWithTool(tasksToolName),
 	})
 	if err != nil {
 		return nil, err

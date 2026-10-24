@@ -7,10 +7,14 @@ package team
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/fsvxavier/golang-chain-eco/core/messages"
 )
 
 // Job is one unit of work for one agent. It carries everything the worker
@@ -33,9 +37,19 @@ type Job struct {
 	Output   string `json:"output,omitempty"`
 	Error    string `json:"error,omitempty"`
 	Attempts int    `json:"attempts"`
+	// Unix milliseconds: when the job was handed to a worker and when it ended
+	// (0 = not yet). The dashboard derives execution time from them.
+	StartedMS int64 `json:"started_ms,omitempty"`
+	DoneMS    int64 `json:"done_ms,omitempty"`
+	// Usage is what the model calls of this job consumed (nil when the worker
+	// did not report any, e.g. the offline model).
+	Usage *messages.Usage `json:"usage,omitempty"`
 
 	delivered bool
 }
+
+// CancelledMsg is the error of a job cancelled with CancelScope.
+const CancelledMsg = "cancelled by user"
 
 // WorkerInfo is a registered worker. It is alive while Seen is within the TTL.
 type WorkerInfo struct {
@@ -47,6 +61,14 @@ type WorkerInfo struct {
 	Model string    `json:"model,omitempty"`
 	Job   string    `json:"job,omitempty"` // non-empty means reserved
 	Seen  time.Time `json:"seen"`
+	// Skill is the role's skill folder, Refs the reference skills vendored into
+	// it, and Activity what the worker says it is doing right now (reference
+	// consulted, tool called); the dashboard shows them.
+	Skill    string   `json:"skill,omitempty"`
+	Refs     []string `json:"refs,omitempty"`
+	Activity string   `json:"activity,omitempty"`
+
+	cancel string // id of a job cancelled while this worker ran it; sent on its next heartbeat
 }
 
 // ErrUnknownWorker tells a worker its lease expired: it must register again.
@@ -62,18 +84,20 @@ type Hub struct {
 	TTL         time.Duration // lease: a worker silent for longer is dropped
 	MaxAttempts int           // times a job may be handed out before it fails
 
-	mu      sync.Mutex
-	workers map[string]*WorkerInfo
-	jobs    map[string]*Job
-	queue   []string
-	wake    chan struct{}
-	seq     int
-	now     func() time.Time
+	cancelled map[string]bool           // request ids whose work was cancelled: new jobs for them fail at once
+	mgrUse    map[string]messages.Usage // manager model tokens per request id
+	mu        sync.Mutex
+	workers   map[string]*WorkerInfo
+	jobs      map[string]*Job
+	queue     []string
+	wake      chan struct{}
+	seq       int
+	now       func() time.Time
 }
 
 // NewHub returns an empty hub.
 func NewHub(ttl time.Duration) *Hub {
-	return &Hub{TTL: ttl, MaxAttempts: 3, workers: map[string]*WorkerInfo{}, jobs: map[string]*Job{}, wake: make(chan struct{}), now: time.Now}
+	return &Hub{TTL: ttl, MaxAttempts: 3, cancelled: map[string]bool{}, mgrUse: map[string]messages.Usage{}, workers: map[string]*WorkerInfo{}, jobs: map[string]*Job{}, wake: make(chan struct{}), now: time.Now}
 }
 
 // notifyLocked wakes every waiter; callers hold h.mu.
@@ -96,7 +120,7 @@ func (h *Hub) RegisterInfo(wi WorkerInfo) {
 	if old := h.workers[id]; old != nil && old.Job != "" {
 		h.requeueLocked(old.Job)
 	}
-	h.workers[id] = &WorkerInfo{ID: id, Role: wi.Role, URL: wi.URL, Model: wi.Model, Seen: h.now()}
+	h.workers[id] = &WorkerInfo{ID: id, Role: wi.Role, URL: wi.URL, Model: wi.Model, Skill: wi.Skill, Refs: wi.Refs, Seen: h.now()}
 	h.scheduleLocked()
 	h.notifyLocked()
 }
@@ -120,6 +144,11 @@ func (h *Hub) Submit(j Job) string {
 	j.ID = j.Thread + "." + strconv.Itoa(h.seq)
 	j.Status = "queued"
 	h.jobs[j.ID] = &j
+	if j.Scope != "" && h.cancelled[j.Scope] {
+		j.Status, j.Error, j.DoneMS = "failed", CancelledMsg, h.now().UnixMilli()
+		h.notifyLocked()
+		return j.ID
+	}
 	h.queue = append(h.queue, j.ID)
 	h.scheduleLocked()
 	h.notifyLocked()
@@ -143,6 +172,7 @@ func (h *Hub) scheduleLocked() {
 			continue
 		}
 		w.Job, j.Worker, j.Role, j.Status, j.delivered = j.ID, w.ID, w.Role, "running", false
+		j.StartedMS = h.now().UnixMilli()
 	}
 	h.queue = left
 }
@@ -169,6 +199,7 @@ func (h *Hub) requeueLocked(jid string) {
 	j.Worker = ""
 	if j.Attempts >= h.MaxAttempts {
 		j.Status, j.Error = "failed", "no worker finished the job after "+strconv.Itoa(j.Attempts)+" attempts"
+		j.DoneMS = h.now().UnixMilli()
 		return
 	}
 	j.Status = "queued"
@@ -238,15 +269,21 @@ func (h *Hub) Claim(ctx context.Context, id string, wait time.Duration) (*Job, e
 // Complete records a worker's result and frees it. A worker that lost its
 // lease meanwhile gets ErrNotOwner and its result is dropped.
 func (h *Hub) Complete(workerID, jobID, output, errMsg string) error {
+	return h.CompleteUsage(workerID, jobID, output, errMsg, nil)
+}
+
+// CompleteUsage is Complete that also records the tokens the job consumed.
+func (h *Hub) CompleteUsage(workerID, jobID, output, errMsg string, u *messages.Usage) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	j, w := h.jobs[jobID], h.workers[workerID]
 	if j == nil || w == nil || j.Worker != workerID || j.Status != "running" {
 		return ErrNotOwner
 	}
-	w.Job = ""
+	w.Job, w.Activity = "", ""
 	w.Seen = h.now()
 	j.Output, j.Error, j.Status = output, errMsg, "done"
+	j.DoneMS, j.Usage = h.now().UnixMilli(), u
 	if errMsg != "" {
 		j.Status = "failed"
 	}
@@ -303,4 +340,108 @@ func (h *Hub) Snapshot() State {
 		return 0
 	})
 	return s
+}
+
+// Jobs lists every job without its prompt and output (they can be large), in
+// submission order, for the dashboard.
+func (h *Hub) Jobs() []Job {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]Job, 0, len(h.jobs))
+	for _, j := range h.jobs {
+		cp := *j
+		cp.Prompt, cp.Output = "", ""
+		out = append(out, cp)
+	}
+	slices.SortFunc(out, func(a, b Job) int { return cmpJobSeq(a.ID, b.ID) })
+	return out
+}
+
+// cmpJobSeq orders ids "<thread>.<seq>" by thread, then by the numeric seq.
+func cmpJobSeq(a, b string) int {
+	ta, sa, _ := strings.Cut(a, ".")
+	tb, sb, _ := strings.Cut(b, ".")
+	if c := strings.Compare(ta, tb); c != 0 {
+		return c
+	}
+	na, _ := strconv.Atoi(sa)
+	nb, _ := strconv.Atoi(sb)
+	return na - nb
+}
+
+// AddMgrUsage adds tokens the manager's own agent used for request id.
+func (h *Hub) AddMgrUsage(id string, u messages.Usage) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cur := h.mgrUse[id]
+	cur.InputTokens += u.InputTokens
+	cur.OutputTokens += u.OutputTokens
+	cur.TotalTokens += u.TotalTokens
+	cur.CacheReadTokens += u.CacheReadTokens
+	cur.CacheCreationTokens += u.CacheCreationTokens
+	h.mgrUse[id] = cur
+}
+
+// MgrUsage returns a copy of the manager's tokens per request id.
+func (h *Hub) MgrUsage() map[string]messages.Usage {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return maps.Clone(h.mgrUse)
+}
+
+// SetActivity records what a worker is doing; false when the worker is unknown.
+func (h *Hub) SetActivity(id, activity string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	w := h.workers[id]
+	if w != nil {
+		w.Activity = activity
+	}
+	return w != nil
+}
+
+// CancelScope ends the work of request id: queued jobs fail at once, running
+// ones fail and free their worker (which learns of it on its next heartbeat and
+// stops the agent), and any job submitted for the request later fails too, so
+// the manager's flow unwinds on its next step. It returns how many jobs it
+// ended. ClearCancel (a new run of the thread) lifts the cancellation.
+func (h *Hub) CancelScope(id string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancelled[id] = true
+	n := 0
+	for _, j := range h.jobs {
+		if j.Scope != id || (j.Status != "queued" && j.Status != "running") {
+			continue
+		}
+		if w := h.workers[j.Worker]; j.Status == "running" && w != nil && w.Job == j.ID {
+			w.Job, w.Activity, w.cancel = "", "", j.ID
+		}
+		j.Status, j.Error, j.DoneMS = "failed", CancelledMsg, h.now().UnixMilli()
+		n++
+	}
+	h.queue = slices.DeleteFunc(h.queue, func(jid string) bool { return h.jobs[jid].Status != "queued" })
+	h.scheduleLocked()
+	h.notifyLocked()
+	return n
+}
+
+// TakeCancel returns, once, the id of a job of this worker that was cancelled.
+func (h *Hub) TakeCancel(id string) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	w := h.workers[id]
+	if w == nil {
+		return ""
+	}
+	c := w.cancel
+	w.cancel = ""
+	return c
+}
+
+// ClearCancel lifts the cancellation of request id: a new run starts clean.
+func (h *Hub) ClearCancel(id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.cancelled, id)
 }

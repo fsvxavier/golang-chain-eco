@@ -61,7 +61,7 @@ go run ./examples/langgraph/full_team serve
 go build -o bin/team-mcp ./examples/langgraph/full_team && ./bin/team-mcp serve
 ```
 
-Stdout carries only the MCP protocol. Startup lines (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) go to stderr. It stops on end of input (Ctrl-D) or on a signal. Serve mode differs from the demo in three ways: no worker gets the `shell` tool, the manager runs with a random API key generated at start (an operator-set `MANAGER_API_KEY` is ignored; only this process's bridge knows the key), and no demand is submitted until the chat calls `team_submit`. The tools are `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` and `graph_resume`.
+Stdout carries only the MCP protocol. Startup lines (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) go to stderr. It stops on end of input (Ctrl-D) or on a signal. Serve mode differs from the demo in three ways: no worker gets the `shell` tool, the manager runs with a random API key generated at start (an operator-set `MANAGER_API_KEY` is ignored; only this process's bridge knows the key), and no demand is submitted until the chat calls `team_submit`. The tools are `team_submit`, `team_status`, `team_queue`, `team_cancel`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` and `graph_resume`.
 
 Two more facts about serve mode. The `url` argument of `graph_run`, `graph_state` and `graph_resume` lets the chat make the bridge call any Agent Server URL; the manager's key is sent only when `url` is empty or equals the manager's own URL, and any other URL gets no key. The hub and the workers' servers listen on `127.0.0.1` and are not authenticated, so any local process can reach them.
 
@@ -126,6 +126,15 @@ ROLL CALL
 ```
 
 With a worker down the last lines read `10 of 11 present` and `Absent: qa-2`.
+
+## Progress dashboard and cancelling
+
+A read-only web page shows every request and task with its status, progress bar, execution time and token use, and every persona (worker) with its state, current job, skill, what it is doing now (the reference it consults, the tool it calls, or the model), jobs done, busy time and tokens. Tokens are also totalled per task, per request and for the project; the knowledge model's own calls are not counted. It refreshes every 2 seconds and shows statuses, timings and token counts only, never prompts or outputs.
+
+- `serve` mode opens it on `http://127.0.0.1:8088` (loopback only); other runs serve it only when `DASHBOARD_ADDR=host:port` is set. The page has no authentication: for another machine use `DASHBOARD_ADDR=0.0.0.0:8088` behind your own auth proxy.
+- Every project has its own URL, `http://127.0.0.1:8088/p/<project>/` (`/?project=<project>` redirects there), and the header has a project selector. The first team to start owns the port and lists the others; a team that finds it taken serves on a free loopback port and registers with the owner (loopback only). The project is `WORKSPACE_ROOT`, else the working directory.
+- `team_cancel` (MCP tool, argument `thread_id`) cancels a request: queued jobs are dropped, running agents are stopped on their next heartbeat and the delivery ends as `cancelled`. The manager's current model call still finishes, and the tokens of a cancelled job are not counted. Sending the same thread again starts a clean run.
+- The manager's own agent runs through the same compression middleware as the workers.
 
 ## Test it
 

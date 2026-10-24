@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"sync"
 
@@ -56,12 +57,12 @@ func (m *manager) move(ctx context.Context, kind tasktrack.Kind, id string, to t
 
 // NewManager builds the manager graph, served by the manager service through
 // remote/server and called by clients with remote.Graph.
-func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker) (*graph.Compiled, error) {
+func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker, mw ...agents.Middleware) (*graph.Compiled, error) {
 	prompt, err := Skill("manager")
 	if err != nil {
 		return nil, err
 	}
-	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt})
+	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt, Middleware: append(slices.Clone(mw), usageMeter{})})
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +112,11 @@ func subject(ctx context.Context, task string) string {
 
 // ask sends one prompt to the manager's own agent.
 func (m *manager) ask(ctx context.Context, prompt string) (string, error) {
-	out, err := m.agent.Invoke(ctx, graph.State{"messages": []messages.Message{messages.Human(prompt)}})
+	var acc usageAcc
+	out, err := m.agent.Invoke(context.WithValue(ctx, usageSinkKey{}, &acc), graph.State{"messages": []messages.Message{messages.Human(prompt)}})
+	if u := acc.take(); u.TotalTokens > 0 { // best effort: a dashboard figure must not fail the delivery
+		_ = m.hub.AddUsage(ctx, requestID(ctx), messages.Usage(u))
+	}
 	if err != nil {
 		return "", err
 	}
@@ -124,6 +129,7 @@ func (m *manager) ask(ctx context.Context, prompt string) (string, error) {
 }
 
 func (m *manager) intake(ctx context.Context, s graph.State) (any, error) {
+	_ = m.hub.ClearCancel(ctx, requestID(ctx)) // a new run of a cancelled thread starts clean
 	m.move(ctx, tasktrack.Request, subject(ctx, ""), tasktrack.Received, "manager", head(fmt.Sprint(s["request"]), 80))
 	out, err := m.ask(ctx, fmt.Sprintf("ROLE: manager\nMODE: intake\nREQUEST: %v", s["request"]))
 	if err != nil {
@@ -136,7 +142,13 @@ func (m *manager) intake(ctx context.Context, s graph.State) (any, error) {
 // dispatch queues a job for one of prefer (worker ids or roles) and waits.
 func (m *manager) dispatch(ctx context.Context, prefer []string, thread, prompt, query string) (Job, error) {
 	scope := requestID(ctx)
-	return m.hub.Run(ctx, Job{Prefer: prefer, Thread: scope + "-" + thread, Prompt: prompt, Query: query, Scope: scope})
+	out, err := m.hub.Run(ctx, Job{Prefer: prefer, Thread: scope + "-" + thread, Prompt: prompt, Query: query, Scope: scope})
+	if err != nil && out.Error == CancelledMsg {
+		if id := subject(ctx, ""); m.track.Status(id) != tasktrack.Cancelled {
+			m.move(ctx, tasktrack.Request, id, tasktrack.Cancelled, "user", "cancelled")
+		}
+	}
+	return out, err
 }
 
 // step is a node that hands the request to one role and stores its answer.

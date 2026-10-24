@@ -61,7 +61,7 @@ go run ./examples/langgraph/full_team serve
 go build -o bin/team-mcp ./examples/langgraph/full_team && ./bin/team-mcp serve
 ```
 
-O stdout leva só o protocolo MCP. As linhas de inicialização (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) vão para o stderr. Ele para no fim da entrada (Ctrl-D) ou com um sinal. O modo serve difere da demo em três pontos: nenhum worker recebe a ferramenta `shell`, o manager roda com uma API key aleatória gerada na partida (um `MANAGER_API_KEY` definido pelo operador é ignorado; só a bridge deste processo conhece a chave) e nenhuma demanda é enviada até o chat chamar `team_submit`. As ferramentas são `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume`.
+O stdout leva só o protocolo MCP. As linhas de inicialização (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) vão para o stderr. Ele para no fim da entrada (Ctrl-D) ou com um sinal. O modo serve difere da demo em três pontos: nenhum worker recebe a ferramenta `shell`, o manager roda com uma API key aleatória gerada na partida (um `MANAGER_API_KEY` definido pelo operador é ignorado; só a bridge deste processo conhece a chave) e nenhuma demanda é enviada até o chat chamar `team_submit`. As ferramentas são `team_submit`, `team_status`, `team_queue`, `team_cancel`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume`.
 
 Mais dois fatos sobre o modo serve. O argumento `url` de `graph_run`, `graph_state` e `graph_resume` permite que o chat faça a bridge chamar qualquer URL de Agent Server; a chave do manager só é enviada quando `url` está vazio ou é igual à URL do próprio manager, e qualquer outra URL não recebe chave. O hub e os servidores dos workers escutam em `127.0.0.1` e não têm autenticação, então qualquer processo local pode alcançá-los.
 
@@ -126,6 +126,15 @@ ROLL CALL
 ```
 
 Com um worker fora, as últimas linhas são `10 of 11 present` e `Absent: qa-2`.
+
+## Painel de acompanhamento e cancelamento
+
+Uma página web somente leitura mostra cada pedido e tarefa com status, barra de progresso, tempo de execução e uso de tokens, e cada persona (worker) com estado, job atual, skill, o que está fazendo agora (a referência que consulta, a ferramenta que chama ou o modelo), jobs concluídos, tempo ocupado e tokens. Os tokens também são somados por tarefa, por pedido e no projeto; as chamadas do modelo de conhecimento não entram na conta. Atualiza a cada 2 segundos e mostra apenas status, tempos e contagem de tokens, nunca prompts ou saídas.
+
+- O modo `serve` abre em `http://127.0.0.1:8088` (somente loopback); as outras execuções só o servem com `DASHBOARD_ADDR=host:porta`. A página não tem autenticação: para outra máquina use `DASHBOARD_ADDR=0.0.0.0:8088` atrás de um proxy com autenticação.
+- Cada projeto tem sua própria URL, `http://127.0.0.1:8088/p/<projeto>/` (`/?project=<projeto>` redireciona para ela), e o cabeçalho tem um seletor de projeto. O primeiro time a subir é dono da porta e lista os demais; um time que a encontra ocupada serve numa porta de loopback livre e se registra no dono (somente loopback). O projeto é `WORKSPACE_ROOT`, senão o diretório de trabalho.
+- `team_cancel` (ferramenta MCP, argumento `thread_id`) cancela um pedido: os jobs na fila são descartados, os agentes em execução param no próximo heartbeat e a entrega termina como `cancelled`. A chamada ao modelo em curso do manager ainda termina, e os tokens de um job cancelado não são contados. Enviar a mesma thread de novo começa uma execução limpa.
+- O agente do próprio manager passa pelo mesmo middleware de compressão dos workers.
 
 ## Como testar
 

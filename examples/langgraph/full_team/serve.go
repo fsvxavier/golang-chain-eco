@@ -22,10 +22,11 @@ func serveOptions(key string) (team.LocalOptions, *meter) {
 	dec, _ := decider()
 	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
 	return team.LocalOptions{
-		Middleware: []agents.Middleware{m},
-		Tools:      []tools.Tool{tasksTool()},
-		Offline:    team.OfflineWithTool(tasksToolName),
-		ManagerKey: key,
+		Middleware:        []agents.Middleware{m},
+		ManagerMiddleware: []agents.Middleware{middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}},
+		Tools:             []tools.Tool{tasksTool()},
+		Offline:           team.OfflineWithTool(tasksToolName),
+		ManagerKey:        key,
 	}, m
 }
 

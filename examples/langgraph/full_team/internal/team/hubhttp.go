@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/fsvxavier/golang-chain-eco/core/messages"
 )
 
 const claimWait = 10 * time.Second
@@ -52,6 +55,14 @@ func (h *Hub) Handler(mcp http.Handler) http.Handler {
 			reply(w, 200, j)
 		}
 	})
+	mux.HandleFunc("POST /workers/{id}/activity", func(w http.ResponseWriter, r *http.Request) {
+		var b struct{ Activity string }
+		if err := read(r, &b); err != nil || !h.SetActivity(r.PathValue("id"), head(b.Activity, 120)) {
+			reply(w, 404, map[string]string{"error": ErrUnknownWorker.Error()})
+			return
+		}
+		reply(w, 200, map[string]bool{"ok": true})
+	})
 	mux.HandleFunc("POST /jobs", func(w http.ResponseWriter, r *http.Request) {
 		var j Job
 		if err := read(r, &j); err != nil || j.Thread == "" || len(j.Prefer) == 0 {
@@ -61,12 +72,15 @@ func (h *Hub) Handler(mcp http.Handler) http.Handler {
 		reply(w, 200, map[string]string{"id": h.Submit(j)})
 	})
 	mux.HandleFunc("POST /jobs/{id}/complete", func(w http.ResponseWriter, r *http.Request) {
-		var b struct{ Worker, Output, Error string }
+		var b struct {
+			Worker, Output, Error string
+			Usage                 *messages.Usage
+		}
 		if err := read(r, &b); err != nil {
 			reply(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
-		if err := h.Complete(b.Worker, r.PathValue("id"), b.Output, b.Error); err != nil {
+		if err := h.CompleteUsage(b.Worker, r.PathValue("id"), b.Output, b.Error, b.Usage); err != nil {
 			reply(w, 409, map[string]string{"error": err.Error()})
 			return
 		}
@@ -91,6 +105,17 @@ func (h *Hub) Handler(mcp http.Handler) http.Handler {
 		reply(w, 200, j)
 	})
 	mux.HandleFunc("GET /state", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.Snapshot()) })
+	mux.HandleFunc("GET /jobs", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.Jobs()) })
+	mux.HandleFunc("POST /usage/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var u messages.Usage
+		if err := read(r, &u); err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		h.AddMgrUsage(r.PathValue("id"), u)
+		reply(w, 200, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("GET /usage", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.MgrUsage()) })
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, map[string]bool{"ok": true}) })
 	if mcp != nil {
 		mux.Handle("/mcp", mcp)
@@ -139,23 +164,52 @@ func (c *HubClient) call(ctx context.Context, method, path string, in, out any) 
 
 // Register announces a worker; it returns the lease TTL.
 func (c *HubClient) Register(ctx context.Context, id, role, url, model string) (time.Duration, error) {
+	return c.RegisterInfo(ctx, WorkerInfo{ID: id, Role: role, URL: url, Model: model})
+}
+
+// RegisterInfo is Register for a worker that also reports its skill and references.
+func (c *HubClient) RegisterInfo(ctx context.Context, wi WorkerInfo) (time.Duration, error) {
 	var out struct {
 		TTL float64 `json:"ttl_seconds"`
 	}
-	code, err := c.call(ctx, "POST", "/workers", WorkerInfo{ID: id, Role: role, URL: url, Model: model}, &out)
+	code, err := c.call(ctx, "POST", "/workers", wi, &out)
 	if err == nil && code != 200 {
 		err = fmt.Errorf("hub: register: http %d", code)
 	}
 	return time.Duration(out.TTL * float64(time.Second)), err
 }
 
+// SetActivity tells the hub what the worker is doing now. Best effort: it is
+// only shown on the dashboard.
+func (c *HubClient) SetActivity(ctx context.Context, id, activity string) {
+	_, _ = c.call(ctx, "POST", "/workers/"+id+"/activity", map[string]string{"activity": activity}, nil)
+}
+
 // Heartbeat renews the lease; ErrUnknownWorker means register again.
 func (c *HubClient) Heartbeat(ctx context.Context, id string) error {
-	code, err := c.call(ctx, "POST", "/workers/"+id+"/heartbeat", nil, nil)
-	if err == nil && code == 404 {
-		return ErrUnknownWorker
-	}
+	_, err := c.HeartbeatCancel(ctx, id)
 	return err
+}
+
+// HeartbeatCancel is Heartbeat that also returns the id of a job of this
+// worker that was cancelled since the last heartbeat ("" when none).
+func (c *HubClient) HeartbeatCancel(ctx context.Context, id string) (string, error) {
+	var out struct{ Cancel string }
+	code, err := c.call(ctx, "POST", "/workers/"+id+"/heartbeat", nil, &out)
+	if err == nil && code == 404 {
+		return "", ErrUnknownWorker
+	}
+	return out.Cancel, err
+}
+
+// CancelScope cancels the work of request id and returns how many jobs it ended.
+func (c *HubClient) CancelScope(ctx context.Context, id string) (int, error) {
+	var out struct{ Cancelled int }
+	code, err := c.call(ctx, "POST", "/cancel/"+url.PathEscape(id), nil, &out)
+	if err == nil && code != 200 {
+		err = fmt.Errorf("hub: cancel: http %d", code)
+	}
+	return out.Cancelled, err
 }
 
 // Claim waits for the job reserved for this worker; nil means none yet.
@@ -175,7 +229,12 @@ func (c *HubClient) Claim(ctx context.Context, id string) (*Job, error) {
 
 // Complete reports the result of a job.
 func (c *HubClient) Complete(ctx context.Context, worker, job, output, errMsg string) error {
-	code, err := c.call(ctx, "POST", "/jobs/"+job+"/complete", map[string]string{"worker": worker, "output": output, "error": errMsg}, nil)
+	return c.CompleteUsage(ctx, worker, job, output, errMsg, nil)
+}
+
+// CompleteUsage is Complete that also reports the tokens the job consumed.
+func (c *HubClient) CompleteUsage(ctx context.Context, worker, job, output, errMsg string, u *messages.Usage) error {
+	code, err := c.call(ctx, "POST", "/jobs/"+job+"/complete", map[string]any{"worker": worker, "output": output, "error": errMsg, "usage": u}, nil)
 	if err == nil && code == 409 {
 		return ErrNotOwner
 	}
@@ -204,6 +263,32 @@ func (c *HubClient) Run(ctx context.Context, j Job) (Job, error) {
 			return out, fmt.Errorf("job %s failed: %s", out.ID, out.Error)
 		}
 	}
+}
+
+// AddUsage reports tokens the manager's agent used for request id.
+func (c *HubClient) AddUsage(ctx context.Context, id string, u messages.Usage) error {
+	_, err := c.call(ctx, "POST", "/usage/"+url.PathEscape(id), u, nil)
+	return err
+}
+
+// MgrUsage returns the manager's tokens per request id.
+func (c *HubClient) MgrUsage(ctx context.Context) (map[string]messages.Usage, error) {
+	var m map[string]messages.Usage
+	_, err := c.call(ctx, "GET", "/usage", nil, &m)
+	return m, err
+}
+
+// ClearCancel lifts the cancellation of request id (best effort).
+func (c *HubClient) ClearCancel(ctx context.Context, id string) error {
+	_, err := c.call(ctx, "DELETE", "/cancel/"+url.PathEscape(id), nil, nil)
+	return err
+}
+
+// Jobs returns every job without prompt and output.
+func (c *HubClient) Jobs(ctx context.Context) ([]Job, error) {
+	var js []Job
+	_, err := c.call(ctx, "GET", "/jobs", nil, &js)
+	return js, err
 }
 
 // State returns the registry snapshot.
