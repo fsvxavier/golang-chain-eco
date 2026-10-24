@@ -10,6 +10,9 @@ import (
 // prompt, and makes the three return gates return a task once so the loop back to the
 // engineer is visible: the leader returns T2, the specialist T3 (joint review) and QA T4.
 func Brain(prompt string) string {
+	if strings.Contains(prompt, "ROLL CALL:") {
+		return rollCall(field(prompt, "WORKER:"))
+	}
 	role := field(prompt, "ROLE:")
 	id, attempt := field(prompt, "TASK:"), field(prompt, "ATTEMPT:")
 	switch {
@@ -73,4 +76,22 @@ func Brain(prompt string) string {
 		return "VERDICT: APPROVE\nFEEDBACK: none"
 	}
 	return "OK"
+}
+
+// rollFlavour is each role's way of answering the roll call.
+var rollFlavour = map[string]string{
+	"po": "com a spec debaixo do braço", "leader": "organizando a fila",
+	"junior": "de caderno aberto", "mid": "no ritmo", "senior": "sempre pronto",
+	"specialist": "de lupa na mão", "qa": "testando até a chamada",
+}
+
+// rollCall answers "WORKER: <id> ROLE: <role>" like a pupil in a school roll call.
+func rollCall(line string) string {
+	id, role, _ := strings.Cut(line, " ROLE:")
+	role = strings.TrimSpace(role)
+	flavour := rollFlavour[role]
+	if flavour == "" {
+		flavour = "presente e acordado"
+	}
+	return fmt.Sprintf("Presente! %s (%s), %s", strings.TrimSpace(id), role, flavour)
 }

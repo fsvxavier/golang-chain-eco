@@ -32,7 +32,7 @@ func (h *Hub) Handler(mcp http.Handler) http.Handler {
 			reply(w, 400, map[string]string{"error": "id and role are required"})
 			return
 		}
-		h.Register(wi.ID, wi.Role, wi.URL)
+		h.RegisterInfo(wi)
 		reply(w, 200, map[string]any{"ttl_seconds": h.TTL.Seconds()})
 	})
 	mux.HandleFunc("POST /workers/{id}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
@@ -166,11 +166,11 @@ func (c *HubClient) call(ctx context.Context, method, path string, in, out any) 
 }
 
 // Register announces a worker; it returns the lease TTL.
-func (c *HubClient) Register(ctx context.Context, id, role, url string) (time.Duration, error) {
+func (c *HubClient) Register(ctx context.Context, id, role, url, model string) (time.Duration, error) {
 	var out struct {
 		TTL float64 `json:"ttl_seconds"`
 	}
-	code, err := c.call(ctx, "POST", "/workers", WorkerInfo{ID: id, Role: role, URL: url}, &out)
+	code, err := c.call(ctx, "POST", "/workers", WorkerInfo{ID: id, Role: role, URL: url, Model: model}, &out)
 	if err == nil && code != 200 {
 		err = fmt.Errorf("hub: register: http %d", code)
 	}

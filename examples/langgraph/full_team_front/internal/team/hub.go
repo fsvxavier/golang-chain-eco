@@ -43,11 +43,14 @@ type Job struct {
 
 // WorkerInfo is a registered worker. It is alive while Seen is within the TTL.
 type WorkerInfo struct {
-	ID   string    `json:"id"`
-	Role string    `json:"role"`
-	URL  string    `json:"url"`
-	Job  string    `json:"job,omitempty"` // non-empty means reserved
-	Seen time.Time `json:"seen"`
+	ID   string `json:"id"`
+	Role string `json:"role"`
+	URL  string `json:"url"`
+	// Model is the label of the model the worker was built with ("offline" or
+	// the provider:model spec). Empty for a worker that does not report it.
+	Model string    `json:"model,omitempty"`
+	Job   string    `json:"job,omitempty"` // non-empty means reserved
+	Seen  time.Time `json:"seen"`
 }
 
 // ErrUnknownWorker tells a worker its lease expired: it must register again.
@@ -124,12 +127,18 @@ func (h *Hub) notifyLocked() {
 // Register adds or refreshes a worker. A worker that registers again while
 // holding a job crashed and came back: its job goes back to the queue.
 func (h *Hub) Register(id, role, url string) {
+	h.RegisterInfo(WorkerInfo{ID: id, Role: role, URL: url})
+}
+
+// RegisterInfo is Register for a worker that also reports its model.
+func (h *Hub) RegisterInfo(wi WorkerInfo) {
+	id := wi.ID
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if old := h.workers[id]; old != nil && old.Job != "" {
 		h.requeueLocked(old.Job)
 	}
-	h.workers[id] = &WorkerInfo{ID: id, Role: role, URL: url, Seen: h.now()}
+	h.workers[id] = &WorkerInfo{ID: id, Role: wi.Role, URL: wi.URL, Model: wi.Model, Seen: h.now()}
 	h.scheduleLocked()
 	h.notifyLocked()
 }

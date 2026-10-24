@@ -280,3 +280,27 @@ func TestServeRestoresGlobals(t *testing.T) {
 		t.Errorf("serve leaked globals: log %v console %v", log.Writer(), team.Console)
 	}
 }
+
+func TestServePresentOverStdio(t *testing.T) {
+	c := startServe(t)
+	var found bool
+	for _, x := range c.call("prompts/list", map[string]any{})["prompts"].([]any) {
+		found = found || x.(map[string]any)["name"] == "present"
+	}
+	if !found {
+		t.Fatal("prompts/list lacks present")
+	}
+	got := c.call("prompts/get", map[string]any{"name": "present"})
+	if b, _ := json.Marshal(got); !strings.Contains(string(b), "team_present") {
+		t.Fatalf("prompts/get: %s", b)
+	}
+	roll := c.tool("team_present", map[string]any{})
+	if !strings.Contains(roll, "12 of 12 present") {
+		t.Fatalf("want 12 of 12 in:\n%s", roll)
+	}
+	if got := strings.Count(roll, "present: Presente! "); got != 12 {
+		t.Errorf("%d Presente! lines, want 12:\n%s", got, roll)
+	}
+	t.Log("\n" + roll)
+	c.checkStdout()
+}

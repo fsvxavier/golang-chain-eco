@@ -3,10 +3,13 @@ package team
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/agentprotocol"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
@@ -22,6 +25,10 @@ type Bridge struct {
 	Manager *remote.Client
 	Hub     *HubClient
 	HubURL  string
+	// PresentTimeout bounds each worker's answer to team_present (default 30s).
+	PresentTimeout time.Duration
+	// Expected is the roster team_present checks against; nil means Cast.
+	Expected []struct{ ID, Role string }
 }
 
 // NewBridge reads MANAGER_URL, MANAGER_API_KEY and HUB_URL.
@@ -131,6 +138,8 @@ func (b *Bridge) Tools() []tools.Tool {
 				}
 				return nil, tools.Errorf("team_ask_worker: unknown worker %q (see team_queue)", a.Worker)
 			}),
+		tools.New("team_present", "Roll call: ask every expected worker to answer Presente with its id, role and model. Returns one row per worker and 'N of M present'; workers that are not registered count as absent.",
+			func(ctx context.Context, _ struct{}) (any, error) { return b.rollCall(ctx) }),
 		tools.New("team_memory", "Recall what the team recorded for a request (the hub's memory_search).",
 			func(ctx context.Context, a memArgs) (any, error) {
 				c, err := mcp.Connect(ctx, mcp.HTTP(b.HubURL+"/mcp", nil))
@@ -140,6 +149,142 @@ func (b *Bridge) Tools() []tools.Tool {
 				defer c.Close()
 				return c.CallTool(ctx, "memory_search", map[string]any{"scope": a.Scope, "query": a.Query})
 			}),
+	}
+}
+
+// rollCallPrompt is what each worker receives. The markers are what the
+// offline Brain keys on; a real model just follows the sentence.
+func rollCallPrompt(w WorkerInfo) string {
+	return "ROLL CALL: the teacher is checking attendance.\n" +
+		"WORKER: " + w.ID + " ROLE: " + w.Role + "\n" +
+		"Answer with ONE short line that starts with \"Presente!\" and names you (the worker id), your role and your model."
+}
+
+// rollCall builds the roll from the expected roster merged with the hub: every
+// expected worker gets a row (one that is not registered, e.g. its lease
+// expired, is absent), and a registered worker outside the roster is listed as
+// extra without counting. Registered workers are asked in parallel; the model
+// column comes from the hub, never from the model's answer.
+func (b *Bridge) rollCall(ctx context.Context) (any, error) {
+	s, err := b.Hub.State(ctx)
+	if err != nil {
+		return nil, tools.Errorf("team_present: %v", err)
+	}
+	expected := b.Expected
+	if expected == nil {
+		expected = Cast
+	}
+	type entry struct {
+		w        WorkerInfo
+		extra    bool
+		missing  bool
+		row      string
+		answered bool
+	}
+	reg := map[string]WorkerInfo{}
+	for _, w := range s.Workers {
+		reg[w.ID] = w
+	}
+	var es []*entry
+	for _, c := range expected {
+		if w, ok := reg[c.ID]; ok {
+			delete(reg, c.ID)
+			es = append(es, &entry{w: w})
+		} else {
+			es = append(es, &entry{w: WorkerInfo{ID: c.ID, Role: c.Role}, missing: true})
+		}
+	}
+	for _, w := range s.Workers { // extras, in the hub's id order
+		if _, ok := reg[w.ID]; ok {
+			es = append(es, &entry{w: w, extra: true})
+		}
+	}
+	per := b.PresentTimeout
+	if per <= 0 {
+		per = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, per+5*time.Second) // overall bound
+	defer cancel()
+	var wg sync.WaitGroup
+	for _, e := range es {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			model := e.w.Model
+			if model == "" {
+				model = "unknown"
+			}
+			mark := ""
+			if e.extra {
+				mark = "extra "
+			}
+			status := "absent: not registered (lease expired or never started)"
+			if !e.missing {
+				ans, err := b.askOne(ctx, e.w, per)
+				switch {
+				case err != nil:
+					status = "absent: " + head(err.Error(), 100)
+				case strings.TrimSpace(ans) == "":
+					status = "absent: empty answer"
+				default:
+					status, e.answered = "present: "+head(ans, 160), true
+				}
+			}
+			e.row = fmt.Sprintf("- %s (%s) [model %s] %s%s", e.w.ID, e.w.Role, model, mark, status)
+		}()
+	}
+	wg.Wait()
+	var rows, absent []string
+	n := 0
+	for _, e := range es {
+		rows = append(rows, e.row)
+		switch {
+		case e.extra:
+		case e.answered:
+			n++
+		default:
+			absent = append(absent, e.w.ID)
+		}
+	}
+	out := "ROLL CALL\n" + strings.Join(rows, "\n") + fmt.Sprintf("\n%d of %d present", n, len(expected))
+	if len(absent) > 0 {
+		out += "\nAbsent: " + strings.Join(absent, ", ")
+	}
+	return out, nil
+}
+
+// askOne puts the roll-call prompt to one worker over Agent Protocol, like team_ask_worker.
+func (b *Bridge) askOne(ctx context.Context, w WorkerInfo, d time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, d)
+	defer cancel()
+	res, err := agentprotocol.NewClient(w.URL, "").CreateAndWait(ctx, agentprotocol.RunCreate{
+		AgentID: w.Role, IfNotExists: "create",
+		Messages: []agentprotocol.Message{{Role: "user", Content: rollCallPrompt(w)}},
+	})
+	if err != nil {
+		return "", err
+	}
+	if res.Run != nil && res.Run.Status != "success" {
+		return "", fmt.Errorf("run %s: %s", res.Run.Status, res.Run.Error)
+	}
+	if len(res.Messages) == 0 {
+		return "", errors.New("no messages")
+	}
+	return fmt.Sprint(res.Messages[len(res.Messages)-1].Content), nil
+}
+
+// presentPrompt is the /present slash command: it only tells the chat to call
+// team_present, since a prompt alone cannot make anyone answer.
+func presentPrompt() server.Prompt {
+	return server.Prompt{
+		Name:        "present",
+		Description: "Roll call: every persona answers Presente",
+		Get: func(context.Context, map[string]string) ([]server.PromptMessage, error) {
+			return []server.PromptMessage{{Role: "user", Text: "Call the team_present tool now and print its result as a school roll call: " +
+				"one line per worker with its name, role, model and its answer (keep the word Presente), " +
+				"then end with the summary line 'N of M present' and the list of the absent ones. " +
+				"If the tool is missing or returns an error, say the team integration is not working and show the error."}}, nil
+		},
 	}
 }
 
@@ -226,7 +371,7 @@ func Proxy(ctx context.Context, cmdline string) ([]tools.Tool, error) {
 // context and RAG/CAG/KAG), e.g. "ciam mcp" and "knowledge mcp". A proxy that
 // fails to start is logged and skipped; run it with ServeStdio.
 func (b *Bridge) MCPServer(ctx context.Context) *server.Server {
-	s := server.New("engineering-team", "1.0").AddTool(b.Tools()...).AddTool(b.GraphTools()...)
+	s := server.New("engineering-team", "1.0").AddTool(b.Tools()...).AddTool(b.GraphTools()...).AddPrompt(presentPrompt())
 	for _, k := range []string{"BRIDGE_CIAM_CMD", "BRIDGE_KNOWLEDGE_CMD"} {
 		ts, err := Proxy(ctx, os.Getenv(k))
 		if err != nil {

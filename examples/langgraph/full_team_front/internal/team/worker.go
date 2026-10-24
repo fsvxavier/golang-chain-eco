@@ -91,7 +91,7 @@ func RunWorker(ctx context.Context, cfg WorkerConfig, ln net.Listener) error {
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 
-	w := &worker{cfg: cfg, hub: hub, mc: mc, ap: agentprotocol.NewClient(cfg.URL, "")}
+	w := &worker{cfg: cfg, model: label, hub: hub, mc: mc, ap: agentprotocol.NewClient(cfg.URL, "")}
 	log.Printf("%s: %s up on %s (model %s)", cfg.ID, cfg.Role, cfg.URL, label)
 	ttl := w.register(ctx)
 	go w.heartbeat(ctx, ttl)
@@ -111,10 +111,11 @@ func RunWorker(ctx context.Context, cfg WorkerConfig, ln net.Listener) error {
 }
 
 type worker struct {
-	cfg WorkerConfig
-	hub *HubClient
-	mc  *mcp.Client
-	ap  *agentprotocol.Client
+	cfg   WorkerConfig
+	model string // label from NewModel, reported to the hub
+	hub   *HubClient
+	mc    *mcp.Client
+	ap    *agentprotocol.Client
 }
 
 // connectMCP retries until the hub is up.
@@ -141,7 +142,7 @@ func sleep(ctx context.Context, d time.Duration) {
 // register joins the pool, retrying until the hub answers, and returns the lease TTL.
 func (w *worker) register(ctx context.Context) time.Duration {
 	for {
-		ttl, err := w.hub.Register(ctx, w.cfg.ID, w.cfg.Role, w.cfg.URL)
+		ttl, err := w.hub.Register(ctx, w.cfg.ID, w.cfg.Role, w.cfg.URL, w.model)
 		if err == nil {
 			return ttl
 		}
