@@ -8,7 +8,7 @@ import (
 // brain is the scripted stand-in for the model when no API key is set. It
 // answers in the formats the skills define, keyed by the ROLE line of the
 // prompt, and makes two gates return a task once so the loop back to the
-// engineer is visible: review returns T3, QA returns T2.
+// engineer is visible: the leader returns T2 and the specialist T3 (joint review), QA returns T4.
 func Brain(prompt string) string {
 	role := field(prompt, "ROLE:")
 	id, attempt := field(prompt, "TASK:"), field(prompt, "ATTEMPT:")
@@ -40,10 +40,14 @@ func Brain(prompt string) string {
 			"AC3: At payment the coupon is consumed exactly once, even with concurrent payments.\n" +
 			"AC4: If the payment fails, the coupon becomes available again.\n" +
 			"OUT_OF_SCOPE: coupon authoring UI.\nASSUMPTIONS: one coupon per order."
+	case role == "leader" && field(prompt, "MODE:") == "review" && id == "T2" && attempt == "1":
+		return "VERDICT: RETURN\nFEEDBACK: 1. The endpoint design leaks coupon state: price the cart through the shared pricing module, not a copy of its rules."
+	case role == "leader" && field(prompt, "MODE:") == "review":
+		return "VERDICT: APPROVE\nFEEDBACK: none"
 	case role == "leader":
 		return "TASK|T1|Coupon table and states|low|Schema for coupons and their state machine (AC2).\n" +
 			"TASK|T2|Cart validation endpoint|medium|Validate a code and price the cart without consuming it (AC1, AC2).\n" +
-			"TASK|T3|Atomic reservation with TTL|high|Reserve the last coupon atomically, expiring on TTL (AC3 and the atomicity constraint).\n" +
+			"TASK|T3|Atomic reservation with TTL|high|Reserve the last coupon atomically, expiring on TTL (AC3 and the atomicity constraint).|PREFER:senior-1\n" +
 			"TASK|T4|Confirm and release on payment|high|Idempotent confirm after payment, release on failure (AC3, AC4).\n" +
 			"TASK|T5|Lookup rate limit|low|Throttle coupon lookups per client (security rule)."
 	case role == "engineer":
@@ -55,7 +59,7 @@ func Brain(prompt string) string {
 			id, field(prompt, "WHO:"), attempt, "task"+id, notes)
 	case role == "specialist" && id == "T3" && attempt == "1":
 		return "VERDICT: RETURN\nFEEDBACK: 1. The reservation is not safe when two payments race: make the check and the decrement one atomic step (constraint: atomic consumption)."
-	case role == "qa" && id == "T2" && attempt == "1":
+	case role == "qa" && id == "T4" && attempt == "1":
 		return "VERDICT: RETURN\nFEEDBACK: 1. AC2 fails: an expired coupon returns 200 instead of a rejection. Input: code EXPIRED10, expected 422, got 200."
 	case role == "specialist", role == "qa":
 		return "VERDICT: APPROVE\nFEEDBACK: none"

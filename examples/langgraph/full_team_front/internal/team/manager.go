@@ -33,6 +33,7 @@ type work struct {
 	ID, Title, Complexity, Desc string
 	Assignee, Level             string // worker id and role that built it
 	Code, Feedback              string
+	Prefer                      string // worker id the leader suggests for the first attempt
 	Round                       int
 	Status                      string
 }
@@ -166,16 +167,13 @@ func dossier(s graph.State) string {
 func (m *manager) build(ctx context.Context, s graph.State) (any, error) {
 	brief := dossier(s)
 	m.move(ctx, tasktrack.Request, subject(ctx, ""), tasktrack.TaskAssignment, "tech-leader", "")
-	plan, err := m.dispatch(ctx, []string{"leader"}, "leader", "ROLE: leader\n\n"+brief, fmt.Sprint(s["request"]))
+	plan, err := m.dispatch(ctx, []string{"leader"}, "leader", "ROLE: leader\n\n"+brief+m.workersBlock(ctx), fmt.Sprint(s["request"]))
 	if err != nil {
 		return nil, err
 	}
-	var tasks []work
-	for _, line := range strings.Split(plan.Output, "\n") {
-		if p := strings.SplitN(strings.TrimSpace(line), "|", 5); len(p) == 5 && p[0] == "TASK" {
-			tasks = append(tasks, work{ID: p[1], Title: p[2], Complexity: p[3], Desc: p[4]})
-			m.move(ctx, tasktrack.Task, subject(ctx, p[1]), tasktrack.TaskAssignment, "tech-leader", p[2]+" ("+p[3]+")")
-		}
+	tasks := parsePlan(plan.Output)
+	for _, t := range tasks {
+		m.move(ctx, tasktrack.Task, subject(ctx, t.ID), tasktrack.TaskAssignment, "tech-leader", t.Title+" ("+t.Complexity+")")
 	}
 	if len(tasks) == 0 {
 		return nil, fmt.Errorf("leader produced no tasks: %q", head(plan.Output, 200))
@@ -210,12 +208,61 @@ func (m *manager) build(ctx context.Context, s graph.State) (any, error) {
 	return graph.State{"results": results, "history": history}, nil
 }
 
+// parsePlan reads TASK|id|title|complexity|desc[|PREFER:<worker id>] lines.
+func parsePlan(out string) []work {
+	var tasks []work
+	for _, line := range strings.Split(out, "\n") {
+		p := strings.SplitN(strings.TrimSpace(line), "|", 6)
+		if len(p) < 5 || p[0] != "TASK" {
+			continue
+		}
+		t := work{ID: p[1], Title: p[2], Complexity: p[3], Desc: p[4]}
+		if len(p) == 6 {
+			if v, ok := strings.CutPrefix(strings.TrimSpace(p[5]), "PREFER:"); ok {
+				t.Prefer = strings.TrimSpace(v)
+			} else {
+				t.Desc += "|" + p[5] // a "|" inside the description
+			}
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks
+}
+
+// workersBlock tells the leader who the developers are and what they are doing.
+// Without the registry the leader still plans, just blind to the load.
+func (m *manager) workersBlock(ctx context.Context) string {
+	st, err := m.hub.State(ctx)
+	if err != nil {
+		log.Printf("manager: planning without the workers block: %v", err)
+		return ""
+	}
+	var b strings.Builder
+	for _, w := range st.Workers {
+		if w.Role != "junior" && w.Role != "mid" && w.Role != "senior" {
+			continue
+		}
+		job := "idle"
+		if w.Job != "" {
+			job = "busy with job " + w.Job
+		}
+		fmt.Fprintf(&b, "- %s (%s): %s\n", w.ID, w.Role, job)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n\n## Workers\n" + b.String()
+}
+
 // runTask drives one task until both gates approve or it runs out of rounds.
 // A returned task goes back to the same engineer, with the feedback attached,
 // on the same thread: the engineer remembers what it wrote.
 func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []any, error) {
 	var hist []any
 	prefer := preference[w.Complexity]
+	if w.Prefer != "" {
+		prefer = append([]string{w.Prefer}, prefer...)
+	}
 	for w.Round < MaxRounds {
 		prompt := fmt.Sprintf("ROLE: engineer\n\n%s\n\n## Your task\nTASK: %s\nTITLE: %s\nCOMPLEXITY: %s\nDESCRIPTION: %s\nATTEMPT: %d\n",
 			brief, w.ID, w.Title, w.Complexity, w.Desc, w.Round+1)
@@ -232,7 +279,7 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 		log.Printf("manager: %s built %s (attempt %d)", w.Assignee, w.ID, w.Round+1)
 		hist = append(hist, fmt.Sprintf("%s: %s -> review", w.ID, w.Assignee))
 
-		ok, err := m.gate(ctx, &w, "specialist", "review", &hist, brief, tasktrack.InCodeReview, tasktrack.ReviewApproved, tasktrack.ReviewRejected)
+		ok, err := m.jointReview(ctx, &w, &hist, brief)
 		if err != nil {
 			return w, hist, err
 		}
@@ -253,6 +300,50 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 	w.Status = "blocked"
 	hist = append(hist, w.ID+": blocked")
 	return w, hist, nil
+}
+
+// jointReview has the specialist and the tech lead judge the same submission in
+// one gate. Both always run, so the developer gets every objection at once; the
+// task passes only if both approve. A rejection costs one round, whoever made it.
+func (m *manager) jointReview(ctx context.Context, w *work, hist *[]any, brief string) (bool, error) {
+	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.InCodeReview, "tech-leader/specialist", "built by "+w.Assignee)
+	body := fmt.Sprintf("MODE: review\n\n%s\n\n## Task under review\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nATTEMPT: %d\n\n## Submitted work\n%s\n",
+		brief, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
+	reviewers := []struct{ role, label string }{{"specialist", "specialist"}, {"leader", "tech-leader"}}
+	jobs := make([]Job, len(reviewers))
+	errs := make([]error, len(reviewers))
+	var wg sync.WaitGroup
+	for i, r := range reviewers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			jobs[i], errs[i] = m.dispatch(ctx, []string{r.role}, w.ID+"-review-"+r.role, "ROLE: "+r.role+"\n"+body, w.Title+" "+w.Desc)
+		}()
+	}
+	wg.Wait()
+	var rejected, who, feedback []string
+	for i, r := range reviewers {
+		if errs[i] != nil {
+			return false, errs[i]
+		}
+		who = append(who, jobs[i].Worker)
+		if !strings.HasPrefix(field(jobs[i].Output, "VERDICT:"), "APPROVE") {
+			rejected = append(rejected, jobs[i].Worker)
+			feedback = append(feedback, r.label+": "+after(jobs[i].Output, "FEEDBACK:"))
+		}
+	}
+	if len(rejected) == 0 {
+		m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.ReviewApproved, strings.Join(who, "+"), "")
+		log.Printf("manager: %s review approved %s", strings.Join(who, "+"), w.ID)
+		*hist = append(*hist, fmt.Sprintf("%s: review approved by %s", w.ID, strings.Join(who, " and ")))
+		return true, nil
+	}
+	w.Round++
+	w.Feedback = strings.Join(feedback, "\n")
+	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.ReviewRejected, strings.Join(rejected, "+"), head(w.Feedback, 100))
+	log.Printf("manager: review RETURNED %s by %s (round %d)", w.ID, strings.Join(rejected, "+"), w.Round)
+	*hist = append(*hist, fmt.Sprintf("%s: review returned by %s -> %s | %s", w.ID, strings.Join(rejected, " and "), w.Assignee, head(w.Feedback, 160)))
+	return false, nil
 }
 
 // gate runs one verdict step (review or QA). It reports whether the task passed;

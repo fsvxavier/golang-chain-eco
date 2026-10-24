@@ -313,3 +313,98 @@ func TestPinnedJobFallsBackWhenLeaseExpired(t *testing.T) {
 		t.Fatalf("job must fall back to senior-2, is on %q (%s)", h.jobs[id].Worker, h.jobs[id].Status)
 	}
 }
+
+// resultsOf indexes the manager's per-task results by id.
+func resultsOf(t *testing.T, out map[string]any) map[string]map[string]any {
+	t.Helper()
+	rs, _ := out["results"].([]any)
+	m := map[string]map[string]any{}
+	for _, r := range rs {
+		x := r.(map[string]any)
+		m[fmt.Sprint(x["id"])] = x
+	}
+	if len(m) == 0 {
+		t.Fatalf("no results in %v", out)
+	}
+	return m
+}
+
+func TestJointReviewNeedsBothApprovals(t *testing.T) {
+	c := ctx(t)
+	l, err := StartLocal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Invoke(c, l.ManagerURL, "req-joint", DefaultRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := resultsOf(t, out)["T2"]; fmt.Sprint(r["rounds"]) != "1" || r["status"] != "approved" {
+		t.Fatalf("T2 must be returned once by the tech lead alone: %v", r)
+	}
+	var found bool
+	for _, h := range strings.Split(fmt.Sprint(out["history"]), "T2:") {
+		if strings.Contains(h, "review returned") && strings.Contains(h, "tech-leader:") && !strings.Contains(h, "specialist:") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("history must hold the tech-leader rejection: %v", out["history"])
+	}
+}
+
+// Rework and QA returns go back to whoever wrote the code.
+func TestRejectedWorkReturnsToSameDeveloper(t *testing.T) {
+	c := ctx(t)
+	l, err := StartLocal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Invoke(c, l.ManagerURL, "req-same", DefaultRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := resultsOf(t, out)
+	hist := fmt.Sprint(out["history"])
+	for _, id := range []string{"T2", "T3", "T4"} { // joint review (leader, specialist) and QA returns
+		if res[id]["rounds"] == 0 {
+			t.Fatalf("%s was never returned", id)
+		}
+		for _, w := range []string{"junior-1", "junior-2", "mid-1", "mid-2", "senior-1", "senior-2"} {
+			if w != res[id]["by"] && strings.Contains(hist, id+": "+w+" -> review") {
+				t.Fatalf("%s was reworked by %s but ended by %v: %s", id, w, res[id]["by"], hist)
+			}
+		}
+	}
+}
+
+func TestPlanParsesPreferField(t *testing.T) {
+	ts := parsePlan("TASK|T1|a|low|do a|PREFER:mid-2\nTASK|T2|b|high|do b with | inside?\nnoise")
+	if len(ts) != 2 || ts[0].Prefer != "mid-2" || ts[0].Desc != "do a" || ts[1].Prefer != "" {
+		t.Fatalf("%+v", ts)
+	}
+}
+
+func TestTaskBlockedAfterMaxRounds(t *testing.T) {
+	c := ctx(t)
+	l, err := StartLocalWith(c, LocalOptions{Offline: func(ms []messages.Message) messages.Message {
+		m, _ := messages.LastOfRole(ms, messages.RoleHuman)
+		p := m.Text()
+		if r := field(p, "ROLE:"); r == "specialist" || r == "qa" || (r == "leader" && field(p, "MODE:") == "review") {
+			return messages.AI("VERDICT: RETURN\nFEEDBACK: no")
+		}
+		return messages.AI(Brain(p))
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Invoke(c, l.ManagerURL, "req-block", DefaultRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, r := range resultsOf(t, out) {
+		if r["status"] != "blocked" || fmt.Sprint(r["rounds"]) != "3" {
+			t.Fatalf("%s: %v", id, r)
+		}
+	}
+}
