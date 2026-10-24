@@ -127,6 +127,19 @@ ROLL CALL
 
 Com um worker fora, as últimas linhas são `10 of 11 present` e `Absent: qa-2`.
 
+## Skills vendorizadas
+
+Quatro papéis carregam skills de terceiros em `skills/<papel>/references/<nome>/SKILL.md`; o carregador as acrescenta ao prompt de sistema do papel, ordenadas por nome, sob `## Skill: <nome>`. Elas estão fixadas em `skills/skills.lock` (SHA-256 de cada arquivo) e creditadas em [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md); todas são MIT, cópias aparadas e saneadas das que estão em [full_team_front](../full_team_front/README.pt-BR.md), não os arquivos originais.
+
+| Pasta da persona | Skills | Tamanho |
+|---|---|---|
+| `product-owner` | `contract-first`, `user-stories` | 7,0 KB |
+| `engineering-manager` | `planning-and-task-breakdown` | 3,0 KB |
+| `tech-leader` | `code-review`, `planning-and-task-breakdown` | 5,8 KB |
+| `specialist-reviewer` | `performance-optimization` | 3,9 KB |
+
+O arquiteto, o QA e os três desenvolvedores não têm nenhuma: as skills genéricas disponíveis aqui não servem para eles, e as de front-end (React, design, Playwright) pertencem ao `full_team_front`. Toda referência é reenviada a cada chamada ao modelo do seu papel, então só acrescente uma quando ela compensar os tokens. `skills/skills_test.go` confere que cada entrada do lock está embutida com hash igual, que nenhum arquivo passa de 8 KB nem nenhum papel de 24 KB, que toda referência embutida está no lock e que os avisos cobrem cada origem e licença.
+
 ## O PO mantém os documentos do projeto
 
 O product owner é o único papel que pode gravar, e só por `project_doc_write`: arquivos markdown (`.md`, até 256 KB), com `replace` ou `append`. O local é definido por cada demanda: o campo opcional `docs_roots` do `team_submit` lista os diretórios (relativos ao workspace, ou absolutos sob `WORKSPACE_ROOT`, senão o diretório de trabalho do servidor) onde o PO pode gravar, e um caminho relativo na ferramenta começa no primeiro. Uma demanda sem `docs_roots` não dá ao PO nenhum acesso de escrita. Todo o resto é recusado: outras extensões, caminhos fora dos diretórios citados, `..` e symlinks que levam para fora. Os diretórios chegam à ferramenta pelo hub, pela thread exata do job (`internal/docs`), e o manager os lista no prompt do PO. Um modelo decide o conteúdo: revise o `git diff` desses arquivos depois de uma execução. Código-fonte, e todos os outros papéis, continuam somente leitura para ele.

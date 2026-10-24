@@ -127,6 +127,19 @@ ROLL CALL
 
 With a worker down the last lines read `10 of 11 present` and `Absent: qa-2`.
 
+## Vendored skills
+
+Four roles carry third-party skills under `skills/<role>/references/<name>/SKILL.md`; the loader appends them to the role's system prompt, sorted by name, under `## Skill: <name>`. They are pinned in `skills/skills.lock` (SHA-256 of each file) and credited in [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md); all are MIT, trimmed and sanitised copies of the ones in [full_team_front](../full_team_front/README.md), not the upstream files.
+
+| Persona folder | Skills | Size |
+|---|---|---|
+| `product-owner` | `contract-first`, `user-stories` | 7.0 KB |
+| `engineering-manager` | `planning-and-task-breakdown` | 3.0 KB |
+| `tech-leader` | `code-review`, `planning-and-task-breakdown` | 5.8 KB |
+| `specialist-reviewer` | `performance-optimization` | 3.9 KB |
+
+The architect, QA and the three developers have none: the generic skills available here do not fit them, and the front-end ones (React, design, Playwright) belong to `full_team_front`. Every reference is resent on each model call of its role, so add one only when it earns its tokens. `skills/skills_test.go` checks that each lock entry is embedded with a matching hash, that no file is over 8 KB or any role over 24 KB, that every embedded reference is locked, and that the notices cover each source and licence.
+
 ## The PO keeps the project documents
 
 The product owner is the only role that can write, and only through `project_doc_write`: markdown files (`.md`, up to 256 KB), with `replace` or `append`. Where is set by each demand: the optional `docs_roots` field of `team_submit` lists the directories (relative to the workspace, or absolute under `WORKSPACE_ROOT`, else the server's working directory) where the PO may write, and a relative path in the tool starts at the first one. A demand with no `docs_roots` gives the PO no write access at all. Anything else is refused: other extensions, paths outside the named directories, `..`, and symlinks that lead out. The directories reach the tool through the hub, by the job's exact thread (`internal/docs`), and the manager lists them in the PO prompt. A model decides the content: review `git diff` of those files after a run. Source code, and every other role, stay read-only for it.
