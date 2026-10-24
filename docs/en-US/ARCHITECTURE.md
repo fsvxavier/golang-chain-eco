@@ -155,3 +155,8 @@ todo list, PII scrubbing, human-in-the-loop.
 - **Ponytail and TOON.** `compress.PonytailDirective` is a rules text (no model, no state); `compress.TOONFromJSON` and `TOONShorter` encode JSON (stdlib only, no decoder). Both are decided by the same `Decider` as the other levers. See [COMPRESSION.md](COMPRESSION.md).
 - **Shell path apart.** `compress.RTK` decides before a command runs and reaches `backends.LocalShell` through its `Rewrite` hook, after the `AllowedCommands` check on the original command.
 - **Modules.** `HTTPDecider` talks to the Laya server over `net/http`. The native laya-go decider needs cgo and ONNX Runtime. The root `go.mod` requires laya-go, but only the `laya_native` build tag compiles it (`examples/langgraph/full_team/native` and `examples/langgraph/decider_laya_native`). See [COMPRESSION.md](COMPRESSION.md).
+
+## full_team_front
+
+- **Copy, not import.** `examples/langgraph/full_team_front` copies the team code of `full_team` (its `internal/team`) and changes it: a 12-worker front-end pool, joint specialist and tech-lead review, rework pinned to the same developer, and a PO that reads the backend through read-only tools. Go's `internal` rule is why it is a copy.
+- **Scope from the demand.** `team_submit` carries `backend_roots`, `backend_urls` and `app_url` to the hub as the request's scope; the PO tools read that scope, never free text. See [the example's README](../../examples/langgraph/full_team_front/README.md).

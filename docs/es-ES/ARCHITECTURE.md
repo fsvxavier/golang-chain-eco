@@ -156,3 +156,8 @@ subagents mediante `task` + resumen + memoria opcional (`AGENTS.md`), skills
 - **Ponytail y TOON.** `compress.PonytailDirective` es un texto de reglas (sin modelo, sin estado); `compress.TOONFromJSON` y `TOONShorter` codifican JSON (solo biblioteca estándar, sin decodificador). Ambos los decide el mismo `Decider` que las otras palancas. Vea [COMPRESSION.md](COMPRESSION.md).
 - **Ruta del shell aparte.** `compress.RTK` decide antes de que se ejecute un comando y llega a `backends.LocalShell` por su hook `Rewrite`, tras la comprobación de `AllowedCommands` sobre el comando original.
 - **Módulos.** `HTTPDecider` habla con el servidor Laya por `net/http`. El decider laya-go nativo necesita cgo y ONNX Runtime. El `go.mod` raíz requiere laya-go, pero solo la build tag `laya_native` lo compila (`examples/langgraph/full_team/native` y `examples/langgraph/decider_laya_native`). Véase [COMPRESSION.md](COMPRESSION.md).
+
+## full_team_front
+
+- **Copia, no importación.** `examples/langgraph/full_team_front` copia el código del equipo de `full_team` (su `internal/team`) y lo cambia: un pool de 12 workers de front-end, revisión conjunta de especialista y tech lead, corrección fijada al mismo desarrollador, y un PO que lee el backend con herramientas de solo lectura. La regla `internal` de Go es el motivo de la copia.
+- **Alcance que viene de la demanda.** `team_submit` lleva `backend_roots`, `backend_urls` y `app_url` al hub como alcance de la petición; las herramientas del PO leen ese alcance, nunca texto libre. Véase [el README del ejemplo](../../examples/langgraph/full_team_front/README.es-ES.md).

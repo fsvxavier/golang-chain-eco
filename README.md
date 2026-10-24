@@ -766,7 +766,7 @@ Never put keys in code or in repositories; use environment variables or a secret
 
 ## Runnable examples
 
-74 examples in [`examples/`](examples/) (36 ported from the base projects, 3 original to LangGraph, 1 for evals, 6 integrations, 6 for RAG/CAG/KAG, 5 for LangMem, 2 for Agent Protocol, 2 for ciam, 4 for Open SWE and 9 for call compression) (index in [examples/README.md](examples/README.md)). Without an API key they use a fake model. Each example folder has a README in English, Portuguese and Spanish.
+75 examples in [`examples/`](examples/) (36 ported from the base projects, 3 original to LangGraph, 1 for evals, 6 integrations, 6 for RAG/CAG/KAG, 5 for LangMem, 2 for Agent Protocol, 2 for ciam, 4 for Open SWE, 9 for call compression and 1 for the front-end team) (index in [examples/README.md](examples/README.md)). Without an API key they use a fake model. Each example folder has a README in English, Portuguese and Spanish.
 
 ```bash
 go run ./examples/langchain/chain         # prompt | model | parser
