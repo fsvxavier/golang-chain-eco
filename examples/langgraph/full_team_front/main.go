@@ -66,12 +66,12 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	dir, err := os.MkdirTemp("", "full_team")
+	dir, err := os.MkdirTemp("", "full_team_front")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	st := newStack(dir, dir)
+	st := newStack(dir, dir, true)
 	m, source := st.m, st.source
 
 	// The demo demand names the fake backend: its source tree written into the
@@ -121,10 +121,14 @@ type stack struct {
 
 // newStack builds the options. dir is the shell tool's scratch directory;
 // workspace is the backend read root ("" means WORKSPACE_ROOT, else the cwd).
-func newStack(dir, workspace string) *stack {
+// withShell false gives no role a shell (serve mode).
+func newStack(dir, workspace string, withShell bool) *stack {
 	dec, source := decider()
 	rtk := compress.NewRTK(dec)
-	shell := shellTool(dir, rtk)
+	var shell tools.Tool
+	if withShell {
+		shell = shellTool(dir, rtk)
+	}
 	// Keep 1 (default 4): the offline threads are short, so they need an old
 	// turn to compress. NewCompression's guard is kept by wrapping it here.
 	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
@@ -175,10 +179,15 @@ func scripted(ctx context.Context, st compress.State, qs []compress.Question) ([
 
 // allowedPrograms is what the shell tool may run. Offline, the scripted run
 // keeps go and git (it never calls the tool, so this is for the demo shape).
-// With a real provider key the model is a live one that can write files, so
-// go and git (which run code) are withheld: ls, grep and echo only.
+// When any role has a live model (a provider key, AGENT_MODEL or
+// AGENT_MODEL_<ROLE>), go and git (which run code) are withheld: ls, grep and
+// echo only.
 func allowedPrograms(getenv func(string) string) []string {
-	if getenv("ANTHROPIC_API_KEY") != "" || getenv("OPENAI_API_KEY") != "" {
+	live := getenv("ANTHROPIC_API_KEY") != "" || getenv("OPENAI_API_KEY") != ""
+	for _, r := range team.Roles {
+		live = live || team.ModelSpec(r) != ""
+	}
+	if live {
 		return []string{"ls", "grep", "echo"}
 	}
 	return []string{"go", "git", "ls", "grep", "echo"}
@@ -219,10 +228,19 @@ func tasksTool() tools.Tool {
 		func(context.Context, struct{}) (any, error) { return backlog, nil })
 }
 
+// shellEnv is all the shell's child processes see: PATH and a HOME inside the
+// scratch directory, so no provider key or other secret reaches a command.
+func shellEnv(dir string) []string {
+	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir}
+}
+
 // shellTool runs allowlisted commands in dir. Simple ones go through rtk when
 // the decider routes them; rtk.Executor records output sizes for that decision.
+// The command line is refused when it holds a redirection, an expansion or a
+// backtick: the library's allowlist splits on ; & | and newlines only, so
+// "echo $KEY" or "echo x >> ~/.bashrc" would otherwise pass it.
 func shellTool(dir string, rtk *compress.RTK) tools.Tool {
-	env := os.Environ()
+	env := shellEnv(dir)
 	rtk.Env = env
 	allowed := allowedPrograms(os.Getenv)
 	sh := backends.LocalShell{
@@ -232,8 +250,11 @@ func shellTool(dir string, rtk *compress.RTK) tools.Tool {
 		Rewrite:         rtk.Rewrite,
 	}
 	run := rtk.Executor(sh)
-	return tools.New("shell", "Run one shell command in the team workspace. Allowed programs: "+strings.Join(allowed, ", ")+".",
+	return tools.New("shell", "Run one shell command in the team workspace (no redirections, no $ or backticks). Allowed programs: "+strings.Join(allowed, ", ")+".",
 		func(ctx context.Context, a shellArgs) (any, error) {
+			if strings.ContainsAny(a.Command, "<>$`") {
+				return nil, tools.Errorf("shell: redirections (< >), $ and backticks are not allowed")
+			}
 			res, err := run.Execute(ctx, a.Command, 30*time.Second)
 			if err != nil {
 				return nil, err
@@ -330,10 +351,10 @@ func textBytes(msgs []messages.Message) int {
 
 // workerTools is each role's own tools: the shell for everyone but the PO,
 // which is read-only (a shell would be a side door around the backend guards),
-// the PO's backend tools and QA's tools.
+// the PO's backend tools and QA's tools. A nil shell (serve mode) drops it for all.
 func workerTools(shell tools.Tool, hub func() *team.HubClient, dir string) func(role string) []tools.Tool {
 	notPO := func(role string) []tools.Tool {
-		if role == "po" {
+		if role == "po" || shell == nil {
 			return nil
 		}
 		return []tools.Tool{shell}

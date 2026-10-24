@@ -223,10 +223,19 @@ func TestServeStopsOnEOF(t *testing.T) {
 func TestServeStopsOnContextCancel(t *testing.T) {
 	inR, inW := io.Pipe() // stays open and idle
 	defer inW.Close()
+	outR, outW := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, inR, io.Discard, io.Discard) }()
-	time.Sleep(500 * time.Millisecond) // team up, server blocked on stdin
+	go func() { done <- serve(ctx, inR, outW, io.Discard) }()
+	// The first reply proves the team is up and the server blocked on stdin.
+	fmt.Fprintln(inW, `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
+	replied := make(chan struct{})
+	go func() { _, _ = bufio.NewReader(outR).ReadString('\n'); close(replied) }()
+	select {
+	case <-replied:
+	case <-time.After(30 * time.Second):
+		t.Fatal("no tools/list reply")
+	}
 	cancel()
 	select {
 	case err := <-done:
@@ -235,6 +244,24 @@ func TestServeStopsOnContextCancel(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve did not stop on cancel while stdin was idle")
+	}
+}
+
+// A signal while the team is still starting is a clean shutdown, and prompt.
+func TestServeCancelDuringStartupIsClean(t *testing.T) {
+	inR, inW := io.Pipe()
+	defer inW.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan error, 1)
+	go func() { done <- serve(ctx, inR, io.Discard, io.Discard) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("serve returned %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not return promptly when cancelled during startup")
 	}
 }
 

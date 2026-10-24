@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -45,29 +46,46 @@ type LocalOptions struct {
 	// CallCounter counts the backend calls of a request id for the manager's
 	// evidence rule (see RunManager). Nil skips the call-count half of the rule.
 	CallCounter func(requestID string) int
+	// ManagerAPIKey, when set, is the x-api-key the manager requires (and wins
+	// over MANAGER_API_KEY). Empty keeps the environment's value.
+	ManagerAPIKey string
 }
 
-// StartLocal brings up hub, manager and the 11 workers. It returns when the hub
-// answers; workers register in the background.
+// StartLocal brings up hub, manager and the 12 workers. It returns when the hub
+// answers and every worker has registered.
 func StartLocal(ctx context.Context) (*Local, error) {
 	return StartLocalWith(ctx, LocalOptions{})
 }
 
 // StartLocalWith is StartLocal with middleware and tools given to every worker.
-func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
+// A failure (or ctx ending) while starting stops what already runs and waits
+// for it before returning.
+func StartLocalWith(ctx context.Context, opts LocalOptions) (_ *Local, err error) {
+	ctx, cancel := context.WithCancel(ctx)
 	l := &Local{Workers: map[string]context.CancelFunc{}}
+	defer func() {
+		if err != nil {
+			cancel()
+			l.wg.Wait()
+		}
+	}()
 	hubLn, hubURL, err := listen()
 	if err != nil {
 		return nil, err
 	}
 	mgrLn, mgrURL, err := listen()
 	if err != nil {
+		hubLn.Close()
 		return nil, err
 	}
 	l.HubURL, l.ManagerURL = hubURL, mgrURL
+	key := opts.ManagerAPIKey
+	if key == "" {
+		key = os.Getenv("MANAGER_API_KEY")
+	}
 	l.wg.Add(2)
 	go func() { defer l.wg.Done(); _ = RunHub(ctx, hubLn) }()
-	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn, opts.CallCounter) }()
+	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn, opts.CallCounter, key) }()
 	for _, c := range Cast {
 		ln, _, err := listen()
 		if err != nil {
@@ -77,8 +95,8 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
 		if opts.RoleTools != nil {
 			ts = append(append([]tools.Tool(nil), opts.Tools...), opts.RoleTools(c.Role)...)
 		}
-		wctx, cancel := context.WithCancel(ctx)
-		l.Workers[c.ID] = cancel
+		wctx, wcancel := context.WithCancel(ctx)
+		l.Workers[c.ID] = wcancel
 		l.wg.Add(1)
 		go func() {
 			defer l.wg.Done()
@@ -89,10 +107,16 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (*Local, error) {
 	hc := NewHubClient(hubURL)
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if s, err := hc.State(ctx); err == nil && len(s.Workers) == len(Cast) {
 			return l, nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 	return nil, fmt.Errorf("team did not come up")
 }

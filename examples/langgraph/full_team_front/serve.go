@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"io"
 	"log"
 	"os"
@@ -21,14 +23,27 @@ func serve(ctx context.Context, in io.Reader, out, errw io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	dir, err := os.MkdirTemp("", "full_team")
+	dir, err := os.MkdirTemp("", "full_team_front")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	st := newStack(dir, "") // backend reads are limited to WORKSPACE_ROOT, else the cwd
+	// No shell for any role: serve handles real demands, and the developer's
+	// output is text. Backend reads are limited to WORKSPACE_ROOT, else the cwd.
+	st := newStack(dir, "", false)
+	// Only the bridge may call the manager: a random key per run (an operator's
+	// MANAGER_API_KEY is ignored here).
+	kb := make([]byte, 32)
+	if _, err := rand.Read(kb); err != nil {
+		return err
+	}
+	key := hex.EncodeToString(kb)
+	st.opts.ManagerAPIKey = key
 	l, err := team.StartLocalWith(ctx, st.opts)
 	if err != nil {
+		if ctx.Err() != nil { // cancelled while starting: a clean stop
+			return nil
+		}
 		return err
 	}
 	defer func() {
@@ -38,7 +53,9 @@ func serve(ctx context.Context, in io.Reader, out, errw io.Writer) error {
 	}()
 	st.hub.Store(team.NewHubClient(l.HubURL))
 
-	b := &team.Bridge{Manager: remote.NewClient(l.ManagerURL), Hub: team.NewHubClient(l.HubURL), HubURL: l.HubURL}
+	mgr := remote.NewClient(l.ManagerURL)
+	mgr.APIKey = key
+	b := &team.Bridge{Manager: mgr, Hub: team.NewHubClient(l.HubURL), HubURL: l.HubURL}
 	err = b.MCPServer(ctx).ServeStdio(ctx, newCtxReader(ctx, in), out)
 	if ctx.Err() != nil { // cancelled by the caller (a signal): a clean stop
 		err = nil

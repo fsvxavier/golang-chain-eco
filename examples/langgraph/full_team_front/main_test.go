@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +16,31 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/team"
 )
 
+func clearModelEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{"AGENT_MODEL", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"} {
+		t.Setenv(k, "")
+	}
+	for _, r := range team.Roles {
+		t.Setenv("AGENT_MODEL_"+strings.ToUpper(r), "")
+	}
+}
+
+// A live model chosen with AGENT_MODEL or AGENT_MODEL_<ROLE> and no provider
+// key in this process (a proxy, a keyless local model) still loses go and git.
+func TestAllowedProgramsWithLiveModelButNoKey(t *testing.T) {
+	for _, k := range []string{"AGENT_MODEL", "AGENT_MODEL_QA"} {
+		clearModelEnv(t)
+		t.Setenv(k, "openai:x")
+		got := allowedPrograms(func(string) string { return "" })
+		if want := []string{"ls", "grep", "echo"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("with %s = %v, want %v", k, got, want)
+		}
+	}
+}
+
 func TestAllowedProgramsWithProviderKey(t *testing.T) {
+	clearModelEnv(t)
 	env := func(keys map[string]string) func(string) string {
 		return func(k string) string { return keys[k] }
 	}
@@ -89,5 +116,54 @@ func TestPOGetsNoShell(t *testing.T) {
 		if !names(r)["shell"] {
 			t.Errorf("%s lost the shell", r)
 		}
+	}
+}
+
+// Serve mode gives no role a shell: developer output is text.
+func TestServeStackHasNoShell(t *testing.T) {
+	st := newStack(t.TempDir(), "", false)
+	for _, r := range []string{"po", "junior", "mid", "senior", "leader", "specialist", "qa"} {
+		for _, tl := range st.opts.RoleTools(r) {
+			if tl.Name() == "shell" {
+				t.Errorf("serve gave %s a shell", r)
+			}
+		}
+	}
+	if len(workerTools(nil, func() *team.HubClient { return nil }, t.TempDir())("po")) == 0 {
+		t.Error("nil shell must only drop the shell, not the other tools")
+	}
+}
+
+// The demo shell refuses redirections, expansions and backticks before bash sees them.
+func TestDemoShellRejectsExpansionAndRedirects(t *testing.T) {
+	clearModelEnv(t)
+	dir := t.TempDir()
+	sh := shellTool(dir, compress.NewRTK(compress.FuncDecider(scripted)))
+	for _, cmd := range []string{"echo $ANTHROPIC_API_KEY", "echo x > f", "echo x >> f", "cat < f", "echo `id`"} {
+		if _, err := sh.Call(context.Background(), map[string]any{"command": cmd}); err == nil {
+			t.Errorf("%q was accepted", cmd)
+		}
+	}
+	if _, err := os.Stat(dir + "/f"); err == nil {
+		t.Error("a redirect wrote a file")
+	}
+	if out, err := sh.Call(context.Background(), map[string]any{"command": "echo hi"}); err != nil || !strings.Contains(fmt.Sprint(out), "hi") {
+		t.Errorf("echo hi: %v, %v", out, err)
+	}
+}
+
+// The shell's child process gets PATH and HOME only: no provider keys.
+func TestShellEnvHasNoSecrets(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-fake")
+	t.Setenv("OPENAI_API_KEY", "sk-fake2")
+	dir := t.TempDir()
+	env := shellEnv(dir)
+	for _, e := range env {
+		if strings.Contains(e, "API_KEY") || strings.Contains(e, "sk-fake") {
+			t.Errorf("env leaks %q", e)
+		}
+	}
+	if !slices.Contains(env, "HOME="+dir) {
+		t.Errorf("env = %v, want HOME=%s", env, dir)
 	}
 }
