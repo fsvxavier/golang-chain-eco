@@ -239,7 +239,7 @@ func TestBracketsToAny(t *testing.T) {
 		"[[=l=]]ink": "?ink", "[[.l.]]ink": "?ink", "[[.-.]l]ink": "?ink", "[[.].]l]ink": "?ink", "[x[=l=]]ink": "?ink",
 		"[[=l=]][[=i=]]nk": "??nk", "[[:alpha:]]ink": "?ink", "[[:digit:][:alpha:]]ink": "?ink", "[!]]ink": "?ink", "[^]]ink": "?ink",
 		"[^]x]ink": "?ink", "[!]x]ink": "?ink", "[l-]ink": "?ink", "[a-]ink": "?ink", "[!.]ink": "?ink", "[[:lower:]]*": "?*",
-		"[l]]ink": "?]ink", "[[]l]ink": "?l]ink", "[link": "[link", "l[ink": "l[ink", "[[:alpha:]": "[?", "[[:alpha:]ink": "[?ink",
+		"[l]]ink": "?]ink", "[[]l]ink": "?l]ink", "[link": `\[link`, "l[ink": `l\[ink`, "[[:alpha:]": `\[?`, "[[:alpha:]ink": `\[?ink`,
 	} {
 		if got := bracketsToAny(in); got != want {
 			t.Errorf("bracketsToAny(%q) = %q, want %q", in, got, want)
@@ -271,6 +271,34 @@ func TestShellBracketForms(t *testing.T) {
 		out, err := runShell(t, sh, cmd)
 		if err == nil {
 			t.Errorf("%q accepted, output %.80q", cmd, out)
+		}
+	}
+}
+
+// A symlink to the outside whose own name holds a literal [: bash reads an
+// unterminated [ as a literal, Go's Glob calls it a bad pattern.
+func TestShellRejectsUnterminatedBracketThroughSymlink(t *testing.T) {
+	parent := t.TempDir()
+	dir, outside := filepath.Join(parent, "work"), filepath.Join(parent, "outside")
+	for _, d := range []string{dir, outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("SECRETMARK"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"[link", "l[ink"} {
+		if err := os.Symlink(outside, filepath.Join(dir, n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dec, _ := decider()
+	sh := shellTool(dir, compress.NewRTK(dec))
+	for _, cmd := range []string{"ls l[*", "ls [li?k", "ls [[:alpha:]ink", "grep -r SECRETMARK l[*", "ls [link", "ls l[ink"} {
+		out, err := runShell(t, sh, cmd)
+		if err == nil || strings.Contains(out, "SECRETMARK") || strings.Contains(out, "link ->") {
+			t.Errorf("%q accepted (err %v), output %.80q", cmd, err, out)
 		}
 	}
 }
