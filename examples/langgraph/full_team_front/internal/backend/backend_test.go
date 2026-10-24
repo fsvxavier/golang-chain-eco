@@ -190,8 +190,8 @@ func TestGetRefusesNameResolvingToLoopback(t *testing.T) {
 	defer srv.Close()
 	u := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
 	ts := Tools(fixed(team.Scope{URLs: []string{u}}), Config{})
-	if out, err := call(t, ts, "backend_get", map[string]any{"url": u}); err == nil {
-		t.Errorf("localhost -> 127.0.0.1 must be refused: %q", out)
+	if out, err := call(t, ts, "backend_get", map[string]any{"url": u}); err == nil || !strings.Contains(err.Error(), "not named as an IP") {
+		t.Errorf("localhost -> loopback must be refused by the dial guard: %q, %v", out, err)
 	}
 	if specialIP("169.254.169.254") == false || specialIP("::1") == false || specialIP("0.0.0.0") == false || specialIP("10.1.2.3") {
 		t.Error("specialIP classification")

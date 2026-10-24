@@ -80,4 +80,19 @@ func TestOfflineRunPOUsesBackendTools(t *testing.T) {
 	if fmt.Sprint(out["report"]) == "" {
 		t.Fatal("run did not complete")
 	}
+
+	// No backend named: the PO calls nothing and says so in OPEN ITEMS.
+	before := fmt.Sprint(n)
+	mu.Unlock()
+	out, err = team.Invoke(c, l.ManagerURL, "req-none", team.DefaultRequest)
+	mu.Lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(n) != before {
+		t.Errorf("PO called backend tools with no backend named: %v -> %v", before, n)
+	}
+	if spec := fmt.Sprint(out["spec"]); !strings.Contains(spec, "OPEN ITEMS:\n- No backend was named") || strings.Contains(spec, "UNVERIFIED") {
+		t.Errorf("no-backend spec: %s", spec)
+	}
 }
