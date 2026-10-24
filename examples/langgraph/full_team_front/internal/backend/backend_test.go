@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
@@ -139,6 +140,12 @@ func TestGetRefusesNonGetAndUnnamedHost(t *testing.T) {
 	if out, err := call(t, ts, "backend_get", map[string]any{"url": srv.URL + "/x"}); err != nil || !strings.Contains(out, "GET ok") {
 		t.Fatalf("named host: %q, %v", out, err)
 	}
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1) }))
+	defer target.Close()
+	if _, err := call(t, ts, "backend_get", map[string]any{"url": target.URL + "/x"}); err == nil || hits.Load() != 0 {
+		t.Errorf("unnamed host: err %v, %d requests reached it; want refusal and 0", err, hits.Load())
+	}
 	for _, u := range []string{"http://127.0.0.1:1/x", "file:///etc/passwd", "ftp://" + strings.TrimPrefix(srv.URL, "http://"), "http://user@" + strings.TrimPrefix(srv.URL, "http://") + ".evil/"} {
 		if _, err := call(t, ts, "backend_get", map[string]any{"url": u}); err == nil {
 			t.Errorf("get %q must be refused", u)
@@ -147,7 +154,8 @@ func TestGetRefusesNonGetAndUnnamedHost(t *testing.T) {
 }
 
 func TestGetRefusesRedirectToOtherHost(t *testing.T) {
-	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "other") }))
+	var otherHits atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { otherHits.Add(1); fmt.Fprint(w, "other") }))
 	defer other.Close()
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -165,17 +173,21 @@ func TestGetRefusesRedirectToOtherHost(t *testing.T) {
 	if out, err := call(t, ts, "backend_get", map[string]any{"url": srv.URL + "/away"}); err == nil || strings.Contains(out, "other") {
 		t.Errorf("redirect to another host: %q, %v", out, err)
 	}
+	if otherHits.Load() != 0 {
+		t.Errorf("redirect target was hit %d times, want 0", otherHits.Load())
+	}
 	if out, err := call(t, ts, "backend_get", map[string]any{"url": srv.URL + "/home"}); err != nil || !strings.Contains(out, "home") {
 		t.Errorf("redirect within the host: %q, %v", out, err)
 	}
 }
 
 func TestGetRefusesLoopbackUnlessNamed(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "loop") }))
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1); fmt.Fprint(w, "loop") }))
 	defer srv.Close()
 	ts := Tools(fixed(team.Scope{URLs: []string{"http://api.example.invalid:8080"}}), Config{})
-	if _, err := call(t, ts, "backend_get", map[string]any{"url": srv.URL}); err == nil {
-		t.Error("loopback must be refused when another host is named")
+	if _, err := call(t, ts, "backend_get", map[string]any{"url": srv.URL}); err == nil || hits.Load() != 0 {
+		t.Errorf("loopback must be refused when another host is named: err %v, %d hits", err, hits.Load())
 	}
 	ts = Tools(fixed(team.Scope{URLs: []string{srv.URL}}), Config{})
 	if out, err := call(t, ts, "backend_get", map[string]any{"url": srv.URL}); err != nil || !strings.Contains(out, "loop") {
@@ -183,18 +195,92 @@ func TestGetRefusesLoopbackUnlessNamed(t *testing.T) {
 	}
 }
 
-// A named host that resolves to a loopback IP is caught at dial time: only an
-// IP literal in the scope unlocks a loopback address.
-func TestGetRefusesNameResolvingToLoopback(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "loop") }))
+// The name localhost may be named, and then reaches only loopback IPs. Any
+// other name resolving to a special IP is caught at dial time.
+func TestGetNamedLocalhost(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1); fmt.Fprint(w, "loop") }))
 	defer srv.Close()
 	u := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
 	ts := Tools(fixed(team.Scope{URLs: []string{u}}), Config{})
-	if out, err := call(t, ts, "backend_get", map[string]any{"url": u}); err == nil || !strings.Contains(err.Error(), "not named as an IP") {
-		t.Errorf("localhost -> loopback must be refused by the dial guard: %q, %v", out, err)
+	if out, err := call(t, ts, "backend_get", map[string]any{"url": u}); err != nil || !strings.Contains(out, "loop") {
+		t.Errorf("named localhost: %q, %v", out, err)
+	}
+	n := hits.Load()
+	ts = Tools(fixed(team.Scope{URLs: []string{"http://api.example.invalid"}}), Config{})
+	if _, err := call(t, ts, "backend_get", map[string]any{"url": u}); err == nil || hits.Load() != n {
+		t.Errorf("unnamed localhost: err %v, hits %d -> %d", err, n, hits.Load())
+	}
+	lit := map[string]bool{"10.9.9.9:80": true}
+	for _, tc := range []struct {
+		host, addr string
+		ok         bool
+	}{
+		{"localhost", "127.0.0.1:80", true},
+		{"localhost", "[::1]:80", true},
+		{"localhost", "10.0.0.1:80", false}, // localhost must stay loopback
+		{"api.internal", "127.0.0.1:80", false},
+		{"api.internal", "169.254.169.254:80", false},
+		{"api.internal", "10.0.0.1:80", true},
+		{"127.0.0.1", "127.0.0.1:80", false}, // not named as a literal here
+		{"10.9.9.9", "10.9.9.9:80", true},
+	} {
+		if err := checkDial(tc.host, tc.addr, lit); (err == nil) != tc.ok {
+			t.Errorf("checkDial(%s, %s) = %v, want ok=%v", tc.host, tc.addr, err, tc.ok)
+		}
+	}
+	if !checkDialOK("127.0.0.1", "127.0.0.1:80", map[string]bool{"127.0.0.1:80": true}) {
+		t.Error("a named loopback literal must pass")
 	}
 	if specialIP("169.254.169.254") == false || specialIP("::1") == false || specialIP("0.0.0.0") == false || specialIP("10.1.2.3") {
 		t.Error("specialIP classification")
+	}
+}
+
+func checkDialOK(host, addr string, lit map[string]bool) bool {
+	return checkDial(host, addr, lit) == nil
+}
+
+// Empty roots grant nothing, and relative roots hang off the workspace, never
+// off the process cwd.
+func TestRootsResolveAgainstWorkspace(t *testing.T) {
+	ws, root := workspace(t)
+	t.Chdir(ws) // an empty root must not become the cwd, here the whole workspace
+	ts := Tools(fixed(team.Scope{Roots: []string{""}}), Config{WorkspaceRoot: ws})
+	if out, err := call(t, ts, "backend_read", map[string]any{"path": filepath.Join(ws, "secret.txt")}); err == nil {
+		t.Errorf("empty root read the workspace: %q", out)
+	}
+	t.Chdir(t.TempDir())
+	ts = Tools(fixed(team.Scope{Roots: []string{"root"}}), Config{WorkspaceRoot: ws})
+	if out, err := call(t, ts, "backend_read", map[string]any{"path": "a.txt"}); err != nil || out != "coupon handler body" {
+		t.Errorf("relative root: %q, %v", out, err)
+	}
+	ts = Tools(fixed(team.Scope{Roots: []string{"."}}), Config{WorkspaceRoot: ws})
+	if out, err := call(t, ts, "backend_read", map[string]any{"path": filepath.Join(root, "a.txt")}); err != nil || out != "coupon handler body" {
+		t.Errorf("root '.': %q, %v", out, err)
+	}
+}
+
+// grep stops on a cancelled context and after maxGrepFiles files.
+func TestGrepLimits(t *testing.T) {
+	ws, root := workspace(t)
+	big := filepath.Join(root, "node_modules")
+	os.MkdirAll(big, 0o755)
+	for i := range 20 {
+		os.WriteFile(filepath.Join(big, fmt.Sprintf("f%02d.js", i)), []byte("coupon\n"), 0o644)
+	}
+	ts := Tools(fixed(team.Scope{Roots: []string{root}}), Config{WorkspaceRoot: ws})
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if out, err := find(t, ts, "backend_grep").Call(cctx, map[string]any{"pattern": "coupon", "path": "."}); err == nil {
+		t.Errorf("cancelled grep: %v", out)
+	}
+	old := maxGrepFiles
+	maxGrepFiles = 5
+	defer func() { maxGrepFiles = old }()
+	out, err := call(t, ts, "backend_grep", map[string]any{"pattern": "coupon", "path": "."})
+	if err != nil || strings.Count(out, "coupon") > 5 || !strings.Contains(out, "stopped after 5 files") {
+		t.Errorf("file cap: %q, %v", out, err)
 	}
 }
 

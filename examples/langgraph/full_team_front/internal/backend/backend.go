@@ -156,7 +156,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 				if err != nil {
 					return nil, tools.Errorf("backend_grep: %v", err)
 				}
-				out, err := grep(p, re, cfg.MaxBytes)
+				out, err := grep(ctx, p, re, cfg.MaxBytes)
 				if err != nil {
 					return nil, tools.Errorf("backend_grep: %v", err)
 				}
@@ -203,6 +203,12 @@ func resolvePath(workspace string, roots []string, p string) (string, error) {
 	}
 	var allowed []string
 	for _, r := range roots {
+		if strings.TrimSpace(r) == "" {
+			continue // an empty root grants nothing
+		}
+		if !filepath.IsAbs(r) {
+			r = filepath.Join(ws, r) // relative roots hang off the workspace, not the cwd
+		}
 		if rr, err := resolved(r); err == nil && within(rr, ws) {
 			allowed = append(allowed, rr)
 		}
@@ -275,22 +281,36 @@ func read(p string, max int) (string, error) {
 	return capped(f, max)
 }
 
+// maxGrepFiles caps the files one grep opens, so a node_modules tree cannot
+// keep it busy past its usefulness.
+var maxGrepFiles = 5000
+
 // grep walks p without following symlinks (WalkDir never descends into them,
-// and symlinked files are skipped), stopping once the output reaches max.
-func grep(p string, re *regexp.Regexp, max int) (string, error) {
+// and symlinked files are skipped). It stops when ctx ends, once the output
+// reaches max, or after maxGrepFiles files.
+func grep(ctx context.Context, p string, re *regexp.Regexp, max int) (string, error) {
 	var b strings.Builder
-	full := false
+	full, files := false, 0
 	base := filepath.Dir(p)
 	if info, err := os.Stat(p); err == nil && info.IsDir() {
 		base = p
 	}
 	err := filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil || full {
 			return nil
 		}
 		if d.Type()&fs.ModeSymlink != 0 || !d.Type().IsRegular() {
 			return nil
 		}
+		if files >= maxGrepFiles {
+			full = true
+			fmt.Fprintf(&b, "[truncated: stopped after %d files]\n", maxGrepFiles)
+			return filepath.SkipAll
+		}
+		files++
 		f, err := os.Open(path)
 		if err != nil {
 			return nil
@@ -300,6 +320,9 @@ func grep(p string, re *regexp.Regexp, max int) (string, error) {
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 64*1024), 1<<20)
 		for n := 1; sc.Scan(); n++ {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if re.Match(sc.Bytes()) {
 				fmt.Fprintf(&b, "%s:%d: %s\n", rel, n, sc.Text())
 				if b.Len() > max {
@@ -358,6 +381,28 @@ func specialIP(s string) bool {
 	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
+// checkDial vets the resolved address a dial for name actually connects to,
+// so a name that resolves (or rebinds) to a special IP is caught. The name
+// localhost (already checked as named) may reach loopback IPs and nothing
+// else; any other special IP needs its ip:port named as a literal.
+func checkDial(name, address string, literal map[string]bool) error {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if strings.EqualFold(name, "localhost") {
+		if ip == nil || !ip.IsLoopback() {
+			return fmt.Errorf("localhost resolved to %s, which is not loopback: access refused", address)
+		}
+		return nil
+	}
+	if specialIP(host) && !literal[net.JoinHostPort(ip.String(), port)] {
+		return fmt.Errorf("address %s is loopback, link-local or metadata and was not named: access refused", address)
+	}
+	return nil
+}
+
 func get(ctx context.Context, cfg Config, named []string, raw string) (string, error) {
 	allowed := map[string]bool{}
 	literal := map[string]bool{} // ip:port named as an IP literal: the only way to reach a special IP
@@ -379,25 +424,17 @@ func get(ctx context.Context, cfg Config, named []string, raw string) (string, e
 	if err := checkURL(u, allowed); err != nil {
 		return "", err
 	}
-	dialer := &net.Dialer{Timeout: cfg.Timeout, Control: func(_, address string, _ syscall.RawConn) error {
-		// address is the resolved ip:port actually dialed, so a name that
-		// resolves (or rebinds) to a special IP is caught here.
-		host, port, err := net.SplitHostPort(address)
-		if err != nil {
-			return err
-		}
-		if specialIP(host) && !literal[net.JoinHostPort(net.ParseIP(host).String(), port)] {
-			return fmt.Errorf("address %s is loopback, link-local or metadata and was not named as an IP: access refused", address)
-		}
-		return nil
-	}}
 	tr := &http.Transport{
 		Proxy: nil, // a proxy would make the dial check see the proxy, not the target
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if h, p, err := net.SplitHostPort(addr); err != nil || !allowed[net.JoinHostPort(strings.ToLower(h), p)] {
+			h, p, err := net.SplitHostPort(addr)
+			if err != nil || !allowed[net.JoinHostPort(strings.ToLower(h), p)] {
 				return nil, fmt.Errorf("dial %s: not named by the demand: access refused", addr)
 			}
-			return dialer.DialContext(ctx, network, addr)
+			d := &net.Dialer{Timeout: cfg.Timeout, Control: func(_, address string, _ syscall.RawConn) error {
+				return checkDial(h, address, literal)
+			}}
+			return d.DialContext(ctx, network, addr)
 		},
 		TLSHandshakeTimeout:   cfg.Timeout,
 		ResponseHeaderTimeout: cfg.Timeout,
