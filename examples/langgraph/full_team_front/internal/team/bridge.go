@@ -45,7 +45,7 @@ type (
 		Request  string   `json:"request" jsonschema:"what the team must deliver"`
 		Roots    []string `json:"backend_roots,omitempty" jsonschema:"optional absolute paths of the backend source trees the product owner may read"`
 		URLs     []string `json:"backend_urls,omitempty" jsonschema:"optional base URLs of the backend APIs the product owner may call"`
-		DocRoots []string `json:"docs_roots,omitempty" jsonschema:"optional directories (relative to the workspace, or absolute under it) where the product owner may write markdown documents: documentation, plan, next steps. Without it the PO writes nothing"`
+		DocRoots []string `json:"docs_roots,omitempty" jsonschema:"optional directories (relative to the workspace, or absolute under it) where the product owner may write markdown documents: documentation, plan, next steps. Leave it empty when the request names a folder to save a plan or document in: the folder is taken from the request text. With no folder anywhere the PO writes nothing"`
 		AppURL   string   `json:"app_url,omitempty" jsonschema:"optional URL of the running front-end that QA may open in a browser"`
 	}
 	threadArgs struct {
@@ -96,7 +96,7 @@ func inferDocRoot(request string) string {
 // Tools returns the bridge tools.
 func (b *Bridge) Tools() []tools.Tool {
 	return []tools.Tool{
-		tools.New("team_submit", "Send a demand to the engineering team. Returns at once with thread_id and run_id; follow it with team_status.",
+		tools.New("team_submit", "Send a demand to the engineering team. A folder named in the request for saving a plan or document is enough for the PO to write there (no other argument needed). Returns at once with thread_id and run_id; follow it with team_status.",
 			func(ctx context.Context, a submitArgs) (any, error) {
 				inferred := false
 				if len(a.DocRoots) == 0 {
