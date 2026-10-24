@@ -149,6 +149,7 @@ O servidor se chama `engineering-team` e serve:
 - `team_submit`: envia uma demanda. Seus campos são `request` e, opcionalmente, `backend_roots`, `backend_urls` e `app_url`. Devolve na hora `thread_id`, `run_id` e um status.
 - `team_status`: para um `thread_id`, devolve `status` (a requisição e cada tarefa), `report`, `history` (os handoffs, incluindo cada rejeição de revisão e de QA e para quem voltou) e `running`. `status`, `report` e o `history` completo são preenchidos quando o último passo termina; enquanto a execução anda, o notificador de console imprime cada mudança de status em stderr.
 - `team_queue`: os workers registrados (com o job atual) e os jobs na fila.
+- `team_cancel`: cancela um pedido pelo `thread_id` (encerra a thread): os jobs na fila são descartados, os agentes em execução são parados (eles sabem no próximo heartbeat) e a entrega termina como `cancelled`. O fluxo do manager para no próximo passo; a chamada ao modelo em curso ainda termina. Os tokens de um job cancelado não são contados. Enviar a mesma thread de novo começa uma execução limpa.
 - `team_ask_worker`: faz uma pergunta a um worker, fora do fluxo de entrega. Um worker que responde assim não tem escopo de demanda, então as ferramentas de backend do PO recusam.
 - `team_present`: chamada, veja [Chamada /present](#chamada-present). Cada worker esperado responde `Presente!` com id, papel e modelo.
 - `team_memory`: recupera o que o time registrou para uma requisição (argumentos `scope`, o `thread_id` da requisição, e `query`).
@@ -220,7 +221,7 @@ claude mcp add --transport stdio --scope user \
   front-team -- /abs/path/to/this/repo/bin/team-mcp serve
 ```
 
-Servidores com escopo de projeto pedem aprovação na primeira vez. Confira o servidor com `claude mcp list`, ou com `/mcp` no chat: `front-team` deve aparecer como conectado e listar estas ferramentas: `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume` (mais as ferramentas de `BRIDGE_CIAM_CMD` e `BRIDGE_KNOWLEDGE_CMD`, se você as definir); o servidor também lista o prompt `present`. Não foi testado aqui se o painel de chat da extensão do Claude Code no VS Code usa os mesmos arquivos de configuração e mostra a mesma tela `/mcp` que a CLI.
+Servidores com escopo de projeto pedem aprovação na primeira vez. Confira o servidor com `claude mcp list`, ou com `/mcp` no chat: `front-team` deve aparecer como conectado e listar estas ferramentas: `team_submit`, `team_status`, `team_queue`, `team_cancel`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume` (mais as ferramentas de `BRIDGE_CIAM_CMD` e `BRIDGE_KNOWLEDGE_CMD`, se você as definir); o servidor também lista o prompt `present`. Não foi testado aqui se o painel de chat da extensão do Claude Code no VS Code usa os mesmos arquivos de configuração e mostra a mesma tela `/mcp` que a CLI.
 
 Se não conectar:
 
@@ -380,6 +381,22 @@ Absent: qa-2
 - `browser_test` executa o comando que você definiu em `PLAYWRIGHT_CMD`, sem shell, com um ambiente mínimo: suas chaves de provedor não chegam a ele, a menos que listadas em `PLAYWRIGHT_ENV_ALLOW`. A spec que ele executa é escrita por um modelo.
 - No modo serve o manager exige uma chave aleatória por execução que só a bridge do próprio processo possui; uma `MANAGER_API_KEY` definida pelo operador é ignorada. O hub e os servidores dos workers escutam em `127.0.0.1` e não têm autenticação, então qualquer processo local pode alcançá-los.
 - O contador de chamadas da regra de evidência fica no hub (`POST /calls/{id}`, `GET /calls/{id}`), que escuta só em loopback e não tem autenticação: qualquer cliente local pode somar chamadas a uma requisição, enquanto o modelo não o alcança. Uma chamada tardia de uma execução anterior na mesma thread ainda pode contar depois que uma nova execução zera o contador.
+
+## O PO mantém os documentos do projeto
+
+O product owner é o único papel que pode gravar, e só por `project_doc_write`: arquivos markdown (`.md`, até 256 KB) sob o diretório `project/` do workspace (`WORKSPACE_ROOT`, senão o diretório de trabalho), com `replace` ou `append`. Mude os diretórios graváveis com `PO_DOCS_DIRS` (lista separada por vírgula, relativa ao workspace). Todo o resto é recusado: outras extensões, caminhos fora desses diretórios, `..` e symlinks que levam para fora. O prompt do PO no manager manda manter a documentação, o plano e os próximos passos atualizados. Código-fonte, e todos os outros papéis, continuam somente leitura para ele.
+
+Uso de tokens: todo worker e o agente do próprio manager passam pelo mesmo middleware de compressão (turnos antigos comprimidos em caveman, a nota Ponytail quando as regras pedem, TOON para resultados JSON de ferramentas).
+
+## Painel de acompanhamento
+
+Uma página web somente leitura mostra cada pedido e tarefa com status, barra de progresso e tempo de execução, e cada persona (worker) com estado, job atual, jobs concluídos e tempo ocupado. Atualiza a cada 2 segundos e mostra apenas status, tempos e contagem de tokens, nunca prompts ou saídas. Os tokens aparecem por persona (o manager conta como uma), por tarefa, por pedido e no total do projeto; as chamadas do modelo de conhecimento não entram na conta. Cada linha de persona também informa a pasta da skill (com as referências vendorizadas no tooltip) e, enquanto trabalha, o que está fazendo: a referência que consulta (`rag_answer`, `cag_answer`, `knowledge_answer`, memória do time), a ferramenta que chama ou o modelo.
+
+Cada projeto tem sua própria URL, `http://127.0.0.1:8088/p/<projeto>/` (`/?project=<projeto>` redireciona para ela), e o cabeçalho tem um seletor de projeto. O primeiro time a subir é dono da porta e lista os demais; um time que encontra a porta ocupada serve numa porta de loopback livre e se registra no dono (somente loopback), então um endereço cobre todos os projetos. Um projeto que para de responder aparece como offline; se o dono sair, os outros se registram de novo no próximo time que ocupar a porta.
+
+- O modo `serve` (o que `team-mcp-run serve` inicia) abre em `http://127.0.0.1:8088` (somente loopback).
+- Demo e outras execuções: defina `DASHBOARD_ADDR=host:porta` (o demo termina ao fim da execução).
+- Para acessar de outra máquina, use `DASHBOARD_ADDR=0.0.0.0:8088` atrás de um proxy com autenticação; a página não tem autenticação.
 
 ## Como testar
 

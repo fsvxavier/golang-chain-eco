@@ -12,6 +12,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/fsvxavier/golang-chain-eco/agents"
 	"github.com/fsvxavier/golang-chain-eco/core/runnables"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/tasktrack"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
@@ -66,7 +67,7 @@ var Console io.Writer // nil: os.Stdout
 // remote.Graph. The evidence rule reads a request's backend call count from
 // the hub at hubURL. apiKey, when not empty, is the x-api-key
 // the server requires.
-func RunManager(ctx context.Context, hubURL string, ln net.Listener, apiKey string) error {
+func RunManager(ctx context.Context, hubURL string, ln net.Listener, apiKey string, mw ...agents.Middleware) error {
 	chat, label, err := NewModel("manager", offline)
 	if err != nil {
 		return err
@@ -80,12 +81,13 @@ func RunManager(ctx context.Context, hubURL string, ln net.Listener, apiKey stri
 		return err
 	}
 	track.OnError = func(err error) { log.Print(err) }
-	app, err := NewManager(NewHubClient(hubURL), chat, track)
+	app, err := NewManager(NewHubClient(hubURL), chat, track, mw...)
 	if err != nil {
 		return err
 	}
 	srv := server.New(map[string]*graph.Compiled{"engineering_team": app})
 	srv.APIKey = apiKey
+	startDashboard(ctx, track, NewHubClient(hubURL))
 	log.Printf("manager: up on %s (model %s, hub %s)", ln.Addr(), label, hubURL)
 	return serve(ctx, ln, srv)
 }

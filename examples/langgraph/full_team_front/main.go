@@ -136,7 +136,10 @@ func newStack(dir, workspace string, withShell bool) *stack {
 	hub := new(atomic.Pointer[team.HubClient])
 	st := &stack{m: m, hub: hub, source: source, opts: team.LocalOptions{
 		Middleware: []agents.Middleware{m},
-		RoleTools:  workerTools(shell, hub.Load, workspace),
+		// The manager's agent gets the same compression (old turns caveman-compressed,
+		// Ponytail note, TOON) as the workers; it has no meter, which counts worker calls only.
+		ManagerMiddleware: []agents.Middleware{middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}},
+		RoleTools:         workerTools(shell, hub.Load, workspace),
 	}}
 	if !anyLive() { // a live model never gets a made-up backlog
 		st.opts.Tools = []tools.Tool{tasksTool()}
@@ -371,7 +374,7 @@ func workerTools(shell tools.Tool, hub func() *team.HubClient, dir string) func(
 		}
 		return []tools.Tool{shell}
 	}
-	return roleTools(notPO, backend.RoleTools(hub, backend.Config{WorkspaceRoot: dir}), qa.RoleTools(hub, os.Getenv("PLAYWRIGHT_CMD")))
+	return roleTools(notPO, backend.RoleTools(hub, backend.Config{WorkspaceRoot: dir}), backend.DocTools(backend.DocsConfig{WorkspaceRoot: dir}), qa.RoleTools(hub, os.Getenv("PLAYWRIGHT_CMD")))
 }
 
 // roleTools joins per-role tool sets: a role gets the tools of every set.

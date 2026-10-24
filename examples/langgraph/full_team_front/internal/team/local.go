@@ -38,7 +38,9 @@ func listen() (net.Listener, string, error) {
 // LocalOptions extends every worker of a local team.
 type LocalOptions struct {
 	Middleware []agents.Middleware
-	Tools      []tools.Tool
+	// ManagerMiddleware is added to the manager's own agent (the workers get Middleware).
+	ManagerMiddleware []agents.Middleware
+	Tools             []tools.Tool
 	// RoleTools adds tools to the workers of one role only, after Tools (the PO's
 	// backend tools). Nil, or nil for a role, adds nothing.
 	RoleTools func(role string) []tools.Tool
@@ -82,7 +84,7 @@ func StartLocalWith(ctx context.Context, opts LocalOptions) (_ *Local, err error
 	}
 	l.wg.Add(2)
 	go func() { defer l.wg.Done(); _ = RunHub(ctx, hubLn) }()
-	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn, key) }()
+	go func() { defer l.wg.Done(); _ = RunManager(ctx, hubURL, mgrLn, key, opts.ManagerMiddleware...) }()
 	for _, c := range Cast {
 		ln, _, err := listen()
 		if err != nil {

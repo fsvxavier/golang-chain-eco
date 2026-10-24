@@ -105,6 +105,14 @@ func (b *Bridge) Tools() []tools.Tool {
 				}, "", "  ")
 				return string(out), nil
 			}),
+		tools.New("team_cancel", "Cancel a request (end its thread): queued jobs are dropped, running agents are stopped and the delivery ends as cancelled. Use the thread_id from team_submit.",
+			func(ctx context.Context, a threadArgs) (any, error) {
+				n, err := b.Hub.CancelScope(ctx, a.Thread)
+				if err != nil {
+					return nil, tools.Errorf("team_cancel: %v", err)
+				}
+				return fmt.Sprintf("thread %s cancelled: %d job(s) ended; the delivery stops at its next step", a.Thread, n), nil
+			}),
 		tools.New("team_queue", "List the registered workers (role, current job) and the queued jobs.",
 			func(ctx context.Context, _ struct{}) (any, error) {
 				s, err := b.Hub.State(ctx)

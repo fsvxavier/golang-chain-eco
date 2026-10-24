@@ -149,6 +149,7 @@ The server is named `engineering-team` and serves:
 - `team_submit`: sends a demand. Its fields are `request` and, optionally, `backend_roots`, `backend_urls` and `app_url`. It returns `thread_id`, `run_id` and a status at once.
 - `team_status`: for a `thread_id`, returns `status` (the request and each task), `report`, `history` (the handoffs, including each review and QA rejection and who it went back to) and `running`. `status`, `report` and the full `history` are filled in when the last step ends; while the run is going, the console notifier prints each status change on stderr.
 - `team_queue`: the registered workers (with their current job) and the queued jobs.
+- `team_cancel`: cancels a request by `thread_id` (ends its thread): queued jobs are dropped, running agents are stopped (they learn on their next heartbeat) and the delivery ends as `cancelled`. The manager's flow stops at its next step; the model call it is making then still finishes. Tokens of a cancelled job are not counted. Sending the same thread again starts a clean run.
 - `team_ask_worker`: asks one worker a question, outside the delivery flow. A worker answering this way has no demand scope, so the PO's backend tools refuse.
 - `team_present`: roll call, see [/present roll call](#present-roll-call). Every expected worker answers `Presente!` with its id, role and model.
 - `team_memory`: recalls what the team recorded for a request (arguments `scope`, the request's `thread_id`, and `query`).
@@ -220,7 +221,7 @@ claude mcp add --transport stdio --scope user \
   front-team -- /abs/path/to/this/repo/bin/team-mcp serve
 ```
 
-Project-scoped servers ask for approval the first time. Check the server with `claude mcp list`, or with `/mcp` in the chat: `front-team` should show as connected and list these tools: `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` and `graph_resume` (plus the tools of `BRIDGE_CIAM_CMD` and `BRIDGE_KNOWLEDGE_CMD` if you set them); the server also lists the prompt `present`. Whether the chat panel of the Claude Code extension in VS Code uses the same configuration files and shows the same `/mcp` screen as the CLI was not tested here.
+Project-scoped servers ask for approval the first time. Check the server with `claude mcp list`, or with `/mcp` in the chat: `front-team` should show as connected and list these tools: `team_submit`, `team_status`, `team_queue`, `team_cancel`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` and `graph_resume` (plus the tools of `BRIDGE_CIAM_CMD` and `BRIDGE_KNOWLEDGE_CMD` if you set them); the server also lists the prompt `present`. Whether the chat panel of the Claude Code extension in VS Code uses the same configuration files and shows the same `/mcp` screen as the CLI was not tested here.
 
 If it does not connect:
 
@@ -380,6 +381,22 @@ Absent: qa-2
 - `browser_test` runs the command you set in `PLAYWRIGHT_CMD`, without a shell, with a minimal environment: your provider keys do not reach it unless listed in `PLAYWRIGHT_ENV_ALLOW`. The spec it runs is written by a model.
 - In serve mode the manager requires a random per-run key that only the in-process bridge holds; an operator-set `MANAGER_API_KEY` is ignored. The hub and the workers' servers listen on `127.0.0.1` and are not authenticated, so any local process can reach them.
 - The call counter behind the evidence rule lives in the hub (`POST /calls/{id}`, `GET /calls/{id}`), which is loopback-only and unauthenticated: any local client can add calls to a request, while the model cannot reach it. A late call from an earlier run on the same thread can still count after a new run resets the counter.
+
+## The PO keeps the project documents
+
+The product owner is the only role that can write, and only through `project_doc_write`: markdown files (`.md`, up to 256 KB) under the `project/` directory of the workspace (`WORKSPACE_ROOT`, else the working directory), with `replace` or `append`. Change the writable directories with `PO_DOCS_DIRS` (comma list, relative to the workspace). Anything else is refused: other extensions, paths outside those directories, `..`, and symlinks that lead out. The manager's PO prompt tells it to keep the documentation, the plan and the next steps current. Source code, and every other role, stay read-only for it.
+
+Token use: every worker and the manager's own agent run through the same compression middleware (old turns caveman-compressed, the Ponytail note when the rules ask for it, TOON for JSON tool results).
+
+## Progress dashboard
+
+A read-only web page shows every request and task with its status, progress bar and execution time, and every persona (worker) with its state, current job, jobs done and busy time. It refreshes every 2 seconds and shows statuses, timings and token counts only, never prompts or outputs. Tokens are listed per persona (the manager counts as one), per task, per request and for the whole project; the knowledge model's own calls are not counted. Each persona row also names its skill folder (with its vendored references, in the tooltip) and, while it works, what it is doing: the reference it consults (`rag_answer`, `cag_answer`, `knowledge_answer`, team memory), the tool it calls, or the model.
+
+Every project has its own URL, `http://127.0.0.1:8088/p/<project>/` (`/?project=<project>` redirects there), and the header has a project selector. The first team to start owns the port and lists the others; a team that finds the port taken serves on a free loopback port and registers with the owner (loopback only), so one address covers every project. A project that stops answering shows as offline; if the owner exits, the others register again to whichever team binds the port next.
+
+- `serve` mode (what `team-mcp-run serve` starts) opens it on `http://127.0.0.1:8088` (loopback only).
+- Demo and other runs: set `DASHBOARD_ADDR=host:port` (the demo exits when the run ends).
+- To reach it from another machine, set `DASHBOARD_ADDR=0.0.0.0:8088` behind your own auth proxy; the page has no authentication.
 
 ## Test it
 

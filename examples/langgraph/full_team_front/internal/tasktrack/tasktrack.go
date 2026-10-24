@@ -38,6 +38,7 @@ const (
 	ReviewRejected  Status = "review_rejected"
 	Committed       Status = "committed"
 	Completed       Status = "completed"
+	Cancelled       Status = "cancelled" // ended by the user; final
 )
 
 // Kind tells which flow a subject follows.
@@ -52,10 +53,10 @@ const (
 var flows = map[Kind]map[Status][]Status{
 	Request: {
 		"":              {Received},
-		Received:        {InSpecification},
-		InSpecification: {RiskSecReview, TaskAssignment}, // front-end team skips the security gate
-		RiskSecReview:   {TaskAssignment},
-		TaskAssignment:  {Completed},
+		Received:        {InSpecification, Cancelled},
+		InSpecification: {RiskSecReview, TaskAssignment, Cancelled}, // front-end team skips the security gate
+		RiskSecReview:   {TaskAssignment, Cancelled},
+		TaskAssignment:  {Completed, Cancelled},
 	},
 	Task: {
 		"":             {TaskAssignment},
