@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"io/fs"
 	"path"
+	"regexp"
 	"strings"
 	"testing"
 )
 
 type lockEntry struct {
 	Role, Source, Skill, Installs, Hash, License string
+	PinnedFrom                                   string `json:"pinned_from"`
 	Trimmed                                      bool
 }
 
@@ -65,9 +67,6 @@ func TestVendoredSkillWithinBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 		perRole[e.Role] += len(b)
-		if len(b) > 8<<10 && !e.Trimmed {
-			t.Errorf("%s is %d bytes and not marked trimmed", e.file(), len(b))
-		}
 		if len(b) > 8<<10 {
 			t.Errorf("%s is %d bytes, over the 8 KB budget", e.file(), len(b))
 		}
@@ -93,19 +92,38 @@ func TestEveryRoleDirHasOwnCopies(t *testing.T) {
 	for _, e := range readLock(t) {
 		locked[e.file()] = true
 	}
-	embedded, err := fs.Glob(FS, "*/references/*/SKILL.md")
+	err := fs.WalkDir(FS, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !strings.Contains(p, "/references/") && !strings.HasSuffix(p, "/references") {
+			return err
+		}
+		if d.IsDir() {
+			if p == path.Join(strings.Split(p, "/")[0], "references") {
+				return nil
+			}
+			if ents, _ := fs.ReadDir(FS, p); len(ents) != 1 || ents[0].Name() != "SKILL.md" {
+				t.Errorf("%s must hold exactly SKILL.md", p)
+			}
+			return nil
+		}
+		if !locked[p] {
+			t.Errorf("%s is embedded but not in skills.lock", p)
+		}
+		delete(locked, p)
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, f := range embedded {
-		if !locked[f] {
-			t.Errorf("%s is embedded but not in skills.lock", f)
-		}
-		delete(locked, f)
 	}
 	for f := range locked {
 		t.Errorf("%s is in skills.lock but missing", f)
 	}
+}
+
+// Distinct phrases of the standard texts; each licence text must appear once.
+var licenceText = map[string]string{
+	"MIT":        "Permission is hereby granted, free of charge",
+	"Apache-2.0": "Apache License\n                           Version 2.0, January 2004",
+	"Dify Open Source License (Apache-2.0 with additional conditions)": "Dify is licensed under a modified version of the Apache License 2.0",
 }
 
 func TestNoticesCoverLockedLicensesAndSources(t *testing.T) {
@@ -114,16 +132,53 @@ func TestNoticesCoverLockedLicensesAndSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	notices := string(b)
+	rows := map[string]string{} // repo -> its table row
+	for _, l := range strings.Split(notices, "\n") {
+		if strings.HasPrefix(l, "| https://github.com/") {
+			repo := strings.TrimPrefix(strings.SplitN(l, " |", 2)[0], "| https://github.com/")
+			rows[repo] = l
+		}
+	}
+	seen := map[string]bool{}
 	for _, e := range readLock(t) {
-		if !strings.Contains(notices, e.License) {
-			t.Errorf("licence %q of %s is not in THIRD_PARTY_NOTICES.md", e.License, e.Skill)
-		}
 		repo, _, _ := strings.Cut(e.Source, "@")
-		if !strings.Contains(notices, "github.com/"+repo) {
-			t.Errorf("source repo %q of %s is not in THIRD_PARTY_NOTICES.md", repo, e.Skill)
+		row, ok := rows[repo]
+		switch {
+		case !ok:
+			t.Errorf("no source row for %s (%s)", repo, e.Skill)
+		case !strings.Contains(row, "`"+e.Skill+"`"):
+			t.Errorf("row of %s does not name skill %q", repo, e.Skill)
+		case !strings.Contains(row, "| "+e.License+" |"):
+			t.Errorf("row of %s does not carry licence %q", repo, e.License)
 		}
-		if !strings.Contains(notices, "`"+e.Skill+"`") {
-			t.Errorf("skill %q is not named in THIRD_PARTY_NOTICES.md", e.Skill)
+		if seen[e.License] {
+			continue
 		}
+		seen[e.License] = true
+		if !strings.Contains(notices, "### "+e.License+"\n") {
+			t.Errorf("no heading for licence %q", e.License)
+		}
+		phrase, known := licenceText[e.License]
+		if !known {
+			t.Errorf("test has no text marker for licence %q", e.License)
+		} else if n := strings.Count(notices, phrase); n != 1 {
+			t.Errorf("licence %q text appears %d times, want 1", e.License, n)
+		}
+	}
+}
+
+func TestPinnedFromIsPlausibleCommit(t *testing.T) {
+	commit := regexp.MustCompile(`/(?:blob|tree)/[0-9a-f]{7,40}(?:/|$)`)
+	must := map[string]bool{"web-design-guidelines": true, "playwright-best-practices": true, "user-stories": true}
+	for _, e := range readLock(t) {
+		if must[e.Skill] {
+			if !commit.MatchString(e.PinnedFrom) {
+				t.Errorf("%s: pinned_from %q is not a commit-pinned URL", e.Skill, e.PinnedFrom)
+			}
+			delete(must, e.Skill)
+		}
+	}
+	for s := range must {
+		t.Errorf("%s is not in the lock", s)
 	}
 }

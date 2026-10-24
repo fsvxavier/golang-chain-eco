@@ -1,6 +1,7 @@
 package team
 
 import (
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/skills"
 	"regexp"
 	"strings"
 	"testing"
@@ -50,3 +51,43 @@ func TestNoArchitectInSkills(t *testing.T) {
 }
 
 var architectRole = regexp.MustCompile(`(?i)\barchitects?\b`)
+
+// Every vendored reference shows up as its own section, with its frontmatter
+// stripped, for every role.
+func TestSkillSectionsHaveNoFrontmatter(t *testing.T) {
+	for role, dir := range skillDir {
+		got, err := Skill(role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		refs, _ := skills.FS.ReadDir(dir + "/references")
+		for _, r := range refs {
+			raw, err := skills.FS.ReadFile(dir + "/references/" + r.Name() + "/SKILL.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "## Skill: " + r.Name() + "\n\n" + body(string(raw))
+			if !strings.Contains(got, want) {
+				t.Errorf("Skill(%q) lacks section %q with its body", role, r.Name())
+			}
+			if strings.Contains(got, "## Skill: "+r.Name()+"\n\n---") || strings.Contains(got, "\n---\nname: "+r.Name()) {
+				t.Errorf("Skill(%q) section %q keeps its frontmatter", role, r.Name())
+			}
+		}
+	}
+	got, _ := Skill("specialist")
+	for _, n := range []string{"accessibility", "frontend-code-review", "performance-optimization", "web-design-guidelines"} {
+		if !strings.Contains(got, "## Skill: "+n+"\n") {
+			t.Errorf("specialist lacks %s", n)
+		}
+	}
+}
+
+// The manager's reply is rejected when it contains a code fence, so its persona
+// and references must not model one.
+func TestManagerSkillHasNoFences(t *testing.T) {
+	got, _ := Skill("manager")
+	if strings.Contains(got, "```") {
+		t.Error("manager skill contains a code fence")
+	}
+}
