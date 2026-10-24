@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -239,12 +240,16 @@ func TestServeStopsOnContextCancel(t *testing.T) {
 
 func TestServeRestoresGlobals(t *testing.T) {
 	oldLog, oldConsole := log.Writer(), team.Console
+	t.Cleanup(func() { log.SetOutput(oldLog); team.Console = oldConsole })
+	logSentinel, consoleSentinel := &bytes.Buffer{}, &bytes.Buffer{}
+	log.SetOutput(logSentinel)
+	team.Console = consoleSentinel
 	inR, inW := io.Pipe()
 	inW.Close()
 	if err := serve(context.Background(), inR, io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if log.Writer() != oldLog || team.Console != oldConsole {
+	if log.Writer() != io.Writer(logSentinel) || team.Console != io.Writer(consoleSentinel) {
 		t.Errorf("serve leaked globals: log %v console %v", log.Writer(), team.Console)
 	}
 }

@@ -89,7 +89,12 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 			}
 			c.rest = ck.b
 			if ck.err != nil { // data and error together: deliver data first, error next call
-				go func() { c.ch <- chunk{err: ck.err} }()
+				go func() {
+					select {
+					case c.ch <- chunk{err: ck.err}:
+					case <-c.ctx.Done():
+					}
+				}()
 			}
 		case <-c.ctx.Done():
 			return 0, io.EOF
