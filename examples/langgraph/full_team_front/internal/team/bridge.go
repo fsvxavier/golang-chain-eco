@@ -288,14 +288,14 @@ func presentPrompt() server.Prompt {
 	}
 }
 
-// client returns the manager client, or one for url when the call names a
+// client returns the manager client, or a keyless one for url when the call names a
 // different Agent Server.
 func (b *Bridge) client(url string) *remote.Client {
-	if url == "" {
+	if url == "" || strings.TrimRight(url, "/") == b.Manager.BaseURL {
 		return b.Manager
 	}
 	c := remote.NewClient(url)
-	c.APIKey = b.Manager.APIKey
+	c.APIKey = "" // the manager key goes to the manager only, never to a URL the chat names
 	return c
 }
 
