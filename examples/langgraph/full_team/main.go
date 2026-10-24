@@ -261,6 +261,56 @@ func inside(realDir, p string) (ok, exists bool) {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)), true
 }
 
+// dotGlob reports whether a wildcard component that starts with a dot can match
+// "." or ".." (bash before 5.2 expands .* to them): such a glob would climb out.
+func dotGlob(tok string) bool {
+	for _, c := range strings.Split(tok, "/") {
+		if !strings.HasPrefix(c, ".") || !strings.ContainsAny(c, "*?[") {
+			continue
+		}
+		for _, d := range []string{".", ".."} {
+			if ok, err := filepath.Match(c, d); ok || err != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// bracketsToAny replaces every bracket expression with "?": it matches one
+// character in Go and in bash, so the result matches a superset of what either
+// reads. An unterminated [ is a literal in bash and is replaced too.
+func bracketsToAny(tok string) string {
+	var b strings.Builder
+	for i := 0; i < len(tok); i++ {
+		if tok[i] != '[' {
+			b.WriteByte(tok[i])
+			continue
+		}
+		j := i + 1
+		if j < len(tok) && (tok[j] == '!' || tok[j] == '^') {
+			j++
+		}
+		if j < len(tok) && tok[j] == ']' {
+			j++
+		}
+		for j < len(tok) && tok[j] != ']' {
+			if tok[j] == '[' && j+1 < len(tok) && tok[j+1] == ':' {
+				if k := strings.Index(tok[j+2:], ":]"); k >= 0 {
+					j += k + 4
+					continue
+				}
+			}
+			j++
+		}
+		b.WriteByte('?')
+		if j < len(tok) {
+			i = j
+		}
+	}
+	return b.String()
+}
+
 // globPathLike reports whether a glob token names a path: it has a slash, a
 // dot-leading part or a .. component. A bare pattern such as [0-9] or *.go is not.
 func globPathLike(tok string) bool {
@@ -318,14 +368,25 @@ func confine(dir, command string) error {
 		}
 		cands := []string{full, filepath.Clean(full)}
 		if strings.ContainsAny(tok, "*?[") {
+			if dotGlob(tok) {
+				return errOutside(tok)
+			}
 			if globPathLike(tok) {
 				if err := globRule(dir, realDir, tok); err != nil {
 					return err
 				}
 			}
-			for _, g := range []string{full, filepath.Clean(full)} {
-				m, _ := filepath.Glob(g)
-				cands = append(cands, m...)
+			// bash and Go read [...] differently, so also glob a superset in
+			// which every bracket expression is one "?".
+			for _, t := range []string{tok, bracketsToAny(tok)} {
+				g := t
+				if !filepath.IsAbs(t) {
+					g = dir + "/" + t
+				}
+				for _, p := range []string{g, filepath.Clean(g)} {
+					m, _ := filepath.Glob(p)
+					cands = append(cands, m...)
+				}
 			}
 		}
 		for _, c := range cands {

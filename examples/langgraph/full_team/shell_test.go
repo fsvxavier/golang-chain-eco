@@ -187,3 +187,49 @@ func TestShellRejectsGlobEscapes(t *testing.T) {
 		}
 	}
 }
+
+// Whether .* reaches .. depends on the host's bash (globskipdots), so the rule is unit-tested.
+func TestDotGlobMatchesDotDirs(t *testing.T) {
+	for _, tok := range []string{".*", ".?/", "..*/", ".*./", "./.*", "src/.*", "a/.[.]*"} {
+		if !dotGlob(tok) {
+			t.Errorf("dotGlob(%q) = false", tok)
+		}
+	}
+	for _, tok := range []string{"*", "*.tsx", "src/*.go", "a.*b", "[0-9]", "...*", ".git", "./src", "..", ".", ".hidden*"} {
+		if dotGlob(tok) {
+			t.Errorf("dotGlob(%q) = true", tok)
+		}
+	}
+}
+
+func TestShellRejectsDotAndBracketGlobs(t *testing.T) {
+	parent := t.TempDir()
+	dir, outside := filepath.Join(parent, "work"), filepath.Join(parent, "outside")
+	for _, d := range []string{filepath.Join(dir, "src"), outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("SECRETMARK"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	dec, _ := decider()
+	sh := shellTool(dir, compress.NewRTK(dec))
+	for _, cmd := range []string{
+		"grep -r SECRETMARK .*", "ls .?/", "ls ..*/", "ls .*./", "ls ./.*", "ls .*", "ls src/.*",
+		"ls [!q]ink", "grep -r SECRETMARK [!z]*", "ls []l]ink", "ls [[:alpha:]]ink", "ls [a-z-]ink", "ls li[n]k",
+	} {
+		out, err := runShell(t, sh, cmd)
+		if err == nil {
+			t.Errorf("%q accepted, output %.80q", cmd, out)
+		}
+	}
+	for _, cmd := range []string{"grep '[0-9]' src", "ls src/*", "grep -r foo ."} {
+		if _, err := runShell(t, sh, cmd); err != nil && strings.Contains(err.Error(), "shell:") {
+			t.Errorf("%q: %v", cmd, err)
+		}
+	}
+}
