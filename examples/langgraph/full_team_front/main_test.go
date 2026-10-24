@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/compress"
+	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team_front/internal/team"
 )
 
@@ -66,5 +67,27 @@ func TestOfflineRunReportsTOON(t *testing.T) {
 	}
 	if m.toonResults < 1 || m.toonSaved < 1 {
 		t.Errorf("TOON rewrites = %d saving %d bytes, want >= 1 rewrite with bytes saved", m.toonResults, m.toonSaved)
+	}
+}
+
+// The PO is read-only: it gets the backend tools and never the shell, which
+// every other role keeps.
+func TestPOGetsNoShell(t *testing.T) {
+	shell := tools.New("shell", "test shell", func(context.Context, struct{}) (any, error) { return "", nil })
+	names := func(role string) map[string]bool {
+		m := map[string]bool{}
+		for _, tl := range workerTools(shell, func() *team.HubClient { return nil }, t.TempDir())(role) {
+			m[tl.Name()] = true
+		}
+		return m
+	}
+	po := names("po")
+	if po["shell"] || !po["backend_read"] || !po["backend_grep"] || !po["backend_get"] {
+		t.Errorf("po tools: %v", po)
+	}
+	for _, r := range []string{"junior", "mid", "senior", "leader", "specialist", "qa"} {
+		if !names(r)["shell"] {
+			t.Errorf("%s lost the shell", r)
+		}
 	}
 }

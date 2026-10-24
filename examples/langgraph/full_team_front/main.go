@@ -79,8 +79,8 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 
 	l, err := team.StartLocalWith(ctx, team.LocalOptions{
 		Middleware:  []agents.Middleware{m},
-		Tools:       []tools.Tool{shell, tasksTool()},
-		RoleTools:   roleTools(backend.RoleTools(hub.Load, backend.Config{WorkspaceRoot: dir}), qa.RoleTools(hub.Load, os.Getenv("PLAYWRIGHT_CMD"))),
+		Tools:       []tools.Tool{tasksTool()},
+		RoleTools:   workerTools(shell, hub.Load, dir),
 		CallCounter: backend.Calls,
 		Offline:     team.OfflineWithTool(tasksToolName),
 	})
@@ -298,6 +298,19 @@ func textBytes(msgs []messages.Message) int {
 		}
 	}
 	return n
+}
+
+// workerTools is each role's own tools: the shell for everyone but the PO,
+// which is read-only (a shell would be a side door around the backend guards),
+// the PO's backend tools and QA's tools.
+func workerTools(shell tools.Tool, hub func() *team.HubClient, dir string) func(role string) []tools.Tool {
+	notPO := func(role string) []tools.Tool {
+		if role == "po" {
+			return nil
+		}
+		return []tools.Tool{shell}
+	}
+	return roleTools(notPO, backend.RoleTools(hub, backend.Config{WorkspaceRoot: dir}), qa.RoleTools(hub, os.Getenv("PLAYWRIGHT_CMD")))
 }
 
 // roleTools joins per-role tool sets: a role gets the tools of every set.
