@@ -323,7 +323,11 @@ func parse(msg messages.Message, text string, o models.Options) messages.Message
 				Args map[string]any `json:"args"`
 			} `json:"tool_calls"`
 		}
-		if json.Unmarshal([]byte(unfence(text)), &env) == nil && len(env.ToolCalls) > 0 {
+		// the JSON may follow some prose ("Correction: ..."), so look for it
+		if loc := toolCallsRe.FindStringIndex(text); loc != nil {
+			_ = json.NewDecoder(strings.NewReader(text[loc[0]:])).Decode(&env)
+		}
+		if len(env.ToolCalls) > 0 {
 			for _, tc := range env.ToolCalls {
 				if tc.Args == nil {
 					tc.Args = map[string]any{}
@@ -347,8 +351,9 @@ func parse(msg messages.Message, text string, o models.Options) messages.Message
 }
 
 var (
-	invokeRe = regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)"\s*>(.*?)</invoke>`)
-	paramRe  = regexp.MustCompile(`(?s)<parameter\s+name="([^"]+)"\s*>(.*?)</parameter>`)
+	toolCallsRe = regexp.MustCompile(`\{\s*"tool_calls"`)
+	invokeRe    = regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)"\s*>(.*?)</invoke>`)
+	paramRe     = regexp.MustCompile(`(?s)<parameter\s+name="([^"]+)"\s*>(.*?)</parameter>`)
 )
 
 // parseInvokes reads the XML tool-call form Claude falls back to when it is

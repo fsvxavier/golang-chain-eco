@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -124,7 +125,7 @@ func inferRoots(request string, docRoots []string) []string {
 	var out []string
 	for _, m := range absPath.FindAllString(request, -1) {
 		m = strings.TrimRight(m, ".:")
-		if fi, err := os.Stat(m); err != nil || !fi.IsDir() || slices.Contains(docRoots, m) || slices.Contains(out, m) {
+		if fi, err := os.Stat(m); err != nil || !fi.IsDir() || sameDir(docRoots, m) || slices.Contains(out, m) {
 			continue
 		}
 		if out = append(out, m); len(out) == 3 {
@@ -132,6 +133,20 @@ func inferRoots(request string, docRoots []string) []string {
 		}
 	}
 	return out
+}
+
+// sameDir reports whether dir is one of dirs, symlinks resolved.
+func sameDir(dirs []string, dir string) bool {
+	r, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		r = dir
+	}
+	for _, d := range dirs {
+		if dr, err := filepath.EvalSymlinks(d); (err == nil && dr == r) || d == dir {
+			return true
+		}
+	}
+	return false
 }
 
 // Tools returns the bridge tools.
