@@ -47,6 +47,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		go func() { <-ctx.Done(); stop() }() // a second Ctrl-C then takes the default action
 		if err := serve(ctx, os.Stdin, os.Stdout, os.Stderr); err != nil {
 			log.Fatal(err)
 		}

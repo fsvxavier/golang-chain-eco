@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -216,4 +217,34 @@ func TestServeStopsOnEOF(t *testing.T) {
 		t.Fatal("serve did not stop after stdin EOF")
 	}
 	c.checkStdout()
+}
+
+func TestServeStopsOnContextCancel(t *testing.T) {
+	inR, inW := io.Pipe() // stays open and idle
+	defer inW.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- serve(ctx, inR, io.Discard, io.Discard) }()
+	time.Sleep(500 * time.Millisecond) // team up, server blocked on stdin
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("serve returned %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not stop on cancel while stdin was idle")
+	}
+}
+
+func TestServeRestoresGlobals(t *testing.T) {
+	oldLog, oldConsole := log.Writer(), team.Console
+	inR, inW := io.Pipe()
+	inW.Close()
+	if err := serve(context.Background(), inR, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if log.Writer() != oldLog || team.Console != oldConsole {
+		t.Errorf("serve leaked globals: log %v console %v", log.Writer(), team.Console)
+	}
 }
