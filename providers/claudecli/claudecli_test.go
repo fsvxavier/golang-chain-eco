@@ -100,3 +100,12 @@ func TestObserverSeesStartAndEnd(t *testing.T) {
 		t.Fatalf("%+v", evs)
 	}
 }
+
+func TestInvokeXMLFormIsParsed(t *testing.T) {
+	ts := []tools.Definition{{Name: "backend_read", Parameters: map[string]any{"properties": map[string]any{"path": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer"}}}}}
+	text := "Vou ler.\n<invoke name=\"backend_read\">\n<parameter name=\"path\">/a/b</parameter>\n<parameter name=\"offset\">5</parameter>\n</invoke>\n<invoke name=\"backend_read\">\n<parameter name=\"path\">/a/b</parameter>\n<parameter name=\"offset\">5</parameter>\n</invoke>"
+	m, err := fake(text, nil).Generate(context.Background(), []messages.Message{messages.Human("x")}, func(o *models.Options) { o.Tools = ts })
+	if err != nil || len(m.ToolCalls) != 1 || m.ToolCalls[0].Args["path"] != "/a/b" || m.ToolCalls[0].Args["offset"] != float64(5) || m.Content != "Vou ler." {
+		t.Fatalf("%v %+v", err, m)
+	}
+}

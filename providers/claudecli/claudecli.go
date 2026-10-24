@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -33,6 +34,7 @@ import (
 
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
+	"github.com/fsvxavier/golang-chain-eco/core/tools"
 )
 
 // Chat is a chat model backed by the claude CLI.
@@ -262,7 +264,7 @@ const toolProtocol = `
 # Tools
 You can call the tools below. To call one or more, reply with ONLY a JSON object, no prose and no code fence:
 {"tool_calls":[{"name":"<tool>","args":{...}}]}
-You will then receive the results and continue. To answer without calling a tool, reply with plain text.
+Never use XML or <invoke> tags. You will then receive the results and continue. To answer without calling a tool, reply with plain text.
 Tools (JSON schema of each):
 `
 
@@ -331,11 +333,73 @@ func parse(msg messages.Message, text string, o models.Options) messages.Message
 			return msg
 		}
 	}
+	if len(o.Tools) > 0 {
+		if prose, calls := parseInvokes(text, o.Tools); len(calls) > 0 {
+			msg.Content, msg.ToolCalls = prose, calls
+			return msg
+		}
+	}
 	if o.ResponseFormat != nil {
 		text = unfence(text)
 	}
 	msg.Content = text
 	return msg
+}
+
+var (
+	invokeRe = regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)"\s*>(.*?)</invoke>`)
+	paramRe  = regexp.MustCompile(`(?s)<parameter\s+name="([^"]+)"\s*>(.*?)</parameter>`)
+)
+
+// parseInvokes reads the XML tool-call form Claude falls back to when it is
+// given tools in prose (<invoke name=..><parameter name=..>..). The reply is
+// then the text before the first call plus the calls, repeated ones dropped;
+// a parameter is decoded by the type its schema declares.
+func parseInvokes(text string, defs []tools.Definition) (string, []messages.ToolCall) {
+	ms := invokeRe.FindAllStringSubmatchIndex(text, -1)
+	if len(ms) == 0 {
+		return "", nil
+	}
+	types := map[string]map[string]string{}
+	for _, d := range defs {
+		props, _ := d.Parameters["properties"].(map[string]any)
+		types[d.Name] = map[string]string{}
+		for k, v := range props {
+			if m, ok := v.(map[string]any); ok {
+				types[d.Name][k], _ = m["type"].(string)
+			}
+		}
+	}
+	var calls []messages.ToolCall
+	seen := map[string]bool{}
+	for _, m := range ms {
+		name, body := text[m[2]:m[3]], text[m[4]:m[5]]
+		if _, known := types[name]; !known {
+			continue
+		}
+		args := map[string]any{}
+		for _, pm := range paramRe.FindAllStringSubmatch(body, -1) {
+			k, v := pm[1], strings.TrimSpace(pm[2])
+			switch types[name][k] {
+			case "string", "":
+				args[k] = v
+			default: // number, integer, boolean, array, object
+				var x any
+				if json.Unmarshal([]byte(v), &x) == nil {
+					args[k] = x
+				} else {
+					args[k] = v
+				}
+			}
+		}
+		key, _ := json.Marshal([]any{name, args})
+		if seen[string(key)] {
+			continue
+		}
+		seen[string(key)] = true
+		calls = append(calls, messages.ToolCall{ID: fmt.Sprintf("call_cli_%d", ids.Add(1)), Name: name, Args: args})
+	}
+	return strings.TrimSpace(text[:ms[0][0]]), calls
 }
 
 // unfence removes a ```json fence the model added around its JSON.
