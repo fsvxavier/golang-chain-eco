@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"path"
+	"strings"
 	"testing"
 )
 
@@ -104,5 +105,25 @@ func TestEveryRoleDirHasOwnCopies(t *testing.T) {
 	}
 	for f := range locked {
 		t.Errorf("%s is in skills.lock but missing", f)
+	}
+}
+
+func TestNoticesCoverLockedLicensesAndSources(t *testing.T) {
+	b, err := FS.ReadFile("THIRD_PARTY_NOTICES.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notices := string(b)
+	for _, e := range readLock(t) {
+		if !strings.Contains(notices, e.License) {
+			t.Errorf("licence %q of %s is not in THIRD_PARTY_NOTICES.md", e.License, e.Skill)
+		}
+		repo, _, _ := strings.Cut(e.Source, "@")
+		if !strings.Contains(notices, "github.com/"+repo) {
+			t.Errorf("source repo %q of %s is not in THIRD_PARTY_NOTICES.md", repo, e.Skill)
+		}
+		if !strings.Contains(notices, "`"+e.Skill+"`") {
+			t.Errorf("skill %q is not named in THIRD_PARTY_NOTICES.md", e.Skill)
+		}
 	}
 }

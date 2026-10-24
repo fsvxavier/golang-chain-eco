@@ -4,5 +4,5 @@ package skills
 
 import "embed"
 
-//go:embed */SKILL.md */references/*/SKILL.md skills.lock
+//go:embed */SKILL.md */references/*/SKILL.md skills.lock THIRD_PARTY_NOTICES.md
 var FS embed.FS
