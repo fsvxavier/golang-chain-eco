@@ -66,7 +66,7 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 	if err != nil {
 		return nil, err
 	}
-	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt, Middleware: append(slices.Clone(mw), usageMeter{})})
+	agent, err := agents.Create(agents.Options{Model: chat, SystemPrompt: prompt, Middleware: append(append(slices.Clone(mw), usageMeter{}), cacheFor("manager")...)})
 	if err != nil {
 		return nil, err
 	}
@@ -228,6 +228,16 @@ func (m *manager) dispatch(ctx context.Context, prefer []string, thread, prompt,
 	return m.dispatchJob(ctx, Job{Prefer: prefer}, thread, prompt, query)
 }
 
+// briefToken stands for the request dossier in a prompt. The job carries the
+// dossier itself (Job.Brief) and the worker puts it in the first prompt of a
+// thread only: later prompts on the same thread already have it in the history.
+const briefToken = "<<BRIEF>>"
+
+// dispatchBrief is dispatch for a prompt that uses briefToken.
+func (m *manager) dispatchBrief(ctx context.Context, prefer []string, thread, prompt, query, brief string) (Job, error) {
+	return m.dispatchJob(ctx, Job{Prefer: prefer, Brief: brief}, thread, prompt, query)
+}
+
 // dispatchJob is dispatch with the job's Prefer and Pin already set.
 func (m *manager) dispatchJob(ctx context.Context, j Job, thread, prompt, query string) (Job, error) {
 	scope := requestID(ctx)
@@ -285,7 +295,7 @@ Answer "VERDICT: APPROVE" when the tests cover the specification, or "VERDICT: R
 func (m *manager) build(ctx context.Context, s graph.State) (any, error) {
 	brief := dossier(s)
 	m.move(ctx, tasktrack.Request, subject(ctx, ""), tasktrack.TaskAssignment, "tech-leader", "")
-	plan, err := m.dispatch(ctx, []string{"leader"}, "leader", "ROLE: leader\n\n"+brief+m.workersBlock(ctx), fmt.Sprint(s["request"]))
+	plan, err := m.dispatchBrief(ctx, []string{"leader"}, "leader", "ROLE: leader\n\n"+briefToken+m.workersBlock(ctx), fmt.Sprint(s["request"]), brief)
 	if err != nil {
 		return nil, err
 	}
@@ -401,12 +411,12 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 	}
 	for w.Round < MaxRounds {
 		prompt := fmt.Sprintf("ROLE: engineer\n\n%s\n\n## Your task\nTASK: %s\nTITLE: %s\nCOMPLEXITY: %s\nDESCRIPTION: %s\nATTEMPT: %d\n",
-			brief, w.ID, w.Title, w.Complexity, w.Desc, w.Round+1)
+			briefToken, w.ID, w.Title, w.Complexity, w.Desc, w.Round+1)
 		if w.Feedback != "" {
 			prompt += "\n## Feedback to address\n" + w.Feedback + "\n"
 		}
 		m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.InDevelopment, strings.Join(prefer, "/"), fmt.Sprintf("attempt %d", w.Round+1))
-		j, err := m.dispatchJob(ctx, Job{Prefer: prefer, Pin: w.Round > 0}, w.ID+"-dev", prompt, w.Title+" "+w.Desc)
+		j, err := m.dispatchJob(ctx, Job{Prefer: prefer, Pin: w.Round > 0, Brief: brief}, w.ID+"-dev", prompt, w.Title+" "+w.Desc)
 		if err != nil {
 			return w, hist, err
 		}
@@ -444,7 +454,7 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 func (m *manager) jointReview(ctx context.Context, w *work, hist *[]any, brief string) (bool, error) {
 	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.InCodeReview, "tech-leader/specialist", "built by "+w.Assignee)
 	body := fmt.Sprintf("MODE: review\n\n%s\n\n## Task under review\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nATTEMPT: %d\n\n## Submitted work\n%s\n",
-		brief, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
+		briefToken, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
 	reviewers := []struct{ role, label string }{{"specialist", "specialist"}, {"leader", "tech-leader"}}
 	jobs := make([]Job, len(reviewers))
 	errs := make([]error, len(reviewers))
@@ -453,7 +463,7 @@ func (m *manager) jointReview(ctx context.Context, w *work, hist *[]any, brief s
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			jobs[i], errs[i] = m.dispatch(ctx, []string{r.role}, w.ID+"-review-"+r.role, "ROLE: "+r.role+"\n"+body, w.Title+" "+w.Desc)
+			jobs[i], errs[i] = m.dispatchBrief(ctx, []string{r.role}, w.ID+"-review-"+r.role, "ROLE: "+r.role+"\n"+body, w.Title+" "+w.Desc, brief)
 		}()
 	}
 	wg.Wait()
@@ -487,11 +497,11 @@ func (m *manager) jointReview(ctx context.Context, w *work, hist *[]any, brief s
 func (m *manager) gate(ctx context.Context, w *work, role, label string, hist *[]any, brief string, start, approved, rejected tasktrack.Status) (bool, error) {
 	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), start, role, "built by "+w.Assignee)
 	prompt := fmt.Sprintf("ROLE: %s\n\n%s\n\n## Task under %s\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nATTEMPT: %d\n\n## Submitted work\n%s\n",
-		role, brief, label, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
+		role, briefToken, label, w.ID, w.Title, w.Desc, w.Round+1, w.Code)
 	if role == "qa" {
 		prompt += qaGuide
 	}
-	j, err := m.dispatch(ctx, []string{role}, w.ID+"-"+label, prompt, w.Title+" "+w.Desc)
+	j, err := m.dispatchBrief(ctx, []string{role}, w.ID+"-"+label, prompt, w.Title+" "+w.Desc, brief)
 	if err != nil {
 		return false, err
 	}

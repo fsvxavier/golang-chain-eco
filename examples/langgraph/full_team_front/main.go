@@ -20,6 +20,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -199,7 +200,7 @@ func scripted(ctx context.Context, st compress.State, qs []compress.Question) ([
 // AGENT_MODEL_<ROLE>), go and git (which run code) are withheld: ls, grep and
 // echo only.
 func allowedPrograms(getenv func(string) string) []string {
-	if getenv("ANTHROPIC_API_KEY") != "" || getenv("OPENAI_API_KEY") != "" || anyLive() {
+	if getenv("ANTHROPIC_API_KEY") != "" || getenv("ANTHROPIC_AUTH_TOKEN") != "" || getenv("OPENAI_API_KEY") != "" || anyLive() {
 		return []string{"ls", "grep", "echo"}
 	}
 	return []string{"go", "git", "ls", "grep", "echo"}
@@ -288,6 +289,7 @@ type meter struct {
 	mu               sync.Mutex
 	calls, rewritten int
 	before, after    int
+	system, tools    int // bytes of system prompts and of tool schemas sent: compression does not touch either
 	ponytail         int // model calls whose last Human message carries the Ponytail note
 	toonResults      int // tool results rewritten to TOON
 	toonSaved        int // bytes those rewrites saved
@@ -300,7 +302,10 @@ func (m *meter) WrapModelCall(ctx context.Context, req *agents.ModelRequest, nex
 	orig := req.Messages // the middleware copies the slice, so this stays as it was
 	return m.comp.WrapModelCall(ctx, req, func(ctx context.Context, r *agents.ModelRequest) (messages.Message, error) {
 		out := textBytes(r.Messages)
+		sys, tl := len(r.System), toolBytes(r.Tools)
 		m.mu.Lock()
+		m.system += sys
+		m.tools += tl
 		m.calls++
 		m.before += in
 		m.after += out
@@ -322,6 +327,24 @@ func (m *meter) WrapModelCall(ctx context.Context, req *agents.ModelRequest, nex
 	})
 }
 
+// toolBytes is the size of what the tools add to a request: name, description
+// and parameter schema.
+func toolBytes(ts []tools.Tool) int {
+	n := 0
+	for _, t := range ts {
+		b, _ := json.Marshal(t.Schema())
+		n += len(t.Name()) + len(t.Description()) + len(b)
+	}
+	return n
+}
+
+func pct(part, whole int) int {
+	if whole == 0 {
+		return 0
+	}
+	return 100 * part / whole
+}
+
 func (m *meter) print(w io.Writer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -329,6 +352,8 @@ func (m *meter) print(w io.Writer) {
 	fmt.Fprintln(w, "== compression ==")
 	fmt.Fprintf(w, "model calls: %d, rewritten by compression: %d\n", m.calls, m.rewritten)
 	fmt.Fprintf(w, "estimated tokens: %d before, %d after\n", m.before/4, m.after/4)
+	fmt.Fprintf(w, "not compressible, sent on every call: %d system prompt tokens, %d tool schema tokens (%d%% of the input)\n",
+		m.system/4, m.tools/4, pct(m.system+m.tools, m.system+m.tools+m.after))
 	fmt.Fprintf(w, "calls with the Ponytail note: %d\n", m.ponytail)
 	fmt.Fprintf(w, "tool results rewritten to TOON: %d, bytes saved: %d\n", m.toonResults, m.toonSaved)
 	fmt.Fprintf(w, "rtk on PATH: %v\n", rtkErr == nil)

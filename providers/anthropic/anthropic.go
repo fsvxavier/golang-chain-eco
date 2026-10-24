@@ -19,8 +19,8 @@ import (
 // Chat is a Claude chat model (ChatAnthropic).
 type Chat struct {
 	Model     string // e.g. "claude-sonnet-5-5"
-	APIKey    string // default $ANTHROPIC_API_KEY
-	BaseURL   string // default https://api.anthropic.com
+	APIKey    string // default $ANTHROPIC_API_KEY; $ANTHROPIC_AUTH_TOKEN is sent as a Bearer token (what gateways use)
+	BaseURL   string // default $ANTHROPIC_BASE_URL (a gateway) or https://api.anthropic.com
 	MaxTokens int    // default 4096 (required by the API)
 	HTTP      *http.Client
 	Defaults  []models.Option
@@ -41,9 +41,19 @@ func (c *Chat) client() *httpx.Client {
 	}
 	base := c.BaseURL
 	if base == "" {
+		base = os.Getenv("ANTHROPIC_BASE_URL")
+	}
+	if base == "" {
 		base = "https://api.anthropic.com"
 	}
-	return &httpx.Client{HTTP: c.HTTP, BaseURL: base, Headers: map[string]string{"x-api-key": key, "anthropic-version": "2023-06-01"}}
+	h := map[string]string{"anthropic-version": "2023-06-01"}
+	if key != "" {
+		h["x-api-key"] = key
+	}
+	if tok := os.Getenv("ANTHROPIC_AUTH_TOKEN"); tok != "" {
+		h["Authorization"] = "Bearer " + tok
+	}
+	return &httpx.Client{HTTP: c.HTTP, BaseURL: base, Headers: h}
 }
 
 type block = map[string]any

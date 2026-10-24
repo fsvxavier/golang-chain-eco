@@ -42,7 +42,8 @@ func normalize(spec string) string {
 //
 //	AGENT_MODEL_<ROLE>   e.g. AGENT_MODEL_PO=anthropic:opus_5_5
 //	AGENT_MODEL          one model for every role
-//	ANTHROPIC_API_KEY    per-role defaults above
+//	ANTHROPIC_API_KEY    per-role defaults above (ANTHROPIC_AUTH_TOKEN, a gateway token, works too;
+//	                     ANTHROPIC_BASE_URL points the Anthropic provider at the gateway)
 //	OPENAI_API_KEY       openai:gpt-4o-mini
 //
 // An empty result means "run offline with the scripted model".
@@ -54,7 +55,7 @@ func ModelSpec(role string) string {
 		return normalize(s)
 	}
 	switch {
-	case os.Getenv("ANTHROPIC_API_KEY") != "":
+	case os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("ANTHROPIC_AUTH_TOKEN") != "":
 		return normalize("anthropic:" + anthropicDefaults[role])
 	case os.Getenv("OPENAI_API_KEY") != "":
 		return "openai:gpt-4o-mini"

@@ -32,8 +32,10 @@ type Job struct {
 	Pin    bool   `json:"pin,omitempty"`
 	Thread string `json:"thread"`
 	Prompt string `json:"prompt"`
-	Query  string `json:"query,omitempty"` // grounding question for the knowledge tools
-	Scope  string `json:"scope,omitempty"` // team-memory scope: the request id
+	// Brief is the request dossier that the prompt refers to with briefToken.
+	Brief string `json:"brief,omitempty"`
+	Query string `json:"query,omitempty"` // grounding question for the knowledge tools
+	Scope string `json:"scope,omitempty"` // team-memory scope: the request id
 
 	Status   string `json:"status"` // queued, running, done, failed
 	Worker   string `json:"worker,omitempty"`
@@ -425,7 +427,7 @@ func (h *Hub) Jobs() []Job {
 	out := make([]Job, 0, len(h.jobs))
 	for _, j := range h.jobs {
 		cp := *j
-		cp.Prompt, cp.Output = "", ""
+		cp.Prompt, cp.Brief, cp.Output = "", "", ""
 		out = append(out, cp)
 	}
 	slices.SortFunc(out, func(a, b Job) int { return cmpJobSeq(a.ID, b.ID) })

@@ -9,10 +9,10 @@ import (
 
 func TestSkillIncludesReferences(t *testing.T) {
 	cases := map[string][]string{
-		"qa":     {"## Skill: playwright-cli", "## Skill: webapp-testing"},
-		"junior": {"## Skill: vercel-react-best-practices", "## Skill: react-testing", "## Skill: ui-ux-pro-max"},
+		"qa":     {"## Skill: playwright-best-practices", "## Skill: webapp-testing"},
+		"junior": {"## Skill: vercel-react-best-practices", "## Skill: react-testing"},
 		"leader": {"## Skill: code-review", "## Skill: planning-and-task-breakdown"},
-		"po":     {"## Skill: contract-first", "## Skill: openapi-spec-generation"},
+		"po":     {"## Skill: contract-first", "## Skill: user-stories"},
 	}
 	for role, want := range cases {
 		got, err := Skill(role)
@@ -30,7 +30,7 @@ func TestSkillIncludesReferences(t *testing.T) {
 	}
 	// References come after the persona and are sorted by name.
 	got, _ := Skill("junior")
-	if a, b := strings.Index(got, "## Skill: frontend-design"), strings.Index(got, "## Skill: frontend-patterns"); a < 0 || a > b {
+	if a, b := strings.Index(got, "## Skill: frontend-patterns"), strings.Index(got, "## Skill: react-testing"); a < 0 || a > b {
 		t.Error("references are not sorted by name")
 	}
 }
@@ -76,7 +76,7 @@ func TestSkillSectionsHaveNoFrontmatter(t *testing.T) {
 		}
 	}
 	got, _ := Skill("specialist")
-	for _, n := range []string{"accessibility", "frontend-code-review", "performance-optimization", "web-design-guidelines"} {
+	for _, n := range []string{"accessibility", "frontend-code-review", "performance-optimization"} {
 		if !strings.Contains(got, "## Skill: "+n+"\n") {
 			t.Errorf("specialist lacks %s", n)
 		}

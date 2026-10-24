@@ -59,24 +59,24 @@ Offline it runs with fake models and a fake backend, so the whole flow runs with
 
 ## Vendored skills
 
-`skills/skills.lock` has 29 entries, one per copy: each persona folder has its own copy of every skill it carries, under `skills/<role>/references/<name>/SKILL.md`. The loader appends them to the persona's system prompt, sorted by name, under `## Skill: <name>`.
+`skills/skills.lock` has 19 entries, one per copy: each persona folder has its own copy of every skill it carries, under `skills/<role>/references/<name>/SKILL.md`. The loader appends them to the persona's system prompt, sorted by name, under `## Skill: <name>`.
 
 | Persona folder | Skills (copies) | Size |
 |---|---|---|
-| `product-owner` | `contract-first`, `openapi-spec-generation`, `user-stories` (3) | 9.1 KB |
-| `engineering-manager` | `code-review`, `planning-and-task-breakdown` (2) | 5.9 KB |
-| `tech-leader` | the same two (2) | 5.9 KB |
-| `software-engineer-junior`, `-mid`, `-senior` | `frontend-design`, `frontend-patterns`, `react-testing`, `ui-ux-pro-max`, `vercel-react-best-practices` (5 each, 15) | 17.3 KB each |
-| `specialist-reviewer` | `accessibility`, `frontend-code-review`, `performance-optimization`, `web-design-guidelines` (4) | 18.3 KB |
-| `qa-engineer` | `playwright-best-practices`, `playwright-cli`, `webapp-testing` (3) | 10.7 KB |
+| `product-owner` | `contract-first`, `user-stories` (2) | 7.0 KB |
+| `engineering-manager` | `planning-and-task-breakdown` (1) | 3.0 KB |
+| `tech-leader` | `code-review`, `planning-and-task-breakdown` (2) | 5.8 KB |
+| `software-engineer-junior`, `-mid`, `-senior` | `frontend-patterns`, `react-testing`, `vercel-react-best-practices` (3 each, 9) | 10.3 KB each |
+| `specialist-reviewer` | `accessibility`, `frontend-code-review`, `performance-optimization` (3) | 10.0 KB |
+| `qa-engineer` | `playwright-best-practices`, `webapp-testing` (2) | 7.3 KB |
 
-That is 17 distinct skills in 29 copies. Facts about them:
+That is 12 distinct skills in 19 copies. They were pruned to cut the system prompt, which every model call resends: the visual-design skills (`frontend-design`, `ui-ux-pro-max`, `web-design-guidelines`) and `playwright-cli` were dropped, as were `openapi-spec-generation` (the PO reads the backend, it does not generate specs) and the manager's `code-review` (the manager only routes). Facts about them:
 
 - **They are trimmed, sanitised copies, not the upstream files.** Examples and boilerplate were cut to fit the budget, and installer commands, remote-fetch instructions, script invocations for scripts that are not vendored and tool permission grants (`allowed-tools`) were removed. Every lock entry has `"trimmed": true`.
 - **Lock fields.** Each line of `skills/skills.lock` is a JSON object: `role`, `source` (`owner/repo@skill`), `skill`, `installs` (the install count `skills` showed, may be empty), `hash` (SHA-256 of the embedded file), `license`, `trimmed`, and, for the three snapshots, `pinned_from` (the upstream commit URL).
-- **Pinned snapshots.** `web-design-guidelines` is a pinned snapshot of `command.md` of vercel-labs/web-interface-guidelines at commit `434b7f9` (the upstream skill only fetched its rules from a URL at run time, and the copy fetches nothing). `playwright-best-practices` is a condensed copy of currents-dev/playwright-best-practices-skill at `283d5cb` (upstream is an index of many reference files). `user-stories` is pinned to phuryn/pm-skills at `07b34f6`.
+- **Pinned snapshots.** `playwright-best-practices` is a condensed copy of currents-dev/playwright-best-practices-skill at `283d5cb` (upstream is an index of many reference files). `user-stories` is pinned to phuryn/pm-skills at `07b34f6`.
 - **One requested skill is not vendored.** `user-story` from deanpeters/product-manager-skills is CC BY-NC-SA 4.0 (non-commercial, share-alike), which does not fit redistribution here. The PO uses `user-stories` from phuryn/pm-skills (MIT) instead. A skill whose licence does not allow redistribution is dropped, not paraphrased.
-- **Licences.** MIT for most; Apache-2.0 for `frontend-design`, `webapp-testing` and `playwright-cli`. `frontend-code-review` (specialist) is under Dify's modified Apache-2.0 with two additional conditions; they are quoted in full in the notices. [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md) lists every source repository, skill, licence and copyright holder as stated upstream, with the licence texts, and it is embedded too.
+- **Licences.** MIT for most; Apache-2.0 for `webapp-testing`. `frontend-code-review` (specialist) is under Dify's modified Apache-2.0 with two additional conditions; they are quoted in full in the notices. [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md) lists every source repository, skill, licence and copyright holder as stated upstream, with the licence texts, and it is embedded too.
 - **Pinned.** Nothing updates them automatically.
 
 ### Update or add a vendored skill
@@ -134,6 +134,8 @@ Because the team runs in the server's process, every variable comes from the ser
 |---|---|---|
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AGENT_MODEL`, `AGENT_MODEL_<ROLE>` | every worker, the manager and the hub when they start (`internal/team/models.go`) | real models instead of the scripted ones |
 | `WORKSPACE_ROOT` | the PO backend tools (`internal/backend/backend.go`) | every `backend_roots` entry must lie under it; default is the working directory of the server |
+| `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` | the Anthropic provider (`providers/anthropic`) | send the calls through a gateway instead of `api.anthropic.com`; the token is sent as `Authorization: Bearer` (what Claude Code does), alone or next to `ANTHROPIC_API_KEY`; either one selects the Anthropic defaults |
+| `PROMPT_CACHE` | every agent (`internal/team/cache.go`) | `off` stops marking the system prompt as a cache breakpoint; default on, for Anthropic models only |
 | `DASHBOARD_ADDR` | the progress dashboard (`internal/team/dashboard_gw.go`) | `host:port` to serve it on; serve mode defaults to `127.0.0.1:8088`, other runs serve nothing unless it is set; see [Progress dashboard](#progress-dashboard) |
 | `PLAYWRIGHT_CMD` | the QA `browser_test` tool, read at start (`main.go`) | command that runs the spec; empty means `NOT RUN` |
 | `PLAYWRIGHT_ENV_ALLOW` | the `browser_test` command runner (`internal/qa/qa.go`) | parent variables passed to the browser run |
@@ -389,7 +391,7 @@ Absent: qa-2
 
 The product owner is the only role that can write, and only through `project_doc_write`: markdown files (`.md`, up to 256 KB), with `replace` or `append`. Where is set by each demand: the `docs_roots` field of `team_submit` lists the directories (relative to the workspace, or absolute under `WORKSPACE_ROOT`) where the PO may write, and a relative path in the tool starts at the first one. A demand with no `docs_roots` gives the PO no write access at all, like a demand with no backend roots gives it no read access. Anything else is refused: other extensions, paths outside the named directories, `..`, and symlinks that lead out. The manager lists the directories in the PO prompt and tells it to keep the documentation, the plan and the next steps current. Source code, and every other role, stay read-only for it.
 
-Token use: every worker and the manager's own agent run through the same compression middleware (old turns caveman-compressed, the Ponytail note when the rules ask for it, TOON for JSON tool results).
+Token use: every worker and the manager's own agent run through the same compression middleware (old turns caveman-compressed, the Ponytail note when the rules ask for it, TOON for JSON tool results). Compression only touches old turns and JSON tool results; the system prompt and the tool schemas, about three quarters of what a demand sends, are resent on every call and cannot be compressed. For Anthropic models the system prompt is marked as a cache breakpoint (`PROMPT_CACHE=off` disables it), which also covers the tools, so after the first call of a role they are billed at the cache-read rate; this was checked against a stub of the API, not against the real one. The request dossier goes only in the first prompt of a thread: later prompts on it (rework, the next gate) point at the first message, and a worker that never saw the thread gets the dossier in full. The offline demo prints the system prompt and tool schema share next to the compression figures.
 
 ## Progress dashboard
 

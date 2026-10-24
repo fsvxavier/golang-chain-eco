@@ -59,24 +59,24 @@ Sin conexión, funciona con modelos falsos y un backend falso, así que todo el 
 
 ## Skills incorporadas
 
-`skills/skills.lock` tiene 29 entradas, una por copia: cada carpeta de persona tiene su propia copia de toda skill que lleva, en `skills/<rol>/references/<nombre>/SKILL.md`. El cargador las agrega al prompt de sistema de la persona, ordenadas por nombre, bajo `## Skill: <nombre>`.
+`skills/skills.lock` tiene 19 entradas, una por copia: cada carpeta de persona tiene su propia copia de toda skill que lleva, en `skills/<rol>/references/<nombre>/SKILL.md`. El cargador las agrega al prompt de sistema de la persona, ordenadas por nombre, bajo `## Skill: <nombre>`.
 
 | Carpeta de la persona | Skills (copias) | Tamaño |
 |---|---|---|
-| `product-owner` | `contract-first`, `openapi-spec-generation`, `user-stories` (3) | 9,1 KB |
-| `engineering-manager` | `code-review`, `planning-and-task-breakdown` (2) | 5,9 KB |
-| `tech-leader` | las mismas dos (2) | 5,9 KB |
-| `software-engineer-junior`, `-mid`, `-senior` | `frontend-design`, `frontend-patterns`, `react-testing`, `ui-ux-pro-max`, `vercel-react-best-practices` (5 cada una, 15) | 17,3 KB cada una |
-| `specialist-reviewer` | `accessibility`, `frontend-code-review`, `performance-optimization`, `web-design-guidelines` (4) | 18,3 KB |
-| `qa-engineer` | `playwright-best-practices`, `playwright-cli`, `webapp-testing` (3) | 10,7 KB |
+| `product-owner` | `contract-first`, `user-stories` (2) | 7,0 KB |
+| `engineering-manager` | `planning-and-task-breakdown` (1) | 3,0 KB |
+| `tech-leader` | `code-review`, `planning-and-task-breakdown` (2) | 5,8 KB |
+| `software-engineer-junior`, `-mid`, `-senior` | `frontend-patterns`, `react-testing`, `vercel-react-best-practices` (3 cada una, 9) | 10,3 KB cada una |
+| `specialist-reviewer` | `accessibility`, `frontend-code-review`, `performance-optimization` (3) | 10,0 KB |
+| `qa-engineer` | `playwright-best-practices`, `webapp-testing` (2) | 7,3 KB |
 
-Son 17 skills distintas en 29 copias. Hechos sobre ellas:
+Son 12 skills distintas en 19 copias. Se podaron para reducir el prompt de sistema, que cada llamada al modelo reenvía: las skills de diseño visual (`frontend-design`, `ui-ux-pro-max`, `web-design-guidelines`) y `playwright-cli` salieron, igual que `openapi-spec-generation` (el PO lee el backend, no genera specs) y el `code-review` del manager (el manager solo enruta). Hechos sobre ellas:
 
 - **Son copias recortadas y saneadas, no los archivos originales.** Se cortaron ejemplos y texto de relleno para caber en el presupuesto, y se quitaron comandos de instalación, instrucciones de descarga remota, llamadas a scripts que no están incorporados y concesiones de permisos de herramientas (`allowed-tools`). Toda entrada del lock tiene `"trimmed": true`.
 - **Campos del lock.** Cada línea de `skills/skills.lock` es un objeto JSON: `role`, `source` (`dueño/repo@skill`), `skill`, `installs` (el conteo de instalaciones que mostró `skills`, puede estar vacío), `hash` (SHA-256 del archivo embebido), `license`, `trimmed` y, para los tres snapshots, `pinned_from` (la URL del commit original).
-- **Snapshots fijados.** `web-design-guidelines` es un snapshot fijado del `command.md` de vercel-labs/web-interface-guidelines en el commit `434b7f9` (la skill original solo descargaba sus reglas de una URL en tiempo de ejecución, y la copia no descarga nada). `playwright-best-practices` es una copia condensada de currents-dev/playwright-best-practices-skill en `283d5cb` (el original es un índice de muchos archivos de referencia). `user-stories` está fijada en phuryn/pm-skills en `07b34f6`.
+- **Snapshots fijados.** `playwright-best-practices` es una copia condensada de currents-dev/playwright-best-practices-skill en `283d5cb` (el original es un índice de muchos archivos de referencia). `user-stories` está fijada en phuryn/pm-skills en `07b34f6`.
 - **Una skill pedida no se incorporó.** `user-story` de deanpeters/product-manager-skills es CC BY-NC-SA 4.0 (uso no comercial, compartir igual), lo que no sirve para redistribuir aquí. El PO usa `user-stories` de phuryn/pm-skills (MIT) en su lugar. Una skill cuya licencia no permite la redistribución se descarta, no se parafrasea.
-- **Licencias.** MIT en la mayoría; Apache-2.0 en `frontend-design`, `webapp-testing` y `playwright-cli`. `frontend-code-review` (especialista) está bajo la Apache-2.0 modificada de Dify, con dos condiciones adicionales; se citan completas en los avisos. [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md) lista cada repositorio de origen, skill, licencia y titular de copyright como se declara en el origen, con los textos de las licencias, y también está embebido.
+- **Licencias.** MIT en la mayoría; Apache-2.0 en `webapp-testing`. `frontend-code-review` (especialista) está bajo la Apache-2.0 modificada de Dify, con dos condiciones adicionales; se citan completas en los avisos. [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md) lista cada repositorio de origen, skill, licencia y titular de copyright como se declara en el origen, con los textos de las licencias, y también está embebido.
 - **Fijadas.** Nada las actualiza automáticamente.
 
 ### Actualizar o agregar una skill incorporada
@@ -134,6 +134,8 @@ Como el equipo corre en el proceso del servidor, toda variable viene del entorno
 |---|---|---|
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AGENT_MODEL`, `AGENT_MODEL_<ROL>` | cada worker, el manager y el hub al iniciar (`internal/team/models.go`) | modelos reales en lugar de los guionados |
 | `WORKSPACE_ROOT` | las herramientas de backend del PO (`internal/backend/backend.go`) | toda entrada de `backend_roots` debe estar dentro de ella; el valor por defecto es el directorio de trabajo del servidor |
+| `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` | el provider Anthropic (`providers/anthropic`) | envía las llamadas por un gateway en vez de `api.anthropic.com`; el token va como `Authorization: Bearer` (lo que hace Claude Code), solo o junto a `ANTHROPIC_API_KEY`; cualquiera de los dos selecciona los valores por defecto de Anthropic |
+| `PROMPT_CACHE` | cada agente (`internal/team/cache.go`) | `off` deja de marcar el prompt de sistema como punto de caché; por defecto activo, solo para modelos Anthropic |
 | `DASHBOARD_ADDR` | el panel de seguimiento (`internal/team/dashboard_gw.go`) | `host:puerto` donde servirlo; el modo serve usa `127.0.0.1:8088` por defecto, las demás ejecuciones no sirven nada sin ella; vea [Panel de seguimiento](#panel-de-seguimiento) |
 | `PLAYWRIGHT_CMD` | la herramienta `browser_test` del QA, leída al arrancar (`main.go`) | comando que ejecuta la spec; vacío significa `NOT RUN` |
 | `PLAYWRIGHT_ENV_ALLOW` | el ejecutor de comandos de `browser_test` (`internal/qa/qa.go`) | variables del proceso padre que se pasan a la ejecución en el navegador |
@@ -389,7 +391,7 @@ Absent: qa-2
 
 El product owner es el único rol que puede escribir, y solo con `project_doc_write`: archivos markdown (`.md`, hasta 256 KB), con `replace` o `append`. El lugar lo define cada demanda: el campo `docs_roots` de `team_submit` lista los directorios (relativos al workspace, o absolutos bajo `WORKSPACE_ROOT`) donde el PO puede escribir, y una ruta relativa en la herramienta empieza en el primero. Una demanda sin `docs_roots` no da al PO ningún acceso de escritura, como una demanda sin raíces de backend no le da acceso de lectura. Todo lo demás se rechaza: otras extensiones, rutas fuera de los directorios nombrados, `..` y symlinks que salen. El manager lista los directorios en el prompt del PO y le indica mantener al día la documentación, el plan y los próximos pasos. El código fuente, y todos los demás roles, siguen siendo de solo lectura para él.
 
-Uso de tokens: cada worker y el agente del propio manager pasan por el mismo middleware de compresión (turnos antiguos comprimidos en caveman, la nota Ponytail cuando las reglas lo piden, TOON para resultados JSON de herramientas).
+Uso de tokens: cada worker y el agente del propio manager pasan por el mismo middleware de compresión (turnos antiguos comprimidos en caveman, la nota Ponytail cuando las reglas lo piden, TOON para resultados JSON de herramientas). La compresión solo toca turnos antiguos y resultados JSON de herramientas; el prompt de sistema y los schemas de las herramientas, cerca de tres cuartos de lo que envía una demanda, se reenvían en cada llamada y no se pueden comprimir. Para modelos Anthropic el prompt de sistema se marca como punto de caché (`PROMPT_CACHE=off` lo desactiva), lo que también cubre las herramientas, así que tras la primera llamada de un rol se cobran a la tarifa de lectura de caché; esto se comprobó contra un stub de la API, no contra la real. El dossier del pedido va solo en el primer prompt de un thread: los siguientes (retrabajo, el próximo gate) apuntan al primer mensaje, y un worker que nunca vio el thread recibe el dossier completo. El demo offline imprime la parte de prompt de sistema y schemas junto a las cifras de compresión.
 
 ## Panel de seguimiento
 

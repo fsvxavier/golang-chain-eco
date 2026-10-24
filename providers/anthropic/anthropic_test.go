@@ -122,3 +122,42 @@ func TestCacheUsage(t *testing.T) {
 		t.Fatalf("%+v", u)
 	}
 }
+
+// A gateway is reached through ANTHROPIC_BASE_URL, with ANTHROPIC_AUTH_TOKEN as a
+// Bearer token (no x-api-key when there is no API key), like Claude Code does.
+func TestGatewayFromEnv(t *testing.T) {
+	var path, auth, key string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, auth, key = r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("x-api-key")
+		fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer srv.Close()
+	t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "gw-token")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	if _, err := anthropic.New("claude-x").Generate(context.Background(), []messages.Message{messages.Human("hi")}); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/v1/messages" || auth != "Bearer gw-token" || key != "" {
+		t.Fatalf("path %q auth %q x-api-key %q", path, auth, key)
+	}
+}
+
+// cache_control on a system part must reach the API, where it covers the tools too.
+func TestSystemCacheControlReachesTheAPI(t *testing.T) {
+	var req map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer srv.Close()
+	sys := messages.Message{Role: messages.RoleSystem, Parts: []messages.ContentPart{{Type: "text", Text: "skill", Extra: map[string]any{"cache_control": map[string]any{"type": "ephemeral"}}}}}
+	m := &anthropic.Chat{Model: "claude-x", APIKey: "k", BaseURL: srv.URL}
+	if _, err := m.Generate(context.Background(), []messages.Message{sys, messages.Human("hi")}); err != nil {
+		t.Fatal(err)
+	}
+	b := req["system"].([]any)[0].(map[string]any)
+	if b["text"] != "skill" || b["cache_control"].(map[string]any)["type"] != "ephemeral" {
+		t.Fatalf("system block: %v", b)
+	}
+}
