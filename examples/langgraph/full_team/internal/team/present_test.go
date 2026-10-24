@@ -201,3 +201,62 @@ func TestGraphToolNeverSendsManagerKeyElsewhere(t *testing.T) {
 		t.Fatalf("keys seen: %v", keys)
 	}
 }
+
+// A worker that is stopped stops heartbeating; once the hub reaps its lease it
+// is gone from Hub.State, yet the roll still expects it and reports it absent.
+func TestPresentAbsentAfterRealLeaseExpiry(t *testing.T) {
+	t.Setenv("HUB_LEASE_TTL", "600ms")
+	c := ctx(t)
+	l, err := StartLocalWith(c, LocalOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Bridge{Hub: NewHubClient(l.HubURL), HubURL: l.HubURL, PresentTimeout: 2 * time.Second}
+	id := Cast[len(Cast)-1].ID
+	n := len(Cast)
+	registered := func() bool {
+		s, err := b.Hub.State(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range s.Workers {
+			if w.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	poll := func(cond func() bool) bool {
+		for d := time.Now().Add(10 * time.Second); time.Now().Before(d); time.Sleep(50 * time.Millisecond) {
+			if cond() {
+				return true
+			}
+		}
+		return false
+	}
+	if !poll(registered) {
+		t.Fatalf("%s never registered", id)
+	}
+	before, err := presentTool(t, b).Call(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("%d of %d present", n, n); !strings.Contains(fmt.Sprint(before), want) {
+		t.Fatalf("before stop, want %q in:\n%s", want, before)
+	}
+	l.Workers[id]()
+	if !poll(func() bool { return !registered() }) {
+		t.Fatalf("hub never reaped %s", id)
+	}
+	out, err := presentTool(t, b).Call(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := fmt.Sprint(out)
+	for _, want := range []string{fmt.Sprintf("%d of %d present", n-1, n), "Absent: " + id,
+		"- " + id + " (" + Cast[len(Cast)-1].Role + ") [model unknown] absent: not registered (lease expired or never started)"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("want %q in:\n%s", want, text)
+		}
+	}
+}
