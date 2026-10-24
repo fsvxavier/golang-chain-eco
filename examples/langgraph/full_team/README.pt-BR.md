@@ -63,6 +63,8 @@ go build -o bin/team-mcp ./examples/langgraph/full_team && ./bin/team-mcp serve
 
 O stdout leva só o protocolo MCP. As linhas de inicialização (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) vão para o stderr. Ele para no fim da entrada (Ctrl-D) ou com um sinal. O modo serve difere da demo em três pontos: nenhum worker recebe a ferramenta `shell`, o manager roda com uma API key aleatória gerada na partida (um `MANAGER_API_KEY` definido pelo operador é ignorado; só a bridge deste processo conhece a chave) e nenhuma demanda é enviada até o chat chamar `team_submit`. As ferramentas são `team_submit`, `team_status`, `team_queue`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` e `graph_resume`.
 
+Mais dois fatos sobre o modo serve. O argumento `url` de `graph_run`, `graph_state` e `graph_resume` permite que o chat faça a bridge chamar qualquer URL de Agent Server; a chave do manager só é enviada quando `url` está vazio ou é igual à URL do próprio manager, e qualquer outra URL não recebe chave. O hub e os servidores dos workers escutam em `127.0.0.1` e não têm autenticação, então qualquer processo local pode alcançá-los.
+
 Registre no cliente (mesmos formatos de [Use it from VS Code](../full_team_front/README.pt-BR.md#usar-no-vs-code) no `full_team_front`, que este segue; o primeiro `go run` compila o exemplo, e o time desiste após 10 segundos se os workers não subirem, então prefira o binário compilado se o chat estourar o tempo). `.mcp.json` do Claude Code, na raiz do projeto:
 
 ```json
