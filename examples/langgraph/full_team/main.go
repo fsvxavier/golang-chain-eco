@@ -40,6 +40,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/deepagents/backends"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/docs"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/team"
+	"github.com/fsvxavier/golang-chain-eco/integrations/codegraph"
 )
 
 func main() {
@@ -60,6 +61,20 @@ func main() {
 
 // run plays the demo once and prints the report to w. It returns the meter, so
 // the test can check what the middleware did.
+// graphTools is code_graph for the workspace (WORKSPACE_ROOT, else the working
+// directory) when it has a CodeGraph or graphify index, for every worker: a search
+// by meaning costs far fewer tokens than grepping and reading. Nil without an index.
+func graphTools() []tools.Tool {
+	root := os.Getenv("WORKSPACE_ROOT")
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	if t := codegraph.ProjectTool(root); t != nil {
+		return []tools.Tool{t}
+	}
+	return nil
+}
+
 func run(ctx context.Context, w io.Writer) (*meter, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -83,7 +98,7 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 		// Ponytail note, TOON) as the workers; it has no meter, which counts worker calls only.
 		ManagerMiddleware: []agents.Middleware{middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}},
 		RoleTools:         docs.DocTools(hub.Load, docs.DocsConfig{WorkspaceRoot: dir}),
-		Tools:             []tools.Tool{shell, tasksTool()},
+		Tools:             append([]tools.Tool{shell, tasksTool()}, graphTools()...),
 		Offline:           team.OfflineWithTool(tasksToolName),
 	})
 	if err != nil {

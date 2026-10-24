@@ -26,7 +26,7 @@ func serveOptions(key string, hub *atomic.Pointer[team.HubClient]) (team.LocalOp
 	return team.LocalOptions{
 		Middleware:        []agents.Middleware{m},
 		ManagerMiddleware: []agents.Middleware{middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}},
-		Tools:             []tools.Tool{tasksTool()},
+		Tools:             append([]tools.Tool{tasksTool()}, graphTools()...),
 		Offline:           team.OfflineWithTool(tasksToolName),
 		RoleTools:         docs.DocTools(hub.Load, docs.DocsConfig{}), // WORKSPACE_ROOT, else the cwd
 		ManagerKey:        key,

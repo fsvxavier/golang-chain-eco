@@ -200,3 +200,75 @@ func TestLocalRunnerCompletes(t *testing.T) {
 	}
 	t.Fatal("job never finished")
 }
+
+// A deep agent whose backend is a local directory with a code graph index gets
+// code_graph; NoCodeGraph or a directory without an index does not.
+func TestCodeGraphToolFollowsTheIndex(t *testing.T) {
+	offered := func(dir string, no bool) bool {
+		var seen bool
+		fake := &models.Fake{Name: "f", Func: func(_ []messages.Message, o models.Options) (messages.Message, error) {
+			for _, d := range o.Tools {
+				seen = seen || d.Name == "code_graph"
+			}
+			return messages.AI("ok"), nil
+		}}
+		ag, err := deepagents.Create(deepagents.Options{Model: fake, Backend: backends.Filesystem{Root: dir}, NoCodeGraph: no})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ag.Invoke(context.Background(), graph.State{"messages": []messages.Message{messages.Human("hi")}}); err != nil {
+			t.Fatal(err)
+		}
+		return seen
+	}
+	indexed := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(indexed, ".codegraph"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !offered(indexed, false) {
+		t.Fatal("an indexed local directory must offer code_graph")
+	}
+	if offered(indexed, true) {
+		t.Fatal("NoCodeGraph must not offer it")
+	}
+	if offered(t.TempDir(), false) {
+		t.Fatal("no index, no tool")
+	}
+}
+
+// Compaction is on by default for a deep agent: a long wordy history reaches
+// the model shorter than it went in.
+func TestDeepAgentCompactsLongHistory(t *testing.T) {
+	const wordy = "Sure! I think you should basically just run the tests and then check the output carefully."
+	var hist []messages.Message
+	for i := 0; i < 120; i++ {
+		hist = append(hist, messages.Human(wordy), messages.AI(wordy))
+	}
+	hist = append(hist, messages.Human(wordy))
+	size := func(ms []messages.Message) (n int) {
+		for _, m := range ms {
+			if m.Role != messages.RoleSystem {
+				n += len(m.Text())
+			}
+		}
+		return
+	}
+	run := func(no bool) int {
+		var got int
+		fake := &models.Fake{Name: "f", Func: func(ms []messages.Message, _ models.Options) (messages.Message, error) {
+			got = size(ms)
+			return messages.AI("ok"), nil
+		}}
+		ag, err := deepagents.Create(deepagents.Options{Model: fake, NoCompaction: no, SummarizeAt: -1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ag.Invoke(context.Background(), graph.State{"messages": hist}); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if on, off := run(false), run(true); on >= off {
+		t.Fatalf("compaction on: %d bytes, off: %d", on, off)
+	}
+}

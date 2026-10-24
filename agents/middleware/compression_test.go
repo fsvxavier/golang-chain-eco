@@ -315,3 +315,34 @@ func TestCompressionDeciderNoLeavesUntouched(t *testing.T) {
 		t.Fatal("request changed although every answer is no")
 	}
 }
+
+// Compaction needs no model: the rules alone must shrink a long (over 4000 tokens), wordy history
+// before the call, and leave a short one alone.
+func TestCompactionDefaultShrinksLongHistory(t *testing.T) {
+	size := func(ms []messages.Message) (n int) {
+		for _, m := range ms {
+			n += len(m.Text())
+		}
+		return
+	}
+	run := func(in []messages.Message) []messages.Message {
+		var got []messages.Message
+		_, err := Compaction().WrapModelCall(context.Background(), &agents.ModelRequest{Messages: in},
+			func(_ context.Context, r *agents.ModelRequest) (messages.Message, error) {
+				got = r.Messages
+				return messages.AI("ok"), nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	long := append(turns(120), messages.Human(verbose)) // the rules compress above 4000 estimated tokens
+	if got := run(long); size(got) >= size(long) {
+		t.Fatalf("long history not shrunk: %d >= %d", size(got), size(long))
+	}
+	short := []messages.Message{messages.Human(verbose)}
+	if got := run(short); !reflect.DeepEqual(got, short) {
+		t.Fatalf("a short history must pass untouched: %+v", got)
+	}
+}

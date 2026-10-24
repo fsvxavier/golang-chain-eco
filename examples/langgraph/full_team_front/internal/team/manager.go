@@ -270,6 +270,7 @@ func (m *manager) step(role, label string, st tasktrack.Status, prompt func(grap
 
 func dossier(s graph.State) string {
 	d := fmt.Sprintf("## Request\n%v\n\n## Specification\n%v", s["request"], s["spec"])
+	d += "\n\n## Searching\nThe workspace and the backend roots named by the demand can be searched with the backend_graph tool when they have a CodeGraph or graphify index: one call returns symbols, source and call paths."
 	if u := scopeOf(s).AppURL; ValidAppURL(u) {
 		d += "\n\n## App\nAPP_URL: " + u // informational; browser_test takes the URL from the hub scope
 	}

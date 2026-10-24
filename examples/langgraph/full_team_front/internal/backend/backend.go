@@ -72,7 +72,7 @@ func Tools(scope func(ctx context.Context) (team.Scope, error), cfg Config) []to
 }
 
 // RoleTools is a team.LocalOptions.RoleTools that gives the po role the
-// backend tools. The scope and request id come from the hub by the job's exact
+// backend tools and every other role backend_graph. The scope and request id come from the hub by the job's exact
 // thread; hub may return nil until the team is up, which means no access.
 func RoleTools(hub func() *team.HubClient, cfg Config) func(role string) []tools.Tool {
 	if cfg.Report == nil {
@@ -86,11 +86,19 @@ func RoleTools(hub func() *team.HubClient, cfg Config) func(role string) []tools
 	ts := newTools(func(ctx context.Context) (string, team.Scope, error) {
 		return team.RequestScopeFromContext(ctx, hub())
 	}, cfg)
+	// Every role may ask a root's code graph (it only reads, within the demand's
+	// roots, and saves tokens in any role's searches); the other tools are the PO's.
+	var graph []tools.Tool
+	for _, t := range ts {
+		if t.Name() == "backend_graph" {
+			graph = append(graph, t)
+		}
+	}
 	return func(role string) []tools.Tool {
 		if role == "po" {
 			return ts
 		}
-		return nil
+		return graph
 	}
 }
 
@@ -168,7 +176,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 				count(ctx, id)
 				return out, nil
 			}),
-		graphTool(cfg, scope, count),
+		graphTool(cfg, resolve, count),
 		tools.New("backend_get", "HTTP GET one URL of the backend the demand named (GET only); returns status, content type and body. Use it to see real responses and the API description.",
 			func(ctx context.Context, a getArgs) (any, error) {
 				id, s, err := scope(ctx, "backend_get")

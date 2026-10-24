@@ -153,3 +153,11 @@ func oldTurnsEnd(msgs []messages.Message, keep int) int {
 	}
 	return humans[len(humans)-keep]
 }
+
+// Compaction is the default compaction for any agent: Compression decided by
+// the rules (compress.RuleDecider), so it needs no model and no network. Old
+// turns are caveman-compressed, the Ponytail note rides on the last Human
+// message when the conversation has a real share of code, and JSON tool results
+// become TOON when that is shorter. Use NewCompression with another decider
+// (a laya model, say) to decide with more than the rules.
+func Compaction() Compression { return NewCompression(compress.RuleDecider{}) }

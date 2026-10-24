@@ -13,6 +13,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/deepagents/backends"
 	dmw "github.com/fsvxavier/golang-chain-eco/deepagents/middleware"
+	"github.com/fsvxavier/golang-chain-eco/integrations/codegraph"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/checkpoint"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/store"
@@ -63,6 +64,15 @@ type Options struct {
 	ResponseFormat *models.ResponseFormat
 	Checkpointer   checkpoint.Saver
 	Store          store.Store
+	// Compaction is on by default: every deep agent runs through
+	// middleware.Compaction (caveman-compressed old turns, the Ponytail note, TOON
+	// tool results, decided by rules) unless Middleware already has a
+	// middleware.Compression or NoCompaction is set.
+	NoCompaction bool
+	// A deep agent whose Backend is a local directory (Filesystem or LocalShell)
+	// that has a CodeGraph or graphify index gets the code_graph tool, so it can
+	// search by meaning instead of grepping. NoCodeGraph turns that off.
+	NoCodeGraph bool
 }
 
 // Create builds the deep agent.
@@ -77,8 +87,26 @@ func Create(o Options) (*graph.Compiled, error) {
 	if len(o.Permissions) > 0 {
 		be = backends.WithPermissions(be, o.Permissions...)
 	}
+	hasCompression := func(ms []agents.Middleware) bool {
+		for _, m := range ms {
+			if _, ok := m.(amw.Compression); ok {
+				return true
+			}
+		}
+		return false
+	}
+	compact := !o.NoCompaction && !hasCompression(o.Middleware)
+	allTools := o.Tools
+	if root := localRoot(o.Backend); root != "" && !o.NoCodeGraph {
+		if ct := codegraph.ProjectTool(root); ct != nil {
+			allTools = append(append([]tools.Tool(nil), o.Tools...), ct)
+		}
+	}
 	baseStack := func(model models.ChatModel) []agents.Middleware {
 		stack := []agents.Middleware{amw.TodoList{}, dmw.Filesystem{Backend: be}}
+		if compact {
+			stack = append(stack, amw.Compaction())
+		}
 		if o.SummarizeAt >= 0 {
 			stack = append(stack, amw.Summarization{Model: model, MaxTokens: orInt(o.SummarizeAt, 60000), KeepMessages: 20})
 		}
@@ -109,7 +137,9 @@ func Create(o Options) (*graph.Compiled, error) {
 		}
 		ts := s.Tools
 		if ts == nil {
-			ts = o.Tools
+			ts = allTools
+		} else if len(allTools) > len(o.Tools) {
+			ts = append(append([]tools.Tool(nil), ts...), allTools[len(allTools)-1])
 		}
 		sp := s.SystemPrompt
 		if sp == "" {
@@ -145,9 +175,24 @@ func Create(o Options) (*graph.Compiled, error) {
 		copts = append(copts, graph.WithStore(o.Store))
 	}
 	return agents.Create(agents.Options{
-		Model: o.Model, Tools: o.Tools, SystemPrompt: prompt, Middleware: stack,
+		Model: o.Model, Tools: allTools, SystemPrompt: prompt, Middleware: stack,
 		ResponseFormat: o.ResponseFormat, Compile: copts,
 	})
+}
+
+// localRoot is the directory a local backend works in, or "" for any other.
+func localRoot(be backends.Backend) string {
+	switch b := be.(type) {
+	case backends.Filesystem:
+		return b.Root
+	case *backends.Filesystem:
+		return b.Root
+	case backends.LocalShell:
+		return b.Root
+	case *backends.LocalShell:
+		return b.Root
+	}
+	return ""
 }
 
 func orInt(v, d int) int {
