@@ -4,6 +4,8 @@
 
 A worker agent served over the Agent Server HTTP API and driven by a supervisor through a `RemoteRunner`.
 
+The agent runs through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation holds a real share of code, JSON tool results become TOON, and all of it is decided by rules, with no model needed.
+
 ## What it does
 
 - Serves a `researcher` graph with `remote/server` on an `httptest` server (150 ms of simulated work).

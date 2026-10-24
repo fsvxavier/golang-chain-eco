@@ -4,6 +4,8 @@
 
 The Agent Streaming Protocol: subscribe to a thread, watch tokens and tool activity, answer an approval request and inspect checkpoints.
 
+The agent runs through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation holds a real share of code, JSON tool results become TOON, and all of it is decided by rules, with no model needed.
+
 ## What it does
 
 - The agent must ask before calling `pay` (`HumanInTheLoop`). A client subscribes to the `lifecycle`, `messages`, `tools` and `input` channels, starts a run with `run.start`, and prints the ordered events (`seq`).

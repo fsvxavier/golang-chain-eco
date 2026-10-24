@@ -47,7 +47,7 @@ func main() {
 	}}
 	// the agent must ask a human before calling "pay"
 	agent, err := agents.Create(agents.Options{Model: model, Tools: []tools.Tool{pay},
-		Middleware: []agents.Middleware{amw.HumanInTheLoop{Tools: map[string]amw.ToolPolicy{"pay": {}}}},
+		Middleware: []agents.Middleware{amw.HumanInTheLoop{Tools: map[string]amw.ToolPolicy{"pay": {}}}, amw.Compaction()},
 		Compile:    []graph.CompileOption{graph.WithCheckpointer(checkpoint.NewMemory())}})
 	if err != nil {
 		log.Fatal(err)

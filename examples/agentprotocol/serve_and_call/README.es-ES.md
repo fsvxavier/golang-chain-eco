@@ -4,6 +4,8 @@
 
 Sirve un agent con el Agent Protocol y contrólalo con el cliente del protocolo: threads, runs, streaming, viaje en el tiempo y el store de largo plazo.
 
+El agent se ejecuta con `middleware.Compaction()`: los turnos antiguos se comprimen al estilo caveman, se añade una nota Ponytail cuando la conversación tiene una parte real de código, los resultados JSON de tools pasan a TOON, y todo se decide por reglas, sin necesidad de modelo.
+
 ## Qué hace
 
 - Sirve un agent de clima con `agentprotocol.New` en un servidor `httptest` y habla con él mediante `agentprotocol.NewClient`.

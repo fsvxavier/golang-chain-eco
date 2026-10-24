@@ -4,6 +4,8 @@
 
 El Agent Streaming Protocol: suscríbete a un thread, sigue tokens y actividad de tools, responde a una solicitud de aprobación e inspecciona checkpoints.
 
+El agent se ejecuta con `middleware.Compaction()`: los turnos antiguos se comprimen al estilo caveman, se añade una nota Ponytail cuando la conversación tiene una parte real de código, los resultados JSON de tools pasan a TOON, y todo se decide por reglas, sin necesidad de modelo.
+
 ## Qué hace
 
 - El agent debe preguntar antes de llamar a `pay` (`HumanInTheLoop`). Un cliente se suscribe a los canales `lifecycle`, `messages`, `tools` e `input`, inicia una run con `run.start` e imprime los eventos ordenados (`seq`).

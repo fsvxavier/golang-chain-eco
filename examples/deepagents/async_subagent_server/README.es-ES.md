@@ -4,6 +4,8 @@
 
 Un agent worker servido por la API HTTP del Agent Server y controlado por un supervisor mediante un `RemoteRunner`.
 
+El agent se ejecuta con `middleware.Compaction()`: los turnos antiguos se comprimen al estilo caveman, se añade una nota Ponytail cuando la conversación tiene una parte real de código, los resultados JSON de tools pasan a TOON, y todo se decide por reglas, sin necesidad de modelo.
+
 ## Qué hace
 
 - Sirve un grafo `researcher` con `remote/server` en un servidor `httptest` (150 ms de trabajo simulado).

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
+	"github.com/fsvxavier/golang-chain-eco/agents/middleware"
 	"github.com/fsvxavier/golang-chain-eco/ciam"
 	"github.com/fsvxavier/golang-chain-eco/core/embeddings"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
@@ -54,7 +55,8 @@ func main() {
 		}
 		return messages.AI("I will use a float percentage."), nil
 	}}
-	agent := must(agents.Create(agents.Options{Model: model, Tools: kit.All(), SystemPrompt: ciam.Instructions}))
+	agent := must(agents.Create(agents.Options{Model: model, Tools: kit.All(), SystemPrompt: ciam.Instructions,
+		Middleware: []agents.Middleware{middleware.Compaction()}}))
 
 	demo.Title("agent run")
 	out := must(agent.Invoke(ctx, graph.State{"messages": "Add a discount to the invoice total"}))

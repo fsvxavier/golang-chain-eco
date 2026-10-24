@@ -4,6 +4,8 @@
 
 An agent that asks the project's context manager before it changes code, and so respects a decision nobody mentioned.
 
+The agent runs through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation holds a real share of code, JSON tool results become TOON, and all of it is decided by rules, with no model needed.
+
 ## What it does
 
 - Creates a project with an invoice type and an ADR that says "never use float for money".

@@ -4,6 +4,8 @@
 
 Serve an agent over the Agent Protocol and drive it with the protocol client: threads, runs, streaming, time travel and the long-term store.
 
+The agent runs through `middleware.Compaction()`: old turns are caveman-compressed, a Ponytail note is added when the conversation holds a real share of code, JSON tool results become TOON, and all of it is decided by rules, with no model needed.
+
 ## What it does
 
 - Serves a weather agent with `agentprotocol.New` on an `httptest` server and talks to it with `agentprotocol.NewClient`.

@@ -4,6 +4,8 @@
 
 Um deep agent lança uma tarefa longa em segundo plano e a consulta depois.
 
+O agent roda com `middleware.Compaction()`: turnos antigos são comprimidos no estilo caveman, uma nota Ponytail é adicionada quando a conversa tem uma parcela real de código, resultados JSON de tools viram TOON, e tudo é decidido por regras, sem precisar de modelo.
+
 ## O que faz
 
 - O middleware `AsyncSubagents` dá ao agent principal `start_async_task` (e as tools de checar/cancelar).
