@@ -191,6 +191,9 @@ func backendBlock(sc Scope) string {
 	for _, r := range sc.Roots {
 		b.WriteString("ROOT: " + r + "\n")
 	}
+	if len(sc.Roots) > 0 {
+		b.WriteString("TIP: backend_graph answers from a root's own CodeGraph or graphify index (symbols, source and call paths in one call) and is much cheaper than several backend_grep and backend_read calls; try it first, and fall back to those if the root has no index.\n")
+	}
 	for _, u := range sc.URLs {
 		b.WriteString("URL: " + u + "\n")
 	}

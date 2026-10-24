@@ -40,6 +40,9 @@ type Config struct {
 	// logged and never fails the tool call: the hub's count is then short, which
 	// the manager treats as unverified.
 	Report func(ctx context.Context, requestID string) error
+	// Run executes a code graph engine (codegraph, graphify) for backend_graph.
+	// Nil runs the real binary without a shell, with a timeout and a size cap.
+	Run func(ctx context.Context, name string, args []string) (string, error)
 }
 
 func (c Config) withDefaults() Config {
@@ -165,6 +168,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 				count(ctx, id)
 				return out, nil
 			}),
+		graphTool(cfg, scope, count),
 		tools.New("backend_get", "HTTP GET one URL of the backend the demand named (GET only); returns status, content type and body. Use it to see real responses and the API description.",
 			func(ctx context.Context, a getArgs) (any, error) {
 				id, s, err := scope(ctx, "backend_get")
