@@ -2,6 +2,7 @@ package team
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -70,7 +71,7 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker)
 
 	g := graph.NewStateGraph(graph.Schema{
 		"request": channels.LastValue(), "kickoff": channels.LastValue(),
-		"spec":    channels.LastValue(),
+		"spec": channels.LastValue(), "scope": channels.LastValue(),
 		"history": graph.Append(), "results": graph.Append(),
 		"report": channels.LastValue(), "status": channels.LastValue(),
 	})
@@ -122,6 +123,15 @@ func (m *manager) ask(ctx context.Context, prompt string) (string, error) {
 }
 
 func (m *manager) intake(ctx context.Context, s graph.State) (any, error) {
+	// Stored for every request, empty when the demand named none: workers find
+	// the request's scope by longest id prefix, so each request needs an entry.
+	var sc Scope
+	if raw, err := json.Marshal(s["scope"]); err == nil {
+		_ = json.Unmarshal(raw, &sc)
+	}
+	if err := m.hub.SetScope(ctx, requestID(ctx), sc); err != nil {
+		return nil, err
+	}
 	m.move(ctx, tasktrack.Request, subject(ctx, ""), tasktrack.Received, "manager", head(fmt.Sprint(s["request"]), 80))
 	out, err := m.ask(ctx, fmt.Sprintf("ROLE: manager\nMODE: intake\nREQUEST: %v", s["request"]))
 	if err != nil {

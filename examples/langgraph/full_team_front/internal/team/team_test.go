@@ -2,7 +2,9 @@ package team
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -11,6 +13,8 @@ import (
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
+	"github.com/fsvxavier/golang-chain-eco/core/runnables"
+	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/mcp"
 	"github.com/fsvxavier/golang-chain-eco/remote"
 )
@@ -406,5 +410,89 @@ func TestTaskBlockedAfterMaxRounds(t *testing.T) {
 		if r["status"] != "blocked" || fmt.Sprint(r["rounds"]) != "3" {
 			t.Fatalf("%s: %v", id, r)
 		}
+	}
+}
+
+func TestScopeRoundTripOverHTTP(t *testing.T) {
+	h := NewHub(time.Minute)
+	ts := newTestServer(t, h.Handler(nil))
+	c := NewHubClient(ts.URL)
+	if _, err := c.Scope(ctx(t), "r-1"); !errors.Is(err, ErrNoScope) {
+		t.Fatalf("unset scope: %v, want ErrNoScope", err)
+	}
+	want := Scope{Roots: []string{"/srv/api"}, URLs: []string{"http://api:8080"}, AppURL: "http://app:3000"}
+	if err := c.SetScope(ctx(t), "r-1", want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Scope(ctx(t), "r-1")
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, %v; want %+v", got, err, want)
+	}
+	if s, ok := h.Scope("r-1"); !ok || !reflect.DeepEqual(s, want) {
+		t.Fatalf("hub scope %+v %v", s, ok)
+	}
+}
+
+func TestSubmitStoresScope(t *testing.T) {
+	c := ctx(t)
+	l, err := StartLocal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := NewHubClient(l.HubURL)
+	b := &Bridge{Manager: remote.NewClient(l.ManagerURL), Hub: hub, HubURL: l.HubURL}
+	var submit tools.Tool
+	for _, tl := range b.Tools() {
+		if tl.Name() == "team_submit" {
+			submit = tl
+		}
+	}
+	// lists arrive as []any after schema validation
+	out, err := submit.Call(c, map[string]any{"request": DefaultRequest,
+		"backend_roots": []any{"/srv/api"}, "backend_urls": []any{"http://api:8080"}, "app_url": "http://app:3000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tid := strings.TrimPrefix(strings.Fields(fmt.Sprint(out))[0], "thread_id=")
+	want := Scope{Roots: []string{"/srv/api"}, URLs: []string{"http://api:8080"}, AppURL: "http://app:3000"}
+	var got Scope
+	for end := time.Now().Add(20 * time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+		if got, err = hub.Scope(c, tid); err == nil {
+			break
+		}
+	}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("scope of %s: %+v, %v; want %+v", tid, got, err, want)
+	}
+}
+
+// A tool running inside a worker's agent (reached over Agent Protocol) finds
+// the scope of its job from the thread id alone; the model supplies nothing.
+func TestToolSeesJobScope(t *testing.T) {
+	c := ctx(t)
+	var hubURL atomic.Value
+	var seen, thread atomic.Value
+	probe := tools.New("probe", "returns the scope of the running job", func(tc context.Context, _ struct{}) (any, error) {
+		thread.Store(runnables.GetConfig(tc).Configurable["thread_id"])
+		s, err := ScopeFromContext(tc, NewHubClient(hubURL.Load().(string)))
+		seen.Store(s)
+		return fmt.Sprintf("%+v %v", s, err), err
+	})
+	l, err := StartLocalWith(c, LocalOptions{Tools: []tools.Tool{probe}, Offline: OfflineWithTool("probe")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hubURL.Store(l.HubURL)
+	hub := NewHubClient(l.HubURL)
+	want := Scope{Roots: []string{"/srv/api"}, URLs: []string{"http://api:8080"}, AppURL: "http://app:3000"}
+	if err := hub.SetScope(c, "req-abc-9", want); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hub.Run(c, Job{Thread: "req-abc-9-T1-dev", Prefer: []string{"junior-1"}, Scope: "req-abc-9", Prompt: "ROLE: engineer\nTASK: T1\n"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("thread_id seen by the tool: %v", thread.Load())
+	if got, _ := seen.Load().(Scope); !reflect.DeepEqual(got, want) {
+		t.Fatalf("tool saw %+v, want %+v", got, want)
 	}
 }

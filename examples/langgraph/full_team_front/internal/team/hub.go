@@ -66,6 +66,7 @@ type Hub struct {
 	mu      sync.Mutex
 	workers map[string]*WorkerInfo
 	jobs    map[string]*Job
+	scopes  map[string]Scope
 	queue   []string
 	wake    chan struct{}
 	seq     int
@@ -74,7 +75,22 @@ type Hub struct {
 
 // NewHub returns an empty hub.
 func NewHub(ttl time.Duration) *Hub {
-	return &Hub{TTL: ttl, MaxAttempts: 3, workers: map[string]*WorkerInfo{}, jobs: map[string]*Job{}, wake: make(chan struct{}), now: time.Now}
+	return &Hub{TTL: ttl, MaxAttempts: 3, workers: map[string]*WorkerInfo{}, jobs: map[string]*Job{}, scopes: map[string]Scope{}, wake: make(chan struct{}), now: time.Now}
+}
+
+// SetScope stores what request id may reach (see Scope).
+func (h *Hub) SetScope(id string, s Scope) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.scopes[id] = s
+}
+
+// Scope returns the scope stored for request id.
+func (h *Hub) Scope(id string) (Scope, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s, ok := h.scopes[id]
+	return s, ok
 }
 
 // notifyLocked wakes every waiter; callers hold h.mu.

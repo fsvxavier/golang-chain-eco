@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 )
@@ -89,6 +90,23 @@ func (h *Hub) Handler(mcp http.Handler) http.Handler {
 			return
 		}
 		reply(w, 200, j)
+	})
+	mux.HandleFunc("PUT /scope/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var s Scope
+		if err := read(r, &s); err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		h.SetScope(r.PathValue("id"), s)
+		reply(w, 200, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("GET /scope/{id}", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := h.Scope(r.PathValue("id"))
+		if !ok {
+			reply(w, 404, map[string]string{"error": ErrNoScope.Error()})
+			return
+		}
+		reply(w, 200, s)
 	})
 	mux.HandleFunc("GET /state", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.Snapshot()) })
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, map[string]bool{"ok": true}) })
@@ -211,4 +229,29 @@ func (c *HubClient) State(ctx context.Context) (State, error) {
 	var s State
 	_, err := c.call(ctx, "GET", "/state", nil, &s)
 	return s, err
+}
+
+// SetScope stores the scope of request id.
+func (c *HubClient) SetScope(ctx context.Context, id string, s Scope) error {
+	code, err := c.call(ctx, "PUT", "/scope/"+url.PathEscape(id), s, nil)
+	if err == nil && code != 200 {
+		err = fmt.Errorf("hub: set scope: http %d", code)
+	}
+	return err
+}
+
+// Scope returns the scope of request id, or ErrNoScope (and the zero Scope)
+// when none was stored. Callers treat that as no access.
+func (c *HubClient) Scope(ctx context.Context, id string) (Scope, error) {
+	var s Scope
+	code, err := c.call(ctx, "GET", "/scope/"+url.PathEscape(id), nil, &s)
+	switch {
+	case err != nil:
+		return Scope{}, err
+	case code == 404:
+		return Scope{}, ErrNoScope
+	case code != 200:
+		return Scope{}, fmt.Errorf("hub: scope: http %d", code)
+	}
+	return s, nil
 }
