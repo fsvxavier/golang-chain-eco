@@ -93,8 +93,38 @@ func inferDocRoot(request string) string {
 	return strings.TrimRight(m[len(m)-1][1], ".:")
 }
 
+// listArgs wraps a tool so that a string given where it takes a list of strings
+// becomes a one-item list: some clients send a single path as plain text, and
+// refusing the whole demand over that costs more than reading it.
+type listArgs struct {
+	tools.Tool
+	keys []string
+}
+
+func (l listArgs) Call(ctx context.Context, args map[string]any) (any, error) {
+	for _, k := range l.keys {
+		if s, ok := args[k].(string); ok {
+			args[k] = []any{s}
+			if s == "" {
+				args[k] = []any{}
+			}
+		}
+	}
+	return l.Tool.Call(ctx, args)
+}
+
 // Tools returns the bridge tools.
 func (b *Bridge) Tools() []tools.Tool {
+	ts := b.tools()
+	for i, t := range ts {
+		if t.Name() == "team_submit" {
+			ts[i] = listArgs{t, []string{"backend_roots", "backend_urls", "docs_roots"}}
+		}
+	}
+	return ts
+}
+
+func (b *Bridge) tools() []tools.Tool {
 	return []tools.Tool{
 		tools.New("team_submit", "Send a demand to the engineering team. A folder named in the request for saving a plan or document is enough for the PO to write there (no other argument needed). Returns at once with thread_id and run_id; follow it with team_status.",
 			func(ctx context.Context, a submitArgs) (any, error) {
@@ -126,6 +156,9 @@ func (b *Bridge) Tools() []tools.Tool {
 			func(ctx context.Context, a threadArgs) (any, error) {
 				s, err := b.Manager.GetState(ctx, a.Thread)
 				if err != nil {
+					if strings.Contains(err.Error(), "404") {
+						return nil, tools.Errorf("team_status: thread %s not found: the team keeps threads in memory, so a restart of team-mcp (reconnecting the MCP, a new binary) ends them; submit the demand again", a.Thread)
+					}
 					return nil, tools.Errorf("team_status: %v", err)
 				}
 				out, _ := json.MarshalIndent(map[string]any{

@@ -7,6 +7,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/agents"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
+	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/langgraph/graph"
 )
 
@@ -83,5 +84,13 @@ func TestAgentBackendClaudeCLI(t *testing.T) {
 	}
 	if cacheFor("po") != nil {
 		t.Fatal("the API prompt cache must not wrap CLI calls")
+	}
+}
+
+func TestSubmitAcceptsAStringForAList(t *testing.T) {
+	var got []string
+	inner := tools.New("team_submit", "d", func(_ context.Context, a submitArgs) (any, error) { got = a.DocRoots; return "ok", nil })
+	if _, err := (listArgs{inner, []string{"docs_roots"}}).Call(context.Background(), map[string]any{"request": "r", "docs_roots": "/a/plans"}); err != nil || len(got) != 1 || got[0] != "/a/plans" {
+		t.Fatalf("%v %v", err, got)
 	}
 }
