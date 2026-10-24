@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -56,6 +57,10 @@ func RunHub(ctx context.Context, ln net.Listener) error {
 	return serve(ctx, ln, hub.Handler(mcpSrv.Handler()))
 }
 
+// Console is where the manager's console notifier writes. Serve mode points it
+// at stderr: stdout carries only MCP there.
+var Console io.Writer // nil: os.Stdout
+
 // RunManager serves the manager's delivery graph as an Agent Server
 // (remote/server, the LangGraph Platform subset). Clients call it with
 // remote.Graph. calls counts a request's backend calls for the evidence rule
@@ -65,7 +70,11 @@ func RunManager(ctx context.Context, hubURL string, ln net.Listener, calls func(
 	if err != nil {
 		return err
 	}
-	track, err := tasktrack.FromEnv(os.Stdout)
+	console := Console
+	if console == nil {
+		console = os.Stdout
+	}
+	track, err := tasktrack.FromEnv(console)
 	if err != nil {
 		return err
 	}

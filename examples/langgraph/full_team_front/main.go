@@ -24,9 +24,11 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
@@ -42,6 +44,14 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := serve(ctx, os.Stdin, os.Stdout, os.Stderr); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	if _, err := run(ctx, os.Stdout); err != nil {
@@ -55,17 +65,13 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	dec, source := decider()
-	rtk := compress.NewRTK(dec)
 	dir, err := os.MkdirTemp("", "full_team")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	shell := shellTool(dir, rtk)
-	// Keep 1 (default 4): the offline threads are short, so they need an old
-	// turn to compress. NewCompression's guard is kept by wrapping it here.
-	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
+	st := newStack(dir, dir)
+	m, source := st.m, st.source
 
 	// The demo demand names the fake backend: its source tree written into the
 	// workspace and its API on loopback. The PO tools reach nothing else.
@@ -75,19 +81,12 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 	}
 	api := fake.Serve()
 	defer api.Close()
-	var hub atomic.Pointer[team.HubClient] // known once the team is up; until then no access
 
-	l, err := team.StartLocalWith(ctx, team.LocalOptions{
-		Middleware:  []agents.Middleware{m},
-		Tools:       []tools.Tool{tasksTool()},
-		RoleTools:   workerTools(shell, hub.Load, dir),
-		CallCounter: backend.Calls,
-		Offline:     team.OfflineWithTool(tasksToolName),
-	})
+	l, err := team.StartLocalWith(ctx, st.opts)
 	if err != nil {
 		return nil, err
 	}
-	hub.Store(team.NewHubClient(l.HubURL))
+	st.hub.Store(team.NewHubClient(l.HubURL))
 	fmt.Fprintf(w, "decider %s; hub %s, manager %s, %d workers\n", source, l.HubURL, l.ManagerURL, len(l.Workers))
 
 	out, err := team.InvokeWithScope(ctx, l.ManagerURL, messages.NewID(), team.DefaultRequest,
@@ -108,6 +107,34 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 	cancel()
 	l.Wait()
 	return m, nil
+}
+
+// stack is what the demo and serve mode share: the team's options (compression
+// meter, tools, per-role tools, backend call counter, offline script).
+type stack struct {
+	opts   team.LocalOptions
+	m      *meter
+	hub    *atomic.Pointer[team.HubClient] // known once the team is up; until then no access
+	source string
+}
+
+// newStack builds the options. dir is the shell tool's scratch directory;
+// workspace is the backend read root ("" means WORKSPACE_ROOT, else the cwd).
+func newStack(dir, workspace string) *stack {
+	dec, source := decider()
+	rtk := compress.NewRTK(dec)
+	shell := shellTool(dir, rtk)
+	// Keep 1 (default 4): the offline threads are short, so they need an old
+	// turn to compress. NewCompression's guard is kept by wrapping it here.
+	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
+	hub := new(atomic.Pointer[team.HubClient])
+	return &stack{m: m, hub: hub, source: source, opts: team.LocalOptions{
+		Middleware:  []agents.Middleware{m},
+		Tools:       []tools.Tool{tasksTool()},
+		RoleTools:   workerTools(shell, hub.Load, workspace),
+		CallCounter: backend.Calls,
+		Offline:     team.OfflineWithTool(tasksToolName),
+	}}
 }
 
 // decider is the real one when LAYA_URL is set, else the scripted offline one.
