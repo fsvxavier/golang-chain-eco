@@ -276,3 +276,40 @@ func TestDefaultModels(t *testing.T) {
 		}
 	}
 }
+
+func TestPinnedJobWaitsForItsWorker(t *testing.T) {
+	h := NewHub(time.Minute)
+	h.Register("senior-1", "senior", "")
+	h.Register("senior-2", "senior", "")
+	busy := h.Submit(Job{Prefer: []string{"senior-1"}, Thread: "busy"})
+	if h.jobs[busy].Worker != "senior-1" {
+		t.Fatalf("setup: busy job on %q", h.jobs[busy].Worker)
+	}
+	id := h.Submit(Job{Prefer: []string{"senior-1", "senior"}, Pin: true, Thread: "rework"})
+	if h.jobs[id].Status != "queued" || h.workers["senior-2"].Job != "" {
+		t.Fatalf("pinned job must wait for senior-1, is %s on %q", h.jobs[id].Status, h.jobs[id].Worker)
+	}
+	if err := h.Complete("senior-1", busy, "ok", ""); err != nil {
+		t.Fatal(err)
+	}
+	if h.jobs[id].Worker != "senior-1" {
+		t.Fatalf("pinned job must run on senior-1, is on %q", h.jobs[id].Worker)
+	}
+}
+
+func TestPinnedJobFallsBackWhenLeaseExpired(t *testing.T) {
+	h := NewHub(time.Second)
+	h.MaxAttempts = 1 // the blocker fails instead of jumping the queue
+	now := time.Now()
+	h.now = func() time.Time { return now }
+	h.Register("senior-1", "senior", "")
+	h.Register("senior-2", "senior", "")
+	h.Submit(Job{Prefer: []string{"senior-1"}, Thread: "busy"})
+	id := h.Submit(Job{Prefer: []string{"senior-1", "senior"}, Pin: true, Thread: "rework"})
+	now = now.Add(2 * time.Second)
+	h.Heartbeat("senior-2")
+	h.Reap()
+	if h.jobs[id].Worker != "senior-2" {
+		t.Fatalf("job must fall back to senior-2, is on %q (%s)", h.jobs[id].Worker, h.jobs[id].Status)
+	}
+}

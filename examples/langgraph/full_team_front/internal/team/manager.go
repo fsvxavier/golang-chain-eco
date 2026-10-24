@@ -132,8 +132,14 @@ func (m *manager) intake(ctx context.Context, s graph.State) (any, error) {
 
 // dispatch queues a job for one of prefer (worker ids or roles) and waits.
 func (m *manager) dispatch(ctx context.Context, prefer []string, thread, prompt, query string) (Job, error) {
+	return m.dispatchJob(ctx, Job{Prefer: prefer}, thread, prompt, query)
+}
+
+// dispatchJob is dispatch with the job's Prefer and Pin already set.
+func (m *manager) dispatchJob(ctx context.Context, j Job, thread, prompt, query string) (Job, error) {
 	scope := requestID(ctx)
-	return m.hub.Run(ctx, Job{Prefer: prefer, Thread: scope + "-" + thread, Prompt: prompt, Query: query, Scope: scope})
+	j.Thread, j.Prompt, j.Query, j.Scope = scope+"-"+thread, prompt, query, scope
+	return m.hub.Run(ctx, j)
 }
 
 // step is a node that hands the request to one role and stores its answer.
@@ -217,7 +223,7 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 			prompt += "\n## Feedback to address\n" + w.Feedback + "\n"
 		}
 		m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.InDevelopment, strings.Join(prefer, "/"), fmt.Sprintf("attempt %d", w.Round+1))
-		j, err := m.dispatch(ctx, prefer, w.ID+"-dev", prompt, w.Title+" "+w.Desc)
+		j, err := m.dispatchJob(ctx, Job{Prefer: prefer, Pin: w.Round > 0}, w.ID+"-dev", prompt, w.Title+" "+w.Desc)
 		if err != nil {
 			return w, hist, err
 		}

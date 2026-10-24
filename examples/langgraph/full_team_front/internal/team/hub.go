@@ -22,10 +22,14 @@ type Job struct {
 	// Prefer lists worker ids or roles in order of preference. The first one
 	// with a free worker wins, so "senior" never waits behind a junior.
 	Prefer []string `json:"prefer"`
-	Thread string   `json:"thread"`
-	Prompt string   `json:"prompt"`
-	Query  string   `json:"query,omitempty"` // grounding question for the knowledge tools
-	Scope  string   `json:"scope,omitempty"` // team-memory scope: the request id
+	// Pin makes the job wait for the worker named Prefer[0] while its lease is
+	// alive (rework goes back to the author); if it is gone, Prefer[1] (a role)
+	// takes over.
+	Pin    bool   `json:"pin,omitempty"`
+	Thread string `json:"thread"`
+	Prompt string `json:"prompt"`
+	Query  string `json:"query,omitempty"` // grounding question for the knowledge tools
+	Scope  string `json:"scope,omitempty"` // team-memory scope: the request id
 
 	Status   string `json:"status"` // queued, running, done, failed
 	Worker   string `json:"worker,omitempty"`
@@ -128,7 +132,7 @@ func (h *Hub) scheduleLocked() {
 	var left []string
 	for _, jid := range h.queue {
 		j := h.jobs[jid]
-		w := h.pickLocked(j.Prefer, ids)
+		w := h.pickLocked(j, ids)
 		if w == nil {
 			left = append(left, jid)
 			continue
@@ -138,7 +142,17 @@ func (h *Hub) scheduleLocked() {
 	h.queue = left
 }
 
-func (h *Hub) pickLocked(prefer, ids []string) *WorkerInfo {
+func (h *Hub) pickLocked(j *Job, ids []string) *WorkerInfo {
+	prefer := j.Prefer
+	if j.Pin && len(prefer) > 0 {
+		if w := h.workers[prefer[0]]; w != nil && h.now().Sub(w.Seen) <= h.TTL {
+			if w.Job == "" {
+				return w
+			}
+			return nil
+		}
+		prefer = prefer[1:]
+	}
 	for _, p := range prefer {
 		for _, id := range ids {
 			if w := h.workers[id]; w.Job == "" && (w.ID == p || w.Role == p) && h.now().Sub(w.Seen) <= h.TTL {
