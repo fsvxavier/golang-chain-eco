@@ -188,3 +188,38 @@ func TestOpenTasksOnlyOffline(t *testing.T) {
 		t.Error("a live role must switch open_tasks off")
 	}
 }
+
+// Path-like arguments must stay inside the shell's workspace.
+func TestDemoShellConfinesPaths(t *testing.T) {
+	clearModelEnv(t)
+	dir, outside := t.TempDir(), t.TempDir()
+	secret := outside + "/secret.txt"
+	if err := os.WriteFile(secret, []byte("topsecret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dir+"/sub", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir+"/link"); err != nil {
+		t.Fatal(err)
+	}
+	sh := shellTool(dir, compress.NewRTK(compress.FuncDecider(scripted)))
+	call := func(cmd string) error {
+		_, err := sh.Call(context.Background(), map[string]any{"command": cmd})
+		return err
+	}
+	for _, cmd := range []string{
+		"grep -r x /etc", "ls /", "grep x " + secret, "ls ..", `ls "/etc"`, "ls '/etc'",
+		"ls link", "grep -r x link/secret.txt", "ls ~", "ls sub/../..", "echo ok; ls /etc", "echo ok | grep x /etc",
+	} {
+		err := call(cmd)
+		if err == nil || !strings.Contains(err.Error(), "paths outside the workspace are not allowed") {
+			t.Errorf("%q: err = %v, want a confinement error", cmd, err)
+		}
+	}
+	for _, cmd := range []string{"ls .", "ls sub", "echo a/b", "grep -n foo /api/coupon", "ls ./sub", "ls sub/.."} {
+		if err := call(cmd); err != nil {
+			t.Errorf("%q rejected: %v", cmd, err)
+		}
+	}
+}

@@ -265,6 +265,9 @@ func shellTool(dir string, rtk *compress.RTK) tools.Tool {
 			if strings.ContainsAny(a.Command, "<>$`") {
 				return nil, tools.Errorf("shell: redirections (< >), $ and backticks are not allowed")
 			}
+			if tok := outsideWorkspace(dir, a.Command); tok != "" {
+				return nil, tools.Errorf("shell: paths outside the workspace are not allowed: %s", tok)
+			}
 			res, err := run.Execute(ctx, a.Command, 30*time.Second)
 			if err != nil {
 				return nil, err
