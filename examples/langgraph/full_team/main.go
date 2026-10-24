@@ -277,9 +277,10 @@ func dotGlob(tok string) bool {
 	return false
 }
 
-// bracketsToAny replaces every bracket expression with "?": it matches one
-// character in Go and in bash, so the result matches a superset of what either
-// reads. An unterminated [ is a literal in bash and is replaced too.
+// bracketsToAny replaces every bracket expression with "?": in both dialects
+// it matches exactly one character, so the copy matches a superset. Inner
+// [:class:], [=x=] and [.x.] are skipped whole. An unterminated [ is literal
+// in bash and left as is.
 func bracketsToAny(tok string) string {
 	var b strings.Builder
 	for i := 0; i < len(tok); i++ {
@@ -295,18 +296,20 @@ func bracketsToAny(tok string) string {
 			j++
 		}
 		for j < len(tok) && tok[j] != ']' {
-			if tok[j] == '[' && j+1 < len(tok) && tok[j+1] == ':' {
-				if k := strings.Index(tok[j+2:], ":]"); k >= 0 {
+			if tok[j] == '[' && j+1 < len(tok) && strings.IndexByte(":.=", tok[j+1]) >= 0 {
+				if k := strings.Index(tok[j+2:], string(tok[j+1])+"]"); k >= 0 {
 					j += k + 4
 					continue
 				}
 			}
 			j++
 		}
-		b.WriteByte('?')
-		if j < len(tok) {
-			i = j
+		if j >= len(tok) {
+			b.WriteByte('[')
+			continue
 		}
+		b.WriteByte('?')
+		i = j
 	}
 	return b.String()
 }
