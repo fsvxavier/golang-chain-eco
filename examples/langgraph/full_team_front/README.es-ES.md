@@ -8,58 +8,85 @@ Sin conexión, funciona con modelos falsos y un backend falso, así que todo el 
 
 ## Qué hace
 
-- **Equipo y modelos.** Doce workers, un proceso cada uno cuando se ejecutan como servicios. Cada rol tiene un modelo; los valores por defecto aplican cuando solo está definida `ANTHROPIC_API_KEY`.
+- **Equipo y modelos.** Doce workers (el `Cast` en `internal/team/local.go`), más el manager y el hub. En este ejemplo todo corre en un solo proceso: cada servicio escucha en su propio puerto de loopback y se hablan por HTTP real. Cada rol tiene un modelo; los valores por defecto aplican cuando solo está definida `ANTHROPIC_API_KEY`.
 
-  | Worker | Cantidad | Modelo | Función |
+  | Worker | Cant. | Modelo | Función |
   |---|---|---|---|
-  | `product-owner` (`po`) | 1 | `claude-opus-5-5` | lee el backend, escribe la especificación |
-  | `leader` (tech lead) y `manager` | 1 cada uno | `claude-sonnet-5-5` | planifica las tareas, las asigna, participa en la revisión |
-  | `software-engineer-junior` | 2 | `claude-haiku-5-5` | escribe el código de las pantallas y las pruebas unitarias |
-  | `software-engineer-mid` | 2 | `claude-haiku-5-5` | lo mismo |
-  | `software-engineer-senior` | 2 | `claude-haiku-5-5` | lo mismo |
-  | `specialist-reviewer` | 2 | `claude-sonnet-5-5` | revisa el código junto con el tech lead |
-  | `qa-engineer` | 2 | `claude-sonnet-5-5` | escribe las pruebas automatizadas de las pantallas |
+  | `po` (product owner) | 1 | `claude-opus-5-5` | lee el backend, escribe la spec |
+  | `leader` (tech lead) | 1 | `claude-sonnet-5-5` | planifica las tareas, indica un desarrollador preferido, participa en la revisión conjunta |
+  | `junior-1`, `junior-2` | 2 | `claude-haiku-5-5` | construyen el código de las pantallas y sus pruebas unitarias |
+  | `mid-1`, `mid-2` | 2 | `claude-haiku-5-5` | igual |
+  | `senior-1`, `senior-2` | 2 | `claude-haiku-5-5` | igual |
+  | `specialist-1`, `specialist-2` | 2 | `claude-sonnet-5-5` | revisan el código con el tech lead |
+  | `qa-1`, `qa-2` | 2 | `claude-sonnet-5-5` | escriben las pruebas automatizadas de las pantallas |
 
-  Cambia el modelo de un rol con `AGENT_MODEL_<ROLE>`, por ejemplo `AGENT_MODEL_PO=anthropic:opus_5_5` o `AGENT_MODEL_QA=openai:gpt-4o-mini`. `AGENT_MODEL` define un modelo para todos los roles. Sin ninguna clave, la ejecución es sin conexión.
+  Dos roles más tienen modelo pero no son workers: `manager` (`claude-sonnet-5-5`, conduce el flujo de entrega y escribe el informe) y `knowledge` (`claude-haiku-5-5`, responde a las herramientas de conocimiento en el hub).
 
-- **Flujo.** El PO escribe la especificación a partir de la demanda y del backend que lee. El leader planifica las tareas y propone un desarrollador preferido para cada una; la asignación tiene en cuenta la carga actual de cada worker. El desarrollador escribe el código de las pantallas y las pruebas unitarias. Después se ejecuta la **revisión conjunta**: el especialista y el leader ven la misma entrega, y la tarea solo pasa cuando ambos aprueban. Luego QA escribe las pruebas automatizadas de las pantallas, trazadas a la especificación del PO, y aprueba cuando cubren la especificación.
+  Elección del modelo, vale la primera que coincida, por rol: `AGENT_MODEL_<ROL>` (`MANAGER`, `PO`, `LEADER`, `JUNIOR`, `MID`, `SENIOR`, `SPECIALIST`, `QA`, `KNOWLEDGE`), luego `AGENT_MODEL` (un modelo para todos los roles), luego `ANTHROPIC_API_KEY` (los valores por defecto de arriba), luego `OPENAI_API_KEY` (`openai:gpt-4o-mini` para todos los roles). Ejemplos: `AGENT_MODEL_PO=anthropic:opus_5_5`, `AGENT_MODEL_QA=openai:gpt-4o-mini`. Sin ninguna de ellas la ejecución es sin conexión: todos los roles responden con un modelo guionado.
 
-- **La corrección vuelve al mismo desarrollador.** Cuando la revisión conjunta o QA rechaza una tarea, el feedback va al desarrollador que la escribió, en el mismo hilo. Ese job de corrección queda fijado: espera a ese desarrollador en lugar de pasar a otro. Si el lease del desarrollador expiró, el job pasa a un desarrollador libre del mismo nivel. Una tarea rechazada en `MaxRounds` (3) rondas termina `blocked`.
+- **Flujo.** El manager recibe la demanda y activa al PO. El PO escribe la spec a partir de la demanda y del backend que lee. El leader planifica las tareas (`TASK|id|título|complejidad|descripción`, opcionalmente `|PREFER:<id del worker>`). El desarrollador construye el código de las pantallas y sus pruebas unitarias. Luego corre la **revisión conjunta**: el especialista y el leader reciben la misma entrega al mismo tiempo, y la tarea solo pasa cuando ambos aprueban. Después el QA escribe las pruebas automatizadas de las pantallas, trazadas a la spec del PO, y aprueba cuando la cubren. Las tareas corren en paralelo.
 
-- **El PO lee el backend nombrado en la demanda.** El PO tiene tres herramientas de solo lectura, y solo él las tiene:
-  - `backend_read`: lee un archivo. La ruta debe estar bajo una raíz nombrada en la demanda y bajo `WORKSPACE_ROOT`. Se rechazan `..`, las rutas absolutas fuera de las raíces y los symlinks que salen de ellas. El tamaño está limitado.
-  - `backend_grep`: busca bajo las mismas raíces.
-  - `backend_get`: solo HTTP `GET`; no hay argumento de método. El host debe ser el host de una URL nombrada en la demanda. Solo http y https. Se rechaza una redirección a otro host. Los destinos loopback y link-local se rechazan, salvo que la demanda los nombre. El cuerpo está limitado y la petición tiene timeout.
+- **Quién recibe una tarea.** Al leader se le informa qué desarrolladores están libres u ocupados. El hub entrega el job al primer worker libre de la lista de preferencia: el worker que el leader prefirió, luego los roles por complejidad (`low`: junior, mid, senior; `medium`: mid, senior, junior; `high`: senior, mid, nunca un junior). Un job que nadie puede tomar todavía espera en la cola.
 
-  Las raíces y las URL solo vienen de los campos estructurados de `team_submit` (`backend_roots`, `backend_urls`), nunca de texto libre de la petición. `WORKSPACE_ROOT` es la raíz del workspace; por defecto es el directorio de trabajo. Una demanda sin raíces ni URL no da ningún acceso al PO.
+- **El retrabajo vuelve al mismo desarrollador.** Cuando la revisión conjunta o el QA rechaza una tarea, el feedback va al desarrollador que la escribió, en el mismo hilo. Ese job de retrabajo está fijado (pinned): espera a ese desarrollador en lugar de ir a otro. Si el lease del desarrollador expiró, el job pasa a un desarrollador libre del mismo rol. Todo rechazo, de la revisión o del QA, cuesta una ronda; una tarea rechazada en `MaxRounds` (3) rondas se registra como `blocked` en el informe del manager y en el historial de handoffs (su estado en el tracker queda en el último rechazo). La solicitud igualmente termina `completed`.
 
-- **La especificación.** El PO lista los endpoints que leyó, los payloads de petición y respuesta, los campos obligatorios, los errores y los estados de la interfaz (cargando, vacío, error). Todo payload descrito debe venir de algo que leyó. La especificación tiene un bloque `EVIDENCE:` (archivo y línea, o URL, para cada payload) y un bloque `OPEN ITEMS:` para lo que no pudo confirmar. El PO no se bloquea por los puntos abiertos y no inventa payloads. Si la demanda nombra un backend y el PO no llamó a ninguna herramienta de backend, o la especificación no tiene bloque `EVIDENCE:`, el manager añade `UNVERIFIED: no backend evidence` a los puntos abiertos.
+- **El PO lee el backend nombrado en la demanda.** El PO tiene tres herramientas de solo lectura, y solo él las tiene. El PO no recibe herramienta de shell; todos los demás workers tienen una. Las raíces y las URL vienen solo de los campos estructurados de `team_submit` (`backend_roots`, `backend_urls`), nunca de texto libre de la solicitud. Una demanda sin raíces y sin URL no da al PO ningún acceso: cada herramienta rechaza.
+  - `backend_read`: lee un archivo o lista un directorio. La ruta puede ser relativa a la primera raíz o absoluta dentro de una raíz. Cualquier elemento `..` se rechaza, y también una ruta real (tras resolver symlinks) fuera de las raíces nombradas. Toda raíz nombrada debe estar dentro de la raíz del workspace (`WORKSPACE_ROOT`, si no el directorio de trabajo); una raíz relativa se toma respecto de la raíz del workspace, y una raíz vacía no concede nada. La salida está limitada a 1 MB.
+  - `backend_grep`: busca en un archivo o directorio bajo las mismas raíces con una expresión regular de Go y devuelve `ruta:línea: texto`. Nunca sigue symlinks, se detiene cuando la salida llega a 1 MB y abre como máximo 5000 archivos (`[truncated: stopped after 5000 files]`).
+  - `backend_get`: solo `GET` HTTP; no hay argumento de método. El esquema debe ser http o https, la URL no puede llevar credenciales, y su host y puerto deben ser iguales a los de una URL nombrada en la demanda. Una redirección se comprueba con la misma regla (como máximo 5), así que una redirección a otro host se rechaza. No se usa proxy. También se comprueba la dirección realmente marcada: loopback, link-local (que contiene la dirección de metadatos `169.254.169.254`), no especificada y las direcciones IPv6 de metadatos de Alibaba y AWS se rechazan, salvo que ese `ip:puerto` exacto se haya nombrado como literal de IP. El nombre `localhost`, cuando la demanda lo nombra, puede llegar a direcciones de loopback y nada más. Las direcciones privadas (RFC 1918) se permiten. El cuerpo está limitado a 1 MB y la llamada expira a los 10 segundos.
 
-- **QA escribe las pruebas.** QA escribe un conjunto de pruebas por tarea, para las pantallas que construyeron los desarrolladores, a partir de la especificación del PO. Cada prueba recibe el nombre del criterio o estado de interfaz que cubre, y una línea `TRACE:` vincula pruebas con criterios. QA rechaza al desarrollador cuando el código de la pantalla no puede cumplir un punto de la especificación (un estado incorrecto, un campo que falta, un selector o un problema de accesibilidad).
+  `WORKSPACE_ROOT` la leen las herramientas de backend cuando el servidor arranca; vea la sección de MCP para saber qué proceso es ese.
 
-- **Ejecución opcional en el navegador (`browser_test`).** QA puede ejecutar su especificación de Playwright en Chrome. El comando lo fija el operador en `PLAYWRIGHT_CMD` (por ejemplo `npx playwright test --project=chromium`) y se ejecuta sin shell. Corre contra el `app_url` nombrado en la demanda. Si falta cualquiera de los dos, la herramienta informa `NOT RUN` con el motivo, y QA sigue escribiendo las pruebas. Sin conexión devuelve un informe con guion.
+- **La spec.** El PO lista los endpoints que leyó, los payloads de solicitud y respuesta, los campos obligatorios, los errores y los estados de UI (cargando, vacío, error). Todo payload que describe debe venir de algo que leyó. La spec tiene un bloque `EVIDENCE:` (archivo y línea, o URL, de cada payload) y un bloque `OPEN ITEMS:` para lo que no pudo confirmar. El PO no se bloquea por ítems abiertos y no inventa payloads. **Regla de evidencia:** si la demanda nombra una raíz o URL de backend, la spec necesita una línea que empiece con `EVIDENCE:` y al menos una llamada al backend que pasó las protecciones y obtuvo respuesta (las llamadas rechazadas no cuentan). Si no, el manager inserta la línea `- UNVERIFIED: no backend evidence` bajo `OPEN ITEMS:` (o agrega un bloque `OPEN ITEMS:`). Una demanda solo con `app_url` no activa la regla.
 
-- **Skills por persona.** Cada rol tiene su propia persona (front-end y UX) y skills de referencia incorporadas (vendored) de repositorios públicos, en `skills/<role>/references/<name>/SKILL.md`. Se incrustan con `go:embed`, así que el ejemplo funciona en cualquier máquina. Cada skill incorporada aparece en `skills/skills.lock` con su origen, su licencia, el SHA-256 del archivo incrustado y si se recortó para caber en el presupuesto de tamaño. Una skill cuya licencia no permite la redistribución se descarta, no se parafrasea. Las skills están fijadas: nada las actualiza automáticamente.
+- **El QA escribe las pruebas.** El QA escribe un conjunto de pruebas por tarea para las pantallas que construyeron los desarrolladores, a partir de la spec del PO. Cada prueba lleva el nombre del criterio de aceptación o del estado de UI que cubre, y una línea `TRACE: AC1 -> <nombre de la prueba>` por criterio vincula pruebas con criterios. El QA responde `VERDICT: APPROVE` o `VERDICT: RETURN` con `FEEDBACK:` que nombra el ítem de la spec que el código de la pantalla no puede satisfacer (un estado incorrecto, un campo faltante, un problema de selector o de accesibilidad).
 
-- **Compresión.** Todas las llamadas al modelo de cada worker pasan por la misma capa de compresión que `full_team` (caveman en los turnos antiguos, Ponytail, TOON, RTK para comandos de shell). No se describe de nuevo aquí: véase [full_team](../full_team/README.es-ES.md#qué-hace).
+- **Ejecución opcional en el navegador (`browser_test`).** Solo el QA tiene esta herramienta. Ejecuta la spec de Playwright que el QA escribió contra la `app_url` nombrada en la demanda (el modelo no elige la URL). El comando lo fija el operador en `PLAYWRIGHT_CMD` (por ejemplo `npx playwright test --project=chromium`), se separa por espacios y se ejecuta sin shell, en un directorio temporal nuevo, con un timeout de 2 minutos y la salida limitada a 1 MB. La spec (como máximo 256 KB) se escribe en un archivo y su ruta se pasa en `SPEC_FILE`; la URL se pasa en `APP_URL`. El proceso hijo recibe un entorno mínimo: `PATH`, un `HOME` y un `TMPDIR` dentro del directorio temporal, `CI=1`, `PLAYWRIGHT_BROWSERS_PATH` si está definida, `APP_URL`, `SPEC_FILE`, y solo las variables que usted liste en `PLAYWRIGHT_ENV_ALLOW` (separadas por comas). Las claves de proveedor nunca le llegan, salvo que se listen. En timeout o cancelación se mata todo el grupo de procesos, y la espera por sus pipes se limita a 5 segundos (solo Unix). `app_url` debe ser una URL http o https con host y sin caracteres de control. Si `PLAYWRIGHT_CMD` está vacía, o la demanda no tiene una `app_url` válida, la herramienta devuelve `NOT RUN: <motivo>` y el QA igualmente escribe las pruebas. Una ejecución que falla se devuelve como texto `FAILED: ...`, no como error de la herramienta. Como `HOME` es el directorio temporal, Playwright necesita `PLAYWRIGHT_BROWSERS_PATH` (definida o listada en `PLAYWRIGHT_ENV_ALLOW`) para encontrar sus navegadores. El QA sin conexión nunca llama a la herramienta.
 
-- **Sin conexión.** El PO con guion llama a `backend_read`, `backend_grep` y `backend_get` contra un backend falso incrustado: un pequeño documento OpenAPI, un árbol de handlers y un servidor `httptest`. Así las guardas se ejecutan de verdad. El QA con guion escribe sus pruebas a partir de la especificación sin conexión.
+- **Skills por persona.** Cada rol tiene su propia persona (front-end y UX) y skills de referencia incorporadas de repositorios públicos. Se embeben con `go:embed`, así que el ejemplo corre en cualquier máquina. Vea [Skills incorporadas](#skills-incorporadas).
+
+- **Compresión.** Las llamadas al modelo de todo worker pasan por la misma capa de compresión que `full_team` (caveman en los turnos antiguos, Ponytail, TOON, RTK para comandos de shell). No se describe de nuevo aquí: vea [full_team](../full_team/README.es-ES.md#qué-hace). La herramienta de shell permite `go`, `git`, `ls`, `grep` y `echo` sin conexión, y solo `ls`, `grep` y `echo` cuando `ANTHROPIC_API_KEY` u `OPENAI_API_KEY` está definida.
+
+- **Sin conexión.** El PO guionado llama a `backend_read`, `backend_grep` y `backend_get` contra un backend falso embebido (un pequeño documento OpenAPI, un árbol de handlers y un servidor `httptest`), así que las protecciones corren de verdad, y la spec vuelve con un bloque `EVIDENCE:`. El leader guionado planifica cinco tareas. Los revisores y el QA guionados rechazan tres de ellas una vez, así que se ve el regreso al mismo desarrollador: el tech lead rechaza `T2`, el especialista rechaza `T3`, el QA rechaza `T4`. El QA guionado responde solo con líneas `VERDICT` y `TRACE:`; no escribe código de pruebas y no ejecuta `browser_test`. La ejecución de demostración falla si la spec sin conexión vuelve `UNVERIFIED`.
 
 ## Cómo aplicarlo
 
-- **Alcance de la demanda.** Pasa el backend en la demanda, no en el texto de la petición: `backend_roots` para árboles de código fuente, `backend_urls` para la API que el PO puede llamar, `app_url` para el front-end en ejecución que QA puede abrir.
-- **Roles y modelos.** `anthropicDefaults` y `Cast` en `internal/team` guardan los valores por defecto. Cámbialos ahí y mantén el pool de doce workers; las pruebas verifican ese número.
-- **Herramientas de backend.** Los límites (tamaño y timeout) están en la configuración de las herramientas de backend. Mantén `WORKSPACE_ROOT` tan restringido como permita el trabajo.
-- **Skills.** Para cambiar una persona, edita su `SKILL.md`. Para añadir una skill incorporada, véase más abajo.
-- **Shell.** La herramienta de shell se copió de `full_team`. Con clave de proveedor, el modelo solo puede ejecutar `ls`, `grep` y `echo`. No añadas intérpretes ni `find`.
+- **Alcance de la demanda.** Pase el backend en la demanda, no en el texto de la solicitud: `backend_roots` para árboles de código, `backend_urls` para la API que el PO puede llamar, `app_url` para el front-end en ejecución que el QA puede abrir.
+- **Roles y modelos.** `anthropicDefaults` en `internal/team/models.go` y `Cast` en `internal/team/local.go` guardan los valores por defecto y el pool. Cámbielos allí y mantenga el pool de doce workers; `TestCastHasTwelveWorkers` y `TestDefaultModels` lo comprueban.
+- **Herramientas de backend.** Los límites (salida de 1 MB, timeout de 10 segundos, 5000 archivos de grep) están en `internal/backend/backend.go`. Mantenga `WORKSPACE_ROOT` tan estrecha como el backend lo permita.
+- **Skills.** Para cambiar una persona, edite su `SKILL.md`. Para agregar o actualizar una skill incorporada, vea abajo.
+- **Shell.** La herramienta de shell se copió de `full_team`. Con una clave de proveedor, el modelo solo puede ejecutar `ls`, `grep` y `echo`. No agregue intérpretes ni `find`.
 
-### Actualizar una skill incorporada
+## Skills incorporadas
 
-1. Descarga el candidato en un directorio temporal, no en la carpeta global de skills: `npx skills add <owner/repo@skill> -y` ejecutado dentro de un proyecto temporal. No uses `-g`.
-2. Lee su `SKILL.md` y su licencia (el archivo o la licencia del repositorio). Si la licencia no permite la redistribución, descarta la skill.
-3. Copia el archivo a `skills/<role>/references/<name>/SKILL.md`. Si supera el presupuesto (unos 8 KB por skill, 24 KB por rol), recórtalo y pon `trimmed` en `true` en su entrada de `skills/skills.lock`.
-4. Actualiza la entrada en `skills/skills.lock`: `source`, `skill`, `installs`, `hash` (SHA-256 del nuevo archivo), `license`, `trimmed`.
-5. Ejecuta las pruebas de abajo. Comprueban que cada entrada del lock tiene su archivo incrustado, que el hash coincide y los presupuestos de tamaño.
+`skills/skills.lock` tiene 29 entradas, una por copia: cada carpeta de persona tiene su propia copia de toda skill que lleva, en `skills/<rol>/references/<nombre>/SKILL.md`. El cargador las agrega al prompt de sistema de la persona, ordenadas por nombre, bajo `## Skill: <nombre>`.
+
+| Carpeta de la persona | Skills (copias) | Tamaño |
+|---|---|---|
+| `product-owner` | `contract-first`, `openapi-spec-generation`, `user-stories` (3) | 9,1 KB |
+| `engineering-manager` | `code-review`, `planning-and-task-breakdown` (2) | 5,9 KB |
+| `tech-leader` | las mismas dos (2) | 5,9 KB |
+| `software-engineer-junior`, `-mid`, `-senior` | `frontend-design`, `frontend-patterns`, `react-testing`, `ui-ux-pro-max`, `vercel-react-best-practices` (5 cada una, 15) | 17,3 KB cada una |
+| `specialist-reviewer` | `accessibility`, `frontend-code-review`, `performance-optimization`, `web-design-guidelines` (4) | 18,3 KB |
+| `qa-engineer` | `playwright-best-practices`, `playwright-cli`, `webapp-testing` (3) | 10,7 KB |
+
+Son 17 skills distintas en 29 copias. Hechos sobre ellas:
+
+- **Son copias recortadas y saneadas, no los archivos originales.** Se cortaron ejemplos y texto de relleno para caber en el presupuesto, y se quitaron comandos de instalación, instrucciones de descarga remota, llamadas a scripts que no están incorporados y concesiones de permisos de herramientas (`allowed-tools`). Toda entrada del lock tiene `"trimmed": true`.
+- **Campos del lock.** Cada línea de `skills/skills.lock` es un objeto JSON: `role`, `source` (`dueño/repo@skill`), `skill`, `installs` (el conteo de instalaciones que mostró `skills`, puede estar vacío), `hash` (SHA-256 del archivo embebido), `license`, `trimmed` y, para los tres snapshots, `pinned_from` (la URL del commit original).
+- **Snapshots fijados.** `web-design-guidelines` es un snapshot fijado del `command.md` de vercel-labs/web-interface-guidelines en el commit `434b7f9` (la skill original solo descargaba sus reglas de una URL en tiempo de ejecución, y la copia no descarga nada). `playwright-best-practices` es una copia condensada de currents-dev/playwright-best-practices-skill en `283d5cb` (el original es un índice de muchos archivos de referencia). `user-stories` está fijada en phuryn/pm-skills en `07b34f6`.
+- **Una skill pedida no se incorporó.** `user-story` de deanpeters/product-manager-skills es CC BY-NC-SA 4.0 (uso no comercial, compartir igual), lo que no sirve para redistribuir aquí. El PO usa `user-stories` de phuryn/pm-skills (MIT) en su lugar. Una skill cuya licencia no permite la redistribución se descarta, no se parafrasea.
+- **Licencias.** MIT en la mayoría; Apache-2.0 en `frontend-design`, `webapp-testing` y `playwright-cli`. `frontend-code-review` (especialista) está bajo la Apache-2.0 modificada de Dify, con dos condiciones adicionales; se citan completas en los avisos. [skills/THIRD_PARTY_NOTICES.md](skills/THIRD_PARTY_NOTICES.md) lista cada repositorio de origen, skill, licencia y titular de copyright como se declara en el origen, con los textos de las licencias, y también está embebido.
+- **Fijadas.** Nada las actualiza automáticamente.
+
+### Actualizar o agregar una skill incorporada
+
+1. Descargue la candidata en un directorio temporal, no en la carpeta global de skills: `npx skills add <dueño/repo@skill> -y` ejecutado dentro de un proyecto temporal. No use `-g`.
+2. Lea su `SKILL.md` y su licencia (el archivo o la licencia del repositorio). Si la licencia no permite la redistribución, descártela.
+3. Recórtela y sanéela hasta el presupuesto: unos 8 KB por archivo y 24 KB por rol. Quite comandos de instalación, descargas remotas, llamadas a scripts de archivos que no incorpora y concesiones `allowed-tools`. Copie el resultado a `skills/<rol>/references/<nombre>/SKILL.md`, una vez por cada persona que la lleva.
+4. Agregue o actualice la entrada en `skills/skills.lock`: `source`, `skill`, `installs`, `hash` (`sha256sum` del nuevo archivo), `license`, `trimmed` (`true`) y `pinned_from` si es un snapshot.
+5. Agregue la licencia, el repositorio y el titular de copyright a `skills/THIRD_PARTY_NOTICES.md`.
+6. Ejecute las pruebas de abajo. `skills/skills_test.go` comprueba que toda entrada del lock tiene su archivo embebido y que el hash coincide, que ningún archivo pasa de 8 KB ni ningún rol de 24 KB, que toda entrada tiene licencia y origen, que toda referencia embebida está en el lock y que los avisos mencionan toda licencia, repositorio y skill del lock.
 
 ## Cómo ejecutarlo
 
@@ -69,7 +96,7 @@ Sin conexión, un proceso:
 go run ./examples/langgraph/full_team_front
 ```
 
-La ejecución muestra los servicios que inició y el informe de entrega. Inicia el hub, el manager y los workers en loopback y los detiene al final.
+La ejecución imprime los servicios que inició y el informe de entrega. Levanta el hub, el manager y los workers en loopback y los detiene al final. Da al PO un backend falso en un workspace temporal; `WORKSPACE_ROOT` y `app_url` no se aplican a ella.
 
 Con un proveedor real (los modelos son los valores por defecto de arriba):
 
@@ -78,70 +105,152 @@ ANTHROPIC_API_KEY=... go run ./examples/langgraph/full_team_front
 OPENAI_API_KEY=...    go run ./examples/langgraph/full_team_front   # openai:gpt-4o-mini para todos los roles
 ```
 
-## Usarlo como servidor MCP en VS Code
+## Usarlo como servidor MCP
 
-El equipo lo sirve `Bridge.MCPServer` en `internal/team/bridge.go`, por stdio. Expone estas herramientas:
+El argumento `serve` ejecuta todo el equipo en el mismo proceso como servidor MCP por stdio (`serve.go`). Un editor lo inicia como comando; no hay nada más que levantar. Sirve al equipo mediante `Bridge.MCPServer` en `internal/team/bridge.go`.
 
-- `team_submit`: envía una demanda. Los campos son `request` y, opcionalmente, `backend_roots`, `backend_urls` y `app_url`. Devuelve `thread_id` y `run_id` al instante.
-- `team_status`: los estados de las tareas, el informe y el historial de traspasos de un `thread_id`.
-- `team_queue`: los workers registrados y los jobs en cola.
-- `team_ask_worker`: hace una pregunta a un worker, fuera del flujo de entrega.
-- `team_memory`: recupera lo que el equipo registró para una petición.
-- Las herramientas genéricas de graph: `graph_run`, `graph_state` y `graph_resume`, para cualquier graph en un Agent Server.
+Desde la raíz del repositorio:
 
-El bridge habla con un equipo que ya está en marcha: `MANAGER_URL` es la API Agent Server del manager y `HUB_URL` es el hub. El `go run` de un solo proceso de arriba inicia los servicios solo durante la ejecución, así que no puede ser el servidor al que se conecta VS Code.
+```bash
+go run ./examples/langgraph/full_team_front serve
+```
 
-Registra el bridge en `.vscode/mcp.json` (el formato de VS Code usa `servers`):
+O compile un binario y ejecútelo (arranca más rápido que `go run`, que compila en cada arranque):
+
+```bash
+go build -o bin/team-mcp ./examples/langgraph/full_team_front
+bin/team-mcp serve
+```
+
+En la salida estándar el proceso escribe solo mensajes del protocolo MCP. Los logs, las líneas de estado del notificador de consola y el informe de compresión al apagar van a stderr. El servidor se detiene al terminar la entrada (el editor se cierra) o con SIGINT/SIGTERM.
+
+Se usan modelos falsos sin conexión salvo que `ANTHROPIC_API_KEY` u `OPENAI_API_KEY` esté definida (o `AGENT_MODEL*`, vea arriba).
+
+### Entorno
+
+Como el equipo corre en el proceso del servidor, toda variable viene del entorno del servidor. En VS Code es el bloque `env` de `mcp.json`; en Claude Code es `--env` o el shell.
+
+| Variable | La lee | Efecto |
+|---|---|---|
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AGENT_MODEL`, `AGENT_MODEL_<ROL>` | cada worker, el manager y el hub al iniciar (`internal/team/models.go`) | modelos reales en lugar de los guionados |
+| `WORKSPACE_ROOT` | las herramientas de backend del PO (`internal/backend/backend.go`) | toda entrada de `backend_roots` debe estar dentro de ella; el valor por defecto es el directorio de trabajo del servidor |
+| `PLAYWRIGHT_CMD` | la herramienta `browser_test` del QA, leída al arrancar (`main.go`) | comando que ejecuta la spec; vacío significa `NOT RUN` |
+| `PLAYWRIGHT_ENV_ALLOW` | el ejecutor de comandos de `browser_test` (`internal/qa/qa.go`) | variables del proceso padre que se pasan a la ejecución en el navegador |
+| `NOTIFY`, `NOTIFY_STATUSES`, ... | el notificador de estado del manager (`internal/tasktrack`) | adónde van las líneas de estado; `console` (stderr en modo serve) es el valor por defecto |
+| `BRIDGE_CIAM_CMD`, `BRIDGE_KNOWLEDGE_CMD` | la bridge | líneas de comando de servidores MCP adicionales cuyas herramientas se sirven junto a las del equipo |
+| `LAYA_URL`, `LAYA_API_KEY`, `LAYA_MODEL` | el decisor de compresión (`main.go`) | un decisor laya-serve real en lugar del guionado |
+
+`MANAGER_URL` y `HUB_URL` no se leen en modo serve: la bridge está conectada a los servicios del propio proceso. No defina `MANAGER_API_KEY` en modo serve: el manager pasaría a exigirla y la bridge del propio proceso no la envía.
+
+### Herramientas
+
+El servidor se llama `engineering-team` y sirve:
+
+- `team_submit`: envía una demanda. Sus campos son `request` y, opcionalmente, `backend_roots`, `backend_urls` y `app_url`. Devuelve al instante `thread_id`, `run_id` y un estado.
+- `team_status`: para un `thread_id`, devuelve `status` (la solicitud y cada tarea), `report`, `history` (los handoffs, incluido cada rechazo de revisión y de QA y a quién volvió) y `running`. `status`, `report` y el `history` completo se llenan cuando termina el último paso; mientras la ejecución avanza, el notificador de consola imprime cada cambio de estado en stderr.
+- `team_queue`: los workers registrados (con su job actual) y los jobs en cola.
+- `team_ask_worker`: hace una pregunta a un worker, fuera del flujo de entrega. Un worker que responde así no tiene alcance de demanda, así que las herramientas de backend del PO rechazan.
+- `team_memory`: recupera lo que el equipo registró para una solicitud (argumentos `scope`, el `thread_id` de la solicitud, y `query`).
+- `graph_run`, `graph_state`, `graph_resume`: herramientas genéricas para cualquier grafo en un Agent Server (`url` por defecto es el manager).
+- Las herramientas de los servidores nombrados en `BRIDGE_CIAM_CMD` y `BRIDGE_KNOWLEDGE_CMD`, si están definidas.
+
+### Registrarlo
+
+VS Code, `.vscode/mcp.json` (stdio; el formato de VS Code usa `servers`). Forma con `go run`, con el directorio de trabajo en la raíz del repositorio:
 
 ```json
 {
   "servers": {
     "front-team": {
       "type": "stdio",
-      "command": "/abs/path/to/bridge",
+      "command": "go",
+      "args": ["run", "./examples/langgraph/full_team_front", "serve"],
+      "env": { "ANTHROPIC_API_KEY": "${env:ANTHROPIC_API_KEY}" }
+    }
+  }
+}
+```
+
+Forma con binario compilado:
+
+```json
+{
+  "servers": {
+    "front-team": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/bin/team-mcp",
+      "args": ["serve"],
       "env": {
-        "MANAGER_URL": "http://localhost:8080",
-        "HUB_URL": "http://localhost:8000"
+        "WORKSPACE_ROOT": "${workspaceFolder}",
+        "ANTHROPIC_API_KEY": "${env:ANTHROPIC_API_KEY}"
       }
     }
   }
 }
 ```
 
-Luego abre el archivo y haz clic en **Start** sobre el servidor. En Copilot Chat elige **Agent** y habilita `front-team` en el selector de herramientas.
+Quite la línea `ANTHROPIC_API_KEY` para ejecutar sin conexión. Luego abra el archivo y haga clic en **Start** sobre el servidor. En Copilot Chat elija **Agent** y habilite `front-team` en el selector de herramientas.
 
-Envía una demanda con los campos de alcance. Este es un ejemplo de llamada `team_submit` (los argumentos en JSON; las rutas y URL son de ejemplo):
+Claude Code:
+
+```bash
+claude mcp add --transport stdio front-team -- go run ./examples/langgraph/full_team_front serve
+claude mcp add --transport stdio front-team -- /abs/path/bin/team-mcp serve
+```
+
+(Use una de las dos; agregue `--env ANTHROPIC_API_KEY=...` o `--env WORKSPACE_ROOT=...` antes del nombre para pasar variables.) Compruebe con `claude mcp list` o `/mcp`.
+
+Otros clientes MCP (Cursor, Kilo Code, Opencode) aceptan un comando stdio con la misma forma (`command`, `args`, `env`); los fragmentos de [independent_engineering_team](../independent_engineering_team/README.es-ES.md#4-regístralo-en-cada-aplicación) muestran el archivo de cada cliente, con `command` y `args` reemplazados por los de arriba. No se probaron con este servidor.
+
+### Una demanda
+
+Un ejemplo de llamada a `team_submit` (los argumentos en JSON; las rutas y URL son marcadores). `backend_roots` debe estar dentro de `WORKSPACE_ROOT` (o del directorio de trabajo del servidor):
 
 ```json
 {
-  "request": "Añade un campo de cupón en la pantalla de checkout. Muestra un estado de carga mientras se valida el cupón, un estado vacío antes de escribir nada y un mensaje de error para un código inválido.",
-  "backend_roots": ["/abs/path/to/backend"],
+  "request": "Add a coupon field to the checkout screen. Show a loading state while the coupon is checked, an empty state before any input, and an error message for an invalid code.",
+  "backend_roots": ["/abs/path/to/workspace/backend"],
   "backend_urls": ["https://api.example.com/v1"],
   "app_url": "http://localhost:3000/checkout"
 }
 ```
 
-Después llama a `team_status` con el `thread_id` devuelto hasta que el estado sea `completed` o `blocked`. Las variables `PLAYWRIGHT_CMD` y `WORKSPACE_ROOT` las leen los procesos de los workers, donde corren las herramientas, no el bridge.
+Luego llame a `team_status` con el `thread_id` devuelto y repita hasta que `report` esté presente y `running` esté vacío:
+
+```json
+{ "thread_id": "<thread_id from team_submit>" }
+```
 
 ## Cómo probarlo
 
 ```bash
 go test -race -count=1 ./examples/langgraph/full_team_front/...
+go vet ./examples/langgraph/full_team_front/...
 ```
 
-Las pruebas cubren el pool y los modelos, la corrección fijada, la revisión conjunta y la ruta de rechazo de vuelta al mismo desarrollador, el alcance de una demanda, las guardas del backend del PO, la regla de evidencia, las pruebas de QA y los rechazos de `browser_test`, los archivos de persona y skill, y la ejecución sin conexión de extremo a extremo.
+Una prueba: `go test -race -count=1 -run TestJointReviewNeedsBothApprovals ./examples/langgraph/full_team_front/internal/team`. Las pruebas, por paquete:
+
+- `main` (`main_test.go`, `serve_test.go`): `TestAllowedProgramsWithProviderKey`, `TestScriptedPonytailFollowsRule`, `TestOfflineRunReportsTOON`, `TestPOGetsNoShell`; modo serve: `TestServeListsTeamTools`, `TestServeSubmitCompletesOffline`, `TestServeStopsOnEOF`, `TestServeStopsOnContextCancel`, `TestServeRestoresGlobals`. Las pruebas de serve también comprueban que solo el protocolo llega a la salida estándar.
+- `internal/team`: pool y cola (`TestReservationIsAtomic`, `TestPreferenceOrder`, `TestLeaseExpiryRequeues`, `TestJobFailsAfterMaxAttempts`, `TestCastHasTwelveWorkers`, `TestDefaultModels`, `TestNormalizeModel`); retrabajo fijado (`TestPinnedJobWaitsForItsWorker`, `TestPinnedJobFallsBackWhenLeaseExpired`, `TestRejectedWorkReturnsToSameDeveloper`, `TestTaskBlockedAfterMaxRounds`, `TestPlanParsesPreferField`); revisión conjunta (`TestJointReviewNeedsBothApprovals`); alcance de una demanda (`TestScopeRoundTripOverHTTP`, `TestSubmitStoresScope`, `TestToolSeesJobScope`, `TestScopeNeverResolvedByPrefix`, `TestScopeIdCollision`); regla de evidencia (`TestPOSpecWithoutEvidenceIsMarkedUnverified`, `TestVerifiedSpec`, `TestOfflineRunPOUsesBackendTools`); prompt del QA (`TestQAPromptCarriesSpec`, `TestQAOutputTracesCriteria`, `TestDossierDropsUnsafeAppURL`); bridge y equipo sin conexión (`TestBridgeQueueAndAskUnknown`, `TestBridgeToolSetAndProxy`, `TestTeamDeliversOffline`, `TestStartLocalWithMiddleware`, `TestKnowledgeAndMemoryOverMCP`); carga de las personas (`TestSkillIncludesReferences`, `TestSkillUnknownRole`, `TestNoArchitectInSkills`).
+- `internal/backend`: `TestReadRefusesOutsideRoots`, `TestReadWithinRoot`, `TestGrepStaysInsideRoot`, `TestGrepLimits`, `TestRootsResolveAgainstWorkspace`, `TestGetRefusesNonGetAndUnnamedHost`, `TestGetRefusesRedirectToOtherHost`, `TestGetRefusesLoopbackUnlessNamed`, `TestGetNamedLocalhost`, `TestGetBodyCapped`, `TestNoScopeMeansNoAccess`, `TestCallsCountsGuardedCallsPerRequest`.
+- `internal/qa`: `TestBrowserTestNotRunWithoutCommand`, `TestBrowserTestNotRunWithoutAppURL`, `TestBrowserTestRejectsNonHTTPAppURL`, `TestBrowserTestRunsRunnerWithScopeURL`, `TestCommandRunnerUsesNoShell`, `TestCommandRunnerCapsOutput`, `TestCommandRunnerMinimalEnv`, `TestCommandRunnerTimeoutKillsProcessGroup`, `TestToolNotGivenToOtherRoles`.
+- `internal/tasktrack`: `TestTaskFlowAllowsRework`, `TestIllegalMoveIsRejectedAndNotRecorded`, `TestWebhookSinksAndFilter`, `TestNotifierFailureDoesNotBlock`, `TestFromEnvAndEmailMessage`.
+- `skills`: `TestEveryLockEntryIsEmbedded`, `TestVendoredSkillWithinBudget`, `TestEveryLockEntryHasLicense`, `TestEveryRoleDirHasOwnCopies`, `TestNoticesCoverLockedLicensesAndSources`.
+
+Las pruebas de serve que activan el equipo sin conexión (`TestServeListsTeamTools`, `TestServeSubmitCompletesOffline`, `TestServeStopsOnEOF`) se omiten cuando algún rol tiene especificación de modelo (hay una clave o `AGENT_MODEL*` definida).
 
 ## Cómo probarlo en modo de producción
 
-1. Ejecuta con `ANTHROPIC_API_KEY` (o `OPENAI_API_KEY`) y comprueba que los modelos del informe son los que definiste. `AGENT_MODEL_<ROLE>` reemplaza los valores por defecto.
-2. Envía una demanda con `backend_roots` o `backend_urls`. Comprueba que la especificación tiene un bloque `EVIDENCE:` y que cada endpoint coincide con el backend al que apuntaste. Una especificación con `UNVERIFIED` en los puntos abiertos significa que el PO no leyó el backend.
-3. Prueba una demanda que nombra un host que el PO no debería alcanzar, y una URL que redirige a otro host. Ambas deben rechazarse en la salida de la herramienta.
-4. Ejecuta QA con `PLAYWRIGHT_CMD` y `app_url` definidos en el host de los workers, y comprueba que el informe muestra el resultado de Playwright, no `NOT RUN`. Confirma que Chrome está instalado donde corren los workers.
-5. Mantén `WORKSPACE_ROOT` y las raíces del backend tan estrechas como permita el trabajo. Las herramientas de backend leen archivos en el host que ejecuta el worker del PO.
-6. Mantén `AllowedCommands` ajustado: la herramienta de shell corre en el host, sin sandbox.
+1. Registre el servidor (vea arriba) con `ANTHROPIC_API_KEY` (u `OPENAI_API_KEY`). En el log del servidor en stderr, cada worker imprime `up on ... (model ...)`; compruebe que los modelos son los que definió (`AGENT_MODEL_<ROL>` sobrescribe los valores por defecto).
+2. Envíe una demanda por el chat MCP con `team_submit`, con `backend_roots` y/o `backend_urls` apuntando a un backend real (y `app_url` para la ejecución en el navegador). Consulte con `team_status` hasta que `report` esté presente.
+3. En el `history` de `team_status`, busque un rechazo de la revisión conjunta (`review returned by ... -> <desarrollador>`) y un rechazo del QA (`qa returned by ... -> <desarrollador>`). La línea siguiente de esa tarea debe mostrar al mismo desarrollador construyéndola de nuevo (`<tarea>: <desarrollador> -> review`). Los modelos no siempre rechazan; si ninguno rechazó, envíe una demanda con una laguna deliberada.
+4. Compruebe la spec del PO: llame a `graph_state` con el `thread_id` y lea `values.spec`. Debe contener un bloque `EVIDENCE:` en el que cada endpoint coincida con el backend al que apuntó, y los ítems abiertos no deben contener `UNVERIFIED: no backend evidence`. Ese marcador significa que el PO no leyó el backend.
+5. Pruebe una demanda que nombre un host al que el PO no debería llegar, y una URL que redirija a otro host. Ambas deben rechazarse en la salida de la herramienta.
+6. Sin `PLAYWRIGHT_CMD`, o sin `app_url`, el resultado de `browser_test` del QA debe decir `NOT RUN` con el motivo. Con ambas definidas (y `PLAYWRIGHT_BROWSERS_PATH`, y Chrome instalado donde corre el servidor), debe mostrar la salida de Playwright.
+7. Mantenga `WORKSPACE_ROOT` y las raíces de backend tan estrechas como el trabajo lo permita: las herramientas de backend leen archivos en el host que ejecuta el servidor. Mantenga ajustada la lista de comandos permitidos del shell: con clave es `ls`, `grep` y `echo`, y la herramienta de shell corre en el host sin sandbox.
 
 ## Véase también
 
-- [full_team](../full_team/README.es-ES.md): el equipo copiado, con la capa de compresión documentada completa
-- [independent_engineering_team](../independent_engineering_team/README.es-ES.md): el mismo equipo dividido en servicios, con Docker compose
+- [full_team](../full_team/README.es-ES.md): el equipo copiado, con la capa de compresión documentada por completo
+- [independent_engineering_team](../independent_engineering_team/README.es-ES.md): el mismo equipo dividido en servicios, con Docker compose, y los fragmentos de registro de cada cliente MCP
 - [compress_shell_rtk](../compress_shell_rtk/README.es-ES.md), [compress_toon](../compress_toon/README.es-ES.md), [compress_ponytail](../compress_ponytail/README.es-ES.md)
