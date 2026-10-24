@@ -19,7 +19,7 @@ func indexed(t *testing.T, dirs ...string) string {
 		}
 	}
 	if len(dirs) > 0 && dirs[len(dirs)-1] == "graphify-out" {
-		if err := os.WriteFile(filepath.Join(d, "graphify-out", "graph.json"), []byte("{}"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(d, "graphify-out", "graph.json"), []byte(`{"nodes":[{"id":"a"}],"links":[]}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -112,5 +112,22 @@ func TestProjectToolOnlyWhenIndexed(t *testing.T) {
 	}
 	if _, err := tl.Call(context.Background(), map[string]any{"query": "x", "root": "/etc"}); err == nil {
 		t.Fatal("a root other than the project must be refused")
+	}
+}
+
+// graphify writes a valid but empty graph when it indexed nothing; that is no index.
+func TestDetectIgnoresAnEmptyGraphifyGraph(t *testing.T) {
+	d := indexed(t, "graphify-out")
+	if err := os.WriteFile(filepath.Join(d, "graphify-out", "graph.json"), []byte(`{"directed":false,"nodes":[],"links":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := codegraph.Detect(d); len(got) != 0 {
+		t.Fatalf("an empty graph is not an index: %v", got)
+	}
+	if err := os.WriteFile(filepath.Join(d, "graphify-out", "graph.json"), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := codegraph.Detect(d); len(got) != 0 {
+		t.Fatalf("a broken graph is not an index: %v", got)
 	}
 }

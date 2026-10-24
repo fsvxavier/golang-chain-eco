@@ -13,6 +13,7 @@ package codegraph
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -56,10 +57,34 @@ func Detect(dir string) []Engine {
 			break
 		}
 	}
-	if fi, err := os.Stat(filepath.Join(dir, "graphify-out", "graph.json")); err == nil && fi.Mode().IsRegular() {
+	if graphifyHasNodes(filepath.Join(dir, "graphify-out", "graph.json")) {
 		out = append(out, Graphify)
 	}
 	return out
+}
+
+// graphifyHasNodes reports whether path is a graphify graph with at least one
+// node. graphify writes a valid, empty graph when it indexed no files (an ignore
+// file that excludes everything does that), and asking it only returns "No
+// matching nodes found" after a wasted call.
+// shortcut: a file over 4 KB is taken as populated without parsing it (an empty
+// graph is about 240 bytes); parse it too if graphify ever pads empty graphs.
+func graphifyHasNodes(path string) bool {
+	fi, err := os.Stat(path)
+	if err != nil || !fi.Mode().IsRegular() {
+		return false
+	}
+	if fi.Size() > 4<<10 {
+		return true
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var g struct {
+		Nodes []json.RawMessage `json:"nodes"`
+	}
+	return json.Unmarshal(b, &g) == nil && len(g.Nodes) > 0
 }
 
 // Command is the command line of e for a question about dir. The query is one
