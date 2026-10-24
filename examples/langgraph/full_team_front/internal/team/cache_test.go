@@ -47,3 +47,30 @@ func TestCacheForOnlyAnthropic(t *testing.T) {
 		t.Fatal("other providers must not get cache_control")
 	}
 }
+
+func TestMarkLastCachesTheNewestTurn(t *testing.T) {
+	in := []messages.Message{{Role: messages.RoleHuman, Content: "q"}, {Role: messages.RoleTool, ToolCallID: "1", Content: "big"}}
+	out := markLast(in)
+	if len(out[1].Parts) != 1 || out[1].Parts[0].Extra["cache_control"] == nil || out[1].Content != "big" {
+		t.Fatalf("tool result not marked: %+v", out[1])
+	}
+	if len(in[1].Parts) != 0 {
+		t.Fatal("input was modified")
+	}
+	h := markLast(in[:1])
+	if h[0].Content != "" || h[0].Parts[0].Text != "q" || h[0].Parts[0].Extra["cache_control"] == nil {
+		t.Fatalf("human not marked: %+v", h[0])
+	}
+}
+
+func TestInferDocRoot(t *testing.T) {
+	for in, want := range map[string]string{
+		"Analise o projeto na pasta /a/b/front-end e faça um plano de desenvolvimento na pasta /a/b/front-end/plans/new": "/a/b/front-end/plans/new",
+		"Analise /a/b":               "",
+		"save the plan in /x/plans.": "/x/plans",
+	} {
+		if got := inferDocRoot(in); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
+	}
+}

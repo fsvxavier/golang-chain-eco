@@ -3,6 +3,7 @@ package team
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
@@ -27,8 +28,33 @@ func (cachePrompt) WrapModelCall(ctx context.Context, req *agents.ModelRequest, 
 	sys := messages.Message{Role: messages.RoleSystem, Parts: []messages.ContentPart{{
 		Type: "text", Text: req.System, Extra: map[string]any{"cache_control": map[string]any{"type": "ephemeral"}},
 	}}}
-	r.Messages = append([]messages.Message{sys}, req.Messages...)
+	r.Messages = append([]messages.Message{sys}, markLast(req.Messages)...)
 	return next(ctx, &r)
+}
+
+var ephemeral = map[string]any{"cache_control": map[string]any{"type": "ephemeral"}}
+
+// markLast puts a second breakpoint on the last message, so the whole history
+// before the newest turn is read from the cache instead of billed again on every
+// step of a long tool loop. The input is not modified.
+func markLast(ms []messages.Message) []messages.Message {
+	n := len(ms)
+	if n == 0 {
+		return ms
+	}
+	m := ms[n-1]
+	switch {
+	case m.Role == messages.RoleTool && m.Content != "":
+		m.Parts = append(slices.Clone(m.Parts), messages.ContentPart{Type: "text", Extra: ephemeral})
+	case m.Content != "" && len(m.Parts) == 0 && m.Role != messages.RoleTool && len(m.ToolCalls) == 0:
+		m.Parts = []messages.ContentPart{{Type: "text", Text: m.Content, Extra: ephemeral}}
+		m.Content = ""
+	default:
+		return ms
+	}
+	out := slices.Clone(ms)
+	out[n-1] = m
+	return out
 }
 
 // cacheFor is the middleware to add for role's model: cachePrompt when the model

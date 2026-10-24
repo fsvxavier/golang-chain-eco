@@ -103,8 +103,14 @@ func RoleTools(hub func() *team.HubClient, cfg Config) func(role string) []tools
 }
 
 type readArgs struct {
-	Path string `json:"path" jsonschema:"file or directory, relative to the first root or absolute inside a root"`
+	Path   string `json:"path" jsonschema:"file or directory, relative to the first root or absolute inside a root"`
+	Offset int    `json:"offset,omitempty" jsonschema:"byte offset to continue a file that ended with [truncated]"`
 }
+
+// maxRead caps one backend_read: every byte stays in the history and is billed
+// again on each later step, so a big file is read in pages, or searched with
+// backend_grep, instead of dumped whole.
+const maxRead = 32 << 10
 
 type grepArgs struct {
 	Pattern string `json:"pattern" jsonschema:"Go regular expression"`
@@ -138,7 +144,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 		return id, s, nil
 	}
 	return []tools.Tool{
-		tools.New("backend_read", "Read one file (or list one directory) of the backend source the demand named. Read-only; use it to see endpoints, payloads and errors as written.",
+		tools.New("backend_read", "Read one file (or list one directory) of the backend source the demand named, at most 32 KB per call (use offset to page, backend_grep to search big files). Read-only; use it to see endpoints, payloads and errors as written.",
 			func(ctx context.Context, a readArgs) (any, error) {
 				id, s, err := scope(ctx, "backend_read")
 				if err != nil {
@@ -148,7 +154,7 @@ func newTools(resolve func(context.Context) (string, team.Scope, error), cfg Con
 				if err != nil {
 					return nil, tools.Errorf("backend_read: %v", err)
 				}
-				out, err := read(p, cfg.MaxBytes)
+				out, err := read(p, min(cfg.MaxBytes, maxRead), a.Offset)
 				if err != nil {
 					return nil, tools.Errorf("backend_read: %v", err)
 				}
@@ -267,7 +273,7 @@ func capped(r io.Reader, max int) (string, error) {
 	return string(b), nil
 }
 
-func read(p string, max int) (string, error) {
+func read(p string, max, offset int) (string, error) {
 	info, err := os.Stat(p)
 	if err != nil {
 		return "", err
@@ -292,7 +298,16 @@ func read(p string, max int) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	return capped(f, max)
+	if offset > 0 {
+		if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
+			return "", err
+		}
+	}
+	out, err := capped(f, max)
+	if strings.HasSuffix(out, truncated) {
+		out += fmt.Sprintf(" at byte %d of %d; call again with offset=%d, or use backend_grep", offset+max, info.Size(), offset+max)
+	}
+	return out, err
 }
 
 // maxGrepFiles caps the files one grep opens, so a node_modules tree cannot

@@ -123,6 +123,11 @@ func convert(msgs []messages.Message) ([]block, []block) {
 			if m.Status == "error" {
 				tr["is_error"] = true
 			}
+			for _, p := range m.Parts {
+				if cc, ok := p.Extra["cache_control"]; ok {
+					tr["cache_control"] = cc
+				}
+			}
 			push("user", []block{tr})
 		}
 	}

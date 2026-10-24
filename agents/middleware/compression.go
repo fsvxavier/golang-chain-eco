@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
 	"github.com/fsvxavier/golang-chain-eco/compress"
@@ -67,7 +69,12 @@ func (c Compression) WrapModelCall(ctx context.Context, req *agents.ModelRequest
 	ponytail := byID[compress.QPonytail].True
 	toonTools := byID[compress.QTOON].True
 	if !compressHistory && !compressReply && !ponytail && !toonTools {
-		return next(ctx, req)
+		r := *req
+		r.Messages = append([]messages.Message(nil), req.Messages...)
+		if elideOldToolResults(r.Messages) == 0 {
+			return next(ctx, req)
+		}
+		return next(ctx, &r)
 	}
 
 	level := compress.Full
@@ -78,6 +85,7 @@ func (c Compression) WrapModelCall(ctx context.Context, req *agents.ModelRequest
 
 	r := *req
 	r.Messages = append([]messages.Message(nil), req.Messages...)
+	elideOldToolResults(r.Messages)
 
 	if compressHistory {
 		cut := oldTurnsEnd(r.Messages, keep)
@@ -120,6 +128,33 @@ func (c Compression) WrapModelCall(ctx context.Context, req *agents.ModelRequest
 	}
 
 	return next(ctx, &r)
+}
+
+const (
+	keepToolResults = 2    // newest tool results sent whole
+	elideOver       = 4096 // bytes; a bigger older result is cut
+	elideKeep       = 1024 // bytes of its head that stay
+)
+
+// elideOldToolResults cuts the big tool results that are not among the newest
+// keepToolResults, in the per-call copy msgs. A tool loop has one Human turn, so
+// turn-based compression never reaches it, yet every earlier result is billed
+// again on each step; the agent can call the tool again if it needs the rest.
+// It returns how many results it cut.
+func elideOldToolResults(msgs []messages.Message) int {
+	seen, cut := 0, 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := &msgs[i]
+		if m.Role != messages.RoleTool {
+			continue
+		}
+		if seen++; seen <= keepToolResults || len(m.Parts) > 0 || len(m.Content) <= elideOver {
+			continue
+		}
+		m.Content = strings.ToValidUTF8(m.Content[:elideKeep], "") + fmt.Sprintf("\n[elided %d bytes of an earlier tool result; call the tool again for the rest]", len(m.Content)-elideKeep)
+		cut++
+	}
+	return cut
 }
 
 // appendToLastHuman adds text to the last Human message of msgs, in Parts when

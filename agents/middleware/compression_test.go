@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -344,5 +345,19 @@ func TestCompactionDefaultShrinksLongHistory(t *testing.T) {
 	short := []messages.Message{messages.Human(verbose)}
 	if got := run(short); !reflect.DeepEqual(got, short) {
 		t.Fatalf("a short history must pass untouched: %+v", got)
+	}
+}
+
+func TestOldBigToolResultsAreElided(t *testing.T) {
+	big := strings.Repeat("x", 10000)
+	msgs := []messages.Message{{Role: messages.RoleHuman, Content: "go"}}
+	for i := 0; i < 4; i++ {
+		msgs = append(msgs, messages.Message{Role: messages.RoleTool, ToolCallID: fmt.Sprint(i), Content: big})
+	}
+	if n := elideOldToolResults(msgs); n != 2 {
+		t.Fatalf("cut %d, want 2", n)
+	}
+	if len(msgs[1].Content) > 1200 || len(msgs[2].Content) > 1200 || len(msgs[3].Content) != 10000 || len(msgs[4].Content) != 10000 {
+		t.Fatalf("wrong results elided: %d %d %d %d", len(msgs[1].Content), len(msgs[2].Content), len(msgs[3].Content), len(msgs[4].Content))
 	}
 }
