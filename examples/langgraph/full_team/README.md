@@ -61,7 +61,7 @@ go run ./examples/langgraph/full_team serve
 go build -o bin/team-mcp ./examples/langgraph/full_team && ./bin/team-mcp serve
 ```
 
-Stdout carries only the MCP protocol. Startup lines (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) go to stderr. It stops on end of input (Ctrl-D) or on a signal. Serve mode differs from the demo in three ways: no worker gets the `shell` tool, the manager runs with a random API key generated at start (an operator-set `MANAGER_API_KEY` is ignored; only this process's bridge knows the key), and no demand is submitted until the chat calls `team_submit`. The tools are `team_submit`, `team_status`, `team_queue`, `team_cancel`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` and `graph_resume`.
+Stdout carries only the MCP protocol. Startup lines (`hub: up on ...`, `qa-1: qa up on ... (model ...)`) go to stderr. It stops on end of input (Ctrl-D) or on a signal. Serve mode differs from the demo in three ways: no worker gets the `shell` tool, the manager runs with a random API key generated at start (an operator-set `MANAGER_API_KEY` is ignored; only this process's bridge knows the key), and no demand is submitted until the chat calls `team_submit`. The tools are `team_submit` (field `request`, and optionally `docs_roots`), `team_status`, `team_queue`, `team_cancel`, `team_ask_worker`, `team_present`, `team_memory`, `graph_run`, `graph_state` and `graph_resume`.
 
 Two more facts about serve mode. The `url` argument of `graph_run`, `graph_state` and `graph_resume` lets the chat make the bridge call any Agent Server URL; the manager's key is sent only when `url` is empty or equals the manager's own URL, and any other URL gets no key. The hub and the workers' servers listen on `127.0.0.1` and are not authenticated, so any local process can reach them.
 
@@ -126,6 +126,10 @@ ROLL CALL
 ```
 
 With a worker down the last lines read `10 of 11 present` and `Absent: qa-2`.
+
+## The PO keeps the project documents
+
+The product owner is the only role that can write, and only through `project_doc_write`: markdown files (`.md`, up to 256 KB), with `replace` or `append`. Where is set by each demand: the optional `docs_roots` field of `team_submit` lists the directories (relative to the workspace, or absolute under `WORKSPACE_ROOT`, else the server's working directory) where the PO may write, and a relative path in the tool starts at the first one. A demand with no `docs_roots` gives the PO no write access at all. Anything else is refused: other extensions, paths outside the named directories, `..`, and symlinks that lead out. The directories reach the tool through the hub, by the job's exact thread (`internal/docs`), and the manager lists them in the PO prompt. A model decides the content: review `git diff` of those files after a run. Source code, and every other role, stay read-only for it.
 
 ## Progress dashboard and cancelling
 

@@ -104,6 +104,33 @@ func (h *Hub) Handler(mcp http.Handler) http.Handler {
 		}
 		reply(w, 200, j)
 	})
+	// The hub is trusted and loopback-only in this example; the PO and QA guards
+	// rely on that, since anyone who can PUT here can grant any request a scope.
+	mux.HandleFunc("PUT /scope/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var s Scope
+		if err := read(r, &s); err != nil {
+			reply(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		h.SetScope(r.PathValue("id"), s)
+		reply(w, 200, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("GET /scope/{id}", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := h.Scope(r.PathValue("id"))
+		if !ok {
+			reply(w, 404, map[string]string{"error": ErrNoScope.Error()})
+			return
+		}
+		reply(w, 200, s)
+	})
+	mux.HandleFunc("GET /thread-scope/{thread}", func(w http.ResponseWriter, r *http.Request) {
+		s, id, ok := h.ThreadScope(r.PathValue("thread"))
+		if !ok {
+			reply(w, 404, map[string]string{"error": ErrNoScope.Error()})
+			return
+		}
+		reply(w, 200, threadScope{s, id})
+	})
 	mux.HandleFunc("GET /state", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.Snapshot()) })
 	mux.HandleFunc("GET /jobs", func(w http.ResponseWriter, _ *http.Request) { reply(w, 200, h.Jobs()) })
 	mux.HandleFunc("POST /usage/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -278,10 +305,58 @@ func (c *HubClient) MgrUsage(ctx context.Context) (map[string]messages.Usage, er
 	return m, err
 }
 
-// ClearCancel lifts the cancellation of request id (best effort).
-func (c *HubClient) ClearCancel(ctx context.Context, id string) error {
-	_, err := c.call(ctx, "DELETE", "/cancel/"+url.PathEscape(id), nil, nil)
+// SetScope stores the scope of request id.
+func (c *HubClient) SetScope(ctx context.Context, id string, s Scope) error {
+	code, err := c.call(ctx, "PUT", "/scope/"+url.PathEscape(id), s, nil)
+	if err == nil && code != 200 {
+		err = fmt.Errorf("hub: set scope: http %d", code)
+	}
 	return err
+}
+
+// Scope returns the scope of request id, or ErrNoScope (and the zero Scope)
+// when none was stored. Callers treat that as no access.
+func (c *HubClient) Scope(ctx context.Context, id string) (Scope, error) {
+	var s Scope
+	code, err := c.call(ctx, "GET", "/scope/"+url.PathEscape(id), nil, &s)
+	switch {
+	case err != nil:
+		return Scope{}, err
+	case code == 404:
+		return Scope{}, ErrNoScope
+	case code != 200:
+		return Scope{}, fmt.Errorf("hub: scope: http %d", code)
+	}
+	return s, nil
+}
+
+// threadScope is the /thread-scope reply: the scope and the id of the request
+// that owns the thread's running job.
+type threadScope struct {
+	Scope
+	Request string `json:"request"`
+}
+
+// ThreadScope returns the scope of the request that owns the running job on
+// exactly this thread, or ErrNoScope (and the zero Scope) for any other thread.
+func (c *HubClient) ThreadScope(ctx context.Context, thread string) (Scope, error) {
+	_, s, err := c.ThreadRequest(ctx, thread)
+	return s, err
+}
+
+// ThreadRequest is ThreadScope plus the owning request's id.
+func (c *HubClient) ThreadRequest(ctx context.Context, thread string) (string, Scope, error) {
+	var ts threadScope
+	code, err := c.call(ctx, "GET", "/thread-scope/"+url.PathEscape(thread), nil, &ts)
+	switch {
+	case err != nil:
+		return "", Scope{}, err
+	case code == 404:
+		return "", Scope{}, ErrNoScope
+	case code != 200:
+		return "", Scope{}, fmt.Errorf("hub: thread scope: http %d", code)
+	}
+	return ts.Request, ts.Scope, nil
 }
 
 // Jobs returns every job without prompt and output.

@@ -127,6 +127,10 @@ ROLL CALL
 
 Con un worker caído, las últimas líneas son `10 of 11 present` y `Absent: qa-2`.
 
+## El PO mantiene los documentos del proyecto
+
+El product owner es el único rol que puede escribir, y solo con `project_doc_write`: archivos markdown (`.md`, hasta 256 KB), con `replace` o `append`. El lugar lo define cada demanda: el campo opcional `docs_roots` de `team_submit` lista los directorios (relativos al workspace, o absolutos bajo `WORKSPACE_ROOT`, si no el directorio de trabajo del servidor) donde el PO puede escribir, y una ruta relativa en la herramienta empieza en el primero. Una demanda sin `docs_roots` no da al PO ningún acceso de escritura. Todo lo demás se rechaza: otras extensiones, rutas fuera de los directorios nombrados, `..` y symlinks que salen. Los directorios llegan a la herramienta por el hub, por el thread exacto del job (`internal/docs`), y el manager los lista en el prompt del PO. Un modelo decide el contenido: revise el `git diff` de esos archivos después de una ejecución. El código fuente, y todos los demás roles, siguen siendo de solo lectura para él.
+
 ## Panel de seguimiento y cancelación
 
 Una página web de solo lectura muestra cada pedido y tarea con estado, barra de progreso, tiempo de ejecución y uso de tokens, y cada persona (worker) con su estado, job actual, skill, qué hace ahora (la referencia que consulta, la herramienta que llama o el modelo), jobs terminados, tiempo ocupado y tokens. Los tokens también se suman por tarea, por pedido y en el proyecto; las llamadas del modelo de conocimiento no se cuentan. Se actualiza cada 2 segundos y muestra solo estados, tiempos y conteo de tokens, nunca prompts ni salidas.

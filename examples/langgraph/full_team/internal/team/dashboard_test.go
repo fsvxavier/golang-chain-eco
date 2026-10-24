@@ -214,12 +214,12 @@ func TestCancelScope(t *testing.T) {
 	if got := h.TakeCancel("junior-1"); got != run || h.TakeCancel("junior-1") != "" {
 		t.Fatalf("worker must learn of the cancelled job exactly once, got %q", got)
 	}
-	// A job submitted after the cancellation fails at once; a new run (ClearCancel) lifts it.
+	// A job submitted after the cancellation fails at once; a new run (SetScope) lifts it.
 	late := h.Submit(Job{Prefer: []string{"junior"}, Thread: "r1-T3-dev", Scope: "r1"})
 	if j, _ := h.Wait(context.Background(), late); j.Status != "failed" || j.Error != CancelledMsg {
 		t.Fatalf("late job: %+v", j)
 	}
-	h.ClearCancel("r1")
+	h.SetScope("r1", Scope{})
 	h.Submit(Job{Prefer: []string{"junior"}, Thread: "r1-T4-dev", Scope: "r1"})
 	for _, j := range h.Jobs() {
 		if j.Thread == "r1-T4-dev" && j.Status == "failed" {

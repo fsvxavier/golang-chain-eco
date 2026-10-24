@@ -42,7 +42,8 @@ func NewBridge() *Bridge {
 
 type (
 	submitArgs struct {
-		Request string `json:"request" jsonschema:"what the team must deliver"`
+		Request  string   `json:"request" jsonschema:"what the team must deliver"`
+		DocRoots []string `json:"docs_roots,omitempty" jsonschema:"optional directories (relative to the workspace, or absolute under it) where the product owner may write markdown documents: documentation, plan, next steps. Without it the PO writes nothing"`
 	}
 	threadArgs struct {
 		Thread string `json:"thread_id" jsonschema:"thread_id returned by team_submit"`
@@ -84,7 +85,7 @@ func (b *Bridge) Tools() []tools.Tool {
 				if err != nil {
 					return nil, tools.Errorf("team_submit: %v", err)
 				}
-				run, err := b.Manager.CreateRun(ctx, tid, remote.RunRequest{AssistantID: "engineering_team", Input: map[string]any{"request": a.Request}})
+				run, err := b.Manager.CreateRun(ctx, tid, remote.RunRequest{AssistantID: "engineering_team", Input: map[string]any{"request": a.Request, "scope": map[string]any{"doc_roots": a.DocRoots}}})
 				if err != nil {
 					return nil, tools.Errorf("team_submit: %v", err)
 				}

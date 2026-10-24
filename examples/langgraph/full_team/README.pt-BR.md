@@ -127,6 +127,10 @@ ROLL CALL
 
 Com um worker fora, as últimas linhas são `10 of 11 present` e `Absent: qa-2`.
 
+## O PO mantém os documentos do projeto
+
+O product owner é o único papel que pode gravar, e só por `project_doc_write`: arquivos markdown (`.md`, até 256 KB), com `replace` ou `append`. O local é definido por cada demanda: o campo opcional `docs_roots` do `team_submit` lista os diretórios (relativos ao workspace, ou absolutos sob `WORKSPACE_ROOT`, senão o diretório de trabalho do servidor) onde o PO pode gravar, e um caminho relativo na ferramenta começa no primeiro. Uma demanda sem `docs_roots` não dá ao PO nenhum acesso de escrita. Todo o resto é recusado: outras extensões, caminhos fora dos diretórios citados, `..` e symlinks que levam para fora. Os diretórios chegam à ferramenta pelo hub, pela thread exata do job (`internal/docs`), e o manager os lista no prompt do PO. Um modelo decide o conteúdo: revise o `git diff` desses arquivos depois de uma execução. Código-fonte, e todos os outros papéis, continuam somente leitura para ele.
+
 ## Painel de acompanhamento e cancelamento
 
 Uma página web somente leitura mostra cada pedido e tarefa com status, barra de progresso, tempo de execução e uso de tokens, e cada persona (worker) com estado, job atual, skill, o que está fazendo agora (a referência que consulta, a ferramenta que chama ou o modelo), jobs concluídos, tempo ocupado e tokens. Os tokens também são somados por tarefa, por pedido e no projeto; as chamadas do modelo de conhecimento não entram na conta. Atualiza a cada 2 segundos e mostra apenas status, tempos e contagem de tokens, nunca prompts ou saídas.

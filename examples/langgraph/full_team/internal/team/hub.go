@@ -84,6 +84,7 @@ type Hub struct {
 	TTL         time.Duration // lease: a worker silent for longer is dropped
 	MaxAttempts int           // times a job may be handed out before it fails
 
+	scopes    map[string]Scope
 	cancelled map[string]bool           // request ids whose work was cancelled: new jobs for them fail at once
 	mgrUse    map[string]messages.Usage // manager model tokens per request id
 	mu        sync.Mutex
@@ -97,7 +98,46 @@ type Hub struct {
 
 // NewHub returns an empty hub.
 func NewHub(ttl time.Duration) *Hub {
-	return &Hub{TTL: ttl, MaxAttempts: 3, cancelled: map[string]bool{}, mgrUse: map[string]messages.Usage{}, workers: map[string]*WorkerInfo{}, jobs: map[string]*Job{}, wake: make(chan struct{}), now: time.Now}
+	return &Hub{TTL: ttl, MaxAttempts: 3, scopes: map[string]Scope{}, cancelled: map[string]bool{}, mgrUse: map[string]messages.Usage{}, workers: map[string]*WorkerInfo{}, jobs: map[string]*Job{}, wake: make(chan struct{}), now: time.Now}
+}
+
+// SetScope stores what request id may reach (see Scope). The manager stores it
+// at intake of every run, so a new run of a cancelled thread also starts clean.
+func (h *Hub) SetScope(id string, s Scope) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.scopes[id] = s
+	delete(h.cancelled, id)
+}
+
+// Scope returns the scope stored for request id.
+func (h *Hub) Scope(id string) (Scope, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s, ok := h.scopes[id]
+	return s, ok
+}
+
+// ThreadScope returns the scope of the request that owns a running job whose
+// Thread is exactly thread, and that request's id. A tool runs while its job
+// runs, so running jobs suffice; jobs are never pruned, but finished ones no
+// longer vouch for a thread. If running jobs on the thread belong to more than
+// one request it is ambiguous and nothing is returned (fail closed).
+func (h *Hub) ThreadScope(thread string) (Scope, string, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var id string
+	for _, j := range h.jobs {
+		if j.Status != "running" || j.Thread != thread || j.Scope == "" {
+			continue
+		}
+		if id != "" && id != j.Scope {
+			return Scope{}, "", false
+		}
+		id = j.Scope
+	}
+	s, ok := h.scopes[id]
+	return s, id, ok && id != ""
 }
 
 // notifyLocked wakes every waiter; callers hold h.mu.
@@ -404,7 +444,7 @@ func (h *Hub) SetActivity(id, activity string) bool {
 // ones fail and free their worker (which learns of it on its next heartbeat and
 // stops the agent), and any job submitted for the request later fails too, so
 // the manager's flow unwinds on its next step. It returns how many jobs it
-// ended. ClearCancel (a new run of the thread) lifts the cancellation.
+// ended. SetScope (a new run of the thread) lifts the cancellation.
 func (h *Hub) CancelScope(id string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -437,11 +477,4 @@ func (h *Hub) TakeCancel(id string) string {
 	c := w.cancel
 	w.cancel = ""
 	return c
-}
-
-// ClearCancel lifts the cancellation of request id: a new run starts clean.
-func (h *Hub) ClearCancel(id string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	delete(h.cancelled, id)
 }

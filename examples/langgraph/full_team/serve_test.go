@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -224,7 +225,7 @@ func TestServeRestoresGlobals(t *testing.T) {
 }
 
 func TestServeOptionsHaveNoShell(t *testing.T) {
-	opts, _ := serveOptions("k")
+	opts, _ := serveOptions("k", new(atomic.Pointer[team.HubClient]))
 	for _, tl := range opts.Tools {
 		if tl.Name() == "shell" {
 			t.Fatal("serve must not give a worker the shell tool")

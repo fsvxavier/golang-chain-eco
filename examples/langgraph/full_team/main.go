@@ -27,6 +27,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,6 +37,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
 	"github.com/fsvxavier/golang-chain-eco/deepagents/backends"
+	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/docs"
 	"github.com/fsvxavier/golang-chain-eco/examples/langgraph/full_team/internal/team"
 )
 
@@ -73,17 +75,20 @@ func run(ctx context.Context, w io.Writer) (*meter, error) {
 	// turn to compress. NewCompression's guard is kept by wrapping it here.
 	m := &meter{comp: middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}}
 
+	hub := new(atomic.Pointer[team.HubClient]) // known once the team is up; until then no write access
 	l, err := team.StartLocalWith(ctx, team.LocalOptions{
 		Middleware: []agents.Middleware{m},
 		// The manager's agent gets the same compression (old turns caveman-compressed,
 		// Ponytail note, TOON) as the workers; it has no meter, which counts worker calls only.
 		ManagerMiddleware: []agents.Middleware{middleware.Compression{Decider: compress.NewGuarded(dec), Keep: 1}},
+		RoleTools:         docs.DocTools(hub.Load, docs.DocsConfig{WorkspaceRoot: dir}),
 		Tools:             []tools.Tool{shell, tasksTool()},
 		Offline:           team.OfflineWithTool(tasksToolName),
 	})
 	if err != nil {
 		return nil, err
 	}
+	hub.Store(team.NewHubClient(l.HubURL))
 	fmt.Fprintf(w, "decider %s; hub %s, manager %s, %d workers\n", source, l.HubURL, l.ManagerURL, len(l.Workers))
 
 	out, err := team.Invoke(ctx, l.ManagerURL, messages.NewID(), team.DefaultRequest)

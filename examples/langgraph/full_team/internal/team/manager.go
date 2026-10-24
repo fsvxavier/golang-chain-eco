@@ -2,6 +2,7 @@ package team
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"slices"
@@ -72,11 +73,11 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 		"request": channels.LastValue(), "kickoff": channels.LastValue(),
 		"spec": channels.LastValue(), "arch": channels.LastValue(),
 		"history": graph.Append(), "results": graph.Append(),
-		"report": channels.LastValue(), "status": channels.LastValue(),
+		"report": channels.LastValue(), "status": channels.LastValue(), "scope": channels.LastValue(),
 	})
 	g.AddNode("manager", m.intake)
 	g.AddNode("po", m.step("po", "product-owner", tasktrack.InSpecification, func(s graph.State) string {
-		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v", s["request"], s["kickoff"])
+		return fmt.Sprintf("ROLE: po\n\n## Request\n%v\n\n## Manager kickoff\n%v%s", s["request"], s["kickoff"], docsBlock(scopeOf(s)))
 	}, "spec"))
 	g.AddNode("architect", m.step("architect", "architect", tasktrack.RiskSecReview, func(s graph.State) string {
 		return fmt.Sprintf("ROLE: architect\n\n## Request\n%v\n\n## Specification\n%v", s["request"], s["spec"])
@@ -86,6 +87,28 @@ func NewManager(hub *HubClient, chat models.ChatModel, track *tasktrack.Tracker,
 	g.AddEdge(graph.Start, "manager").AddEdge("manager", "po").AddEdge("po", "architect").
 		AddEdge("architect", "build").AddEdge("build", "deliver").AddEdge("deliver", graph.End)
 	return g.Compile(graph.WithName("engineering_team"), graph.WithCheckpointer(checkpoint.NewMemory()))
+}
+
+// scopeOf decodes the demand's scope from the graph state (a map after JSON).
+func scopeOf(s graph.State) Scope {
+	var sc Scope
+	if raw, err := json.Marshal(s["scope"]); err == nil {
+		_ = json.Unmarshal(raw, &sc)
+	}
+	return sc
+}
+
+// docsBlock tells the PO where, if anywhere, it may keep project documents.
+func docsBlock(sc Scope) string {
+	if len(sc.DocRoots) == 0 {
+		return "\n\n## Project documents\nnone: the demand named no document directory, so do not write documents."
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## Project documents\nYou may keep the project documentation, plan and next steps current with project_doc_write (markdown files in these directories only; a relative path starts at the first). Update them when this request changes what is true; do not rewrite what is unchanged.\n")
+	for _, r := range sc.DocRoots {
+		b.WriteString("DOC ROOT: " + r + "\n")
+	}
+	return b.String()
 }
 
 func requestID(ctx context.Context) string {
@@ -129,7 +152,12 @@ func (m *manager) ask(ctx context.Context, prompt string) (string, error) {
 }
 
 func (m *manager) intake(ctx context.Context, s graph.State) (any, error) {
-	_ = m.hub.ClearCancel(ctx, requestID(ctx)) // a new run of a cancelled thread starts clean
+	// Stored for every request, empty when the demand named none; workers reach
+	// it through the exact job thread (Hub.ThreadScope), never by id prefix. It also
+	// lifts the cancellation of an earlier run of this thread.
+	if err := m.hub.SetScope(ctx, requestID(ctx), scopeOf(s)); err != nil {
+		return nil, err
+	}
 	m.move(ctx, tasktrack.Request, subject(ctx, ""), tasktrack.Received, "manager", head(fmt.Sprint(s["request"]), 80))
 	out, err := m.ask(ctx, fmt.Sprintf("ROLE: manager\nMODE: intake\nREQUEST: %v", s["request"]))
 	if err != nil {
