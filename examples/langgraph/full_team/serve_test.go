@@ -224,3 +224,28 @@ func TestServeSubmitUsesTheGeneratedKey(t *testing.T) {
 	}
 	c.checkStdout()
 }
+
+func TestServePresentOverStdio(t *testing.T) {
+	c := startServe(t)
+	var found bool
+	for _, x := range c.call("prompts/list", map[string]any{})["prompts"].([]any) {
+		found = found || x.(map[string]any)["name"] == "present"
+	}
+	if !found {
+		t.Fatal("prompts/list lacks present")
+	}
+	got := c.call("prompts/get", map[string]any{"name": "present"})
+	if b, _ := json.Marshal(got); !strings.Contains(string(b), "team_present") {
+		t.Fatalf("prompts/get: %s", b)
+	}
+	roll := c.tool("team_present", map[string]any{})
+	n := len(team.Cast)
+	if want := fmt.Sprintf("%d of %d present", n, n); !strings.Contains(roll, want) {
+		t.Fatalf("want %q in:\n%s", want, roll)
+	}
+	if got := strings.Count(roll, "present: Presente! "); got != n {
+		t.Errorf("%d Presente! lines, want %d:\n%s", got, n, roll)
+	}
+	t.Log("\n" + roll)
+	c.checkStdout()
+}
