@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
@@ -116,5 +117,14 @@ func TestToolCallsJSONAfterProse(t *testing.T) {
 	m, err := fake(text, nil).Generate(context.Background(), []messages.Message{messages.Human("x")}, func(o *models.Options) { o.Tools = ts })
 	if err != nil || len(m.ToolCalls) != 1 || m.ToolCalls[0].Args["path"] != "a" {
 		t.Fatalf("%v %+v", err, m)
+	}
+}
+
+func TestEnvTimeout(t *testing.T) {
+	for in, want := range map[string]time.Duration{"": 10 * time.Minute, "20m": 20 * time.Minute, "90": 90 * time.Second, "x": 10 * time.Minute} {
+		t.Setenv("CLAUDE_CLI_TIMEOUT", in)
+		if got := envTimeout(); got != want {
+			t.Errorf("%q: %v, want %v", in, got, want)
+		}
 	}
 }

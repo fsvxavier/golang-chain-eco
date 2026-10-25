@@ -176,7 +176,7 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # incluye TestStartL
 
 cada rol responde por `claude -p`, cobrado a tu suscripción de Claude en vez del crédito de la API; requiere `claude` con sesión iniciada, sin clave de API (cualquier credencial `ANTHROPIC_*` se quita del entorno del proceso hijo). Más lento que la API y el uso de herramientas se emula en el prompt; `CLAUDE_CLI_CONCURRENCY` (por defecto 3) limita los procesos, `CLAUDE_BIN` apunta al binario. Revisa los términos de tu plan antes de ejecutarlo sin supervisión. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mezcla por rol
 
-`AGENT_BACKEND=claude-cli` (`providers/claudecli`).
+`AGENT_BACKEND=claude-cli` (`providers/claudecli`). `CLAUDE_CLI_TIMEOUT` (una duración como `20m`, o segundos; por defecto 10 minutos) limita cada llamada: la que pase de eso se mata (`signal: killed`).
 
 ## Dashboard: llamadas CLI, conversaciones y agentes del chat
 
@@ -184,4 +184,4 @@ Con `AGENT_BACKEND=claude-cli` el dashboard lista cada llamada al CLI de Claude 
 
 ## Los rechazos van al PO
 
-Cuando la revisión o el QA rechaza una tarea, el PO la ve primero (`po_rework`): responde `DECISION: FIX` o `SPEC`, con una `DIRECTION:` para el desarrollador y, en `SPEC`, una nueva `DESCRIPTION:` de la tarea. El desarrollador recibe la orientación del PO sobre el feedback de los revisores (línea del historial `T2: po FIX -> mid-1 | ...`). La tarea sin rondas queda bloqueada sin otro viaje al PO.
+Cuando la revisión o el QA rechaza una tarea, el PO la ve primero (`po_rework`): responde `DECISION: FIX` o `SPEC`, con una `DIRECTION:` para el desarrollador y, en `SPEC`, una nueva `DESCRIPTION:` de la tarea. El desarrollador recibe la orientación del PO sobre el feedback de los revisores (línea del historial `T2: po FIX -> mid-1 | ...`). La tarea que agota las rondas va al PO una vez más, que la reabre para una nueva serie de rondas (`MaxPOTrips`) o la divide (`DECISION: SPLIT`, líneas `SUBTASK|título|descripción`) tras ver todos los rechazos; solo después queda bloqueada. Un request puede reabrir o dividir como máximo `MaxReopens` (4) tareas.

@@ -31,6 +31,8 @@ type Bridge struct {
 	PresentTimeout time.Duration
 	// Expected is the roster team_present checks against; nil means Cast.
 	Expected []struct{ ID, Role string }
+
+	runs sync.Map // thread id -> run id of the last team_submit, so team_status can say a run failed
 }
 
 // NewBridge reads MANAGER_URL, MANAGER_API_KEY and HUB_URL.
@@ -147,6 +149,7 @@ func (b *Bridge) tools() []tools.Tool {
 						docs += " (taken from the request)"
 					}
 				}
+				b.runs.Store(tid, run.RunID)
 				return fmt.Sprintf("thread_id=%s run_id=%s status=%s %s", tid, run.RunID, run.Status, docs), nil
 			}),
 		tools.New("team_status", "Show the delivery state of a request: task statuses (received ... completed), report and handoff history.",
@@ -158,10 +161,18 @@ func (b *Bridge) tools() []tools.Tool {
 					}
 					return nil, tools.Errorf("team_status: %v", err)
 				}
-				out, _ := json.MarshalIndent(map[string]any{
+				res := map[string]any{
 					"status": s.Values["status"], "report": s.Values["report"],
 					"history": s.Values["history"], "running": s.Next,
-				}, "", "  ")
+				}
+				// "running" is only the next node: a run that failed still lists it, so say so
+				if id, ok := b.runs.Load(a.Thread); ok {
+					if run, err := b.Manager.GetRun(ctx, a.Thread, id.(string)); err == nil && (run.Status == "error" || run.Status == "interrupted") {
+						res["run"] = map[string]any{"status": run.Status, "error": run.Error}
+						res["running"] = []string{}
+					}
+				}
+				out, _ := json.MarshalIndent(res, "", "  ")
 				return string(out), nil
 			}),
 		tools.New("team_cancel", "Cancel a request (end its thread): queued jobs are dropped, running agents are stopped and the delivery ends as cancelled. Use the thread_id from team_submit.",

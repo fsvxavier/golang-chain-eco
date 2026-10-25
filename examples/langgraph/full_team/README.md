@@ -176,7 +176,7 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # includes TestStart
 
 every role answers through `claude -p`, billed to your Claude subscription instead of API credit; needs `claude` logged in, no API key (any `ANTHROPIC_*` credential is removed from the child's environment). Slower than the API and tool use is emulated in the prompt; `CLAUDE_CLI_CONCURRENCY` (default 3) bounds the processes, `CLAUDE_BIN` points at the binary. Check your plan's terms before running it unattended. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mixes it per role
 
-`AGENT_BACKEND=claude-cli` (`providers/claudecli`).
+`AGENT_BACKEND=claude-cli` (`providers/claudecli`). `CLAUDE_CLI_TIMEOUT` (a duration such as `20m`, or seconds; default 10 minutes) bounds each call: a longer one is killed (`signal: killed`).
 
 ## Dashboard: CLI calls, conversations and chat agents
 
@@ -184,4 +184,4 @@ With `AGENT_BACKEND=claude-cli` the dashboard lists every claude CLI call (agent
 
 ## Rejections go to the PO
 
-When the review or QA rejects a task, the PO sees it first (`po_rework`): it answers `DECISION: FIX` or `SPEC`, with a `DIRECTION:` for the developer and, for `SPEC`, a new task `DESCRIPTION:`. The developer gets the PO's direction above the reviewers' feedback (history line `T2: po FIX -> mid-1 | ...`). A task out of rounds is blocked without another trip to the PO.
+When the review or QA rejects a task, the PO sees it first (`po_rework`): it answers `DECISION: FIX` or `SPEC`, with a `DIRECTION:` for the developer and, for `SPEC`, a new task `DESCRIPTION:`. The developer gets the PO's direction above the reviewers' feedback (history line `T2: po FIX -> mid-1 | ...`). A task that uses all its rounds goes to the PO once more, which reopens it for one new series of rounds (`MaxPOTrips`), or splits it (`DECISION: SPLIT`, `SUBTASK|title|description` lines) after seeing every rejection; only after that is it blocked. A request can reopen or split at most `MaxReopens` (4) tasks.

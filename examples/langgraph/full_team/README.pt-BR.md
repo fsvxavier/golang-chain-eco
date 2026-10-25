@@ -176,7 +176,7 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # inclui TestStartLo
 
 todo papel responde por `claude -p`, cobrado na assinatura do Claude em vez do crédito da API; exige `claude` logado, sem chave de API (qualquer credencial `ANTHROPIC_*` é removida do ambiente do processo filho). Mais lento que a API e o uso de ferramentas é emulado no prompt; `CLAUDE_CLI_CONCURRENCY` (padrão 3) limita os processos, `CLAUDE_BIN` aponta o binário. Confira os termos do seu plano antes de rodar sem supervisão. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mistura por papel
 
-`AGENT_BACKEND=claude-cli` (`providers/claudecli`).
+`AGENT_BACKEND=claude-cli` (`providers/claudecli`). `CLAUDE_CLI_TIMEOUT` (uma duração como `20m`, ou segundos; padrão 10 minutos) limita cada chamada: a que passar disso é morta (`signal: killed`).
 
 ## Dashboard: chamadas CLI, conversas e agentes do chat
 
@@ -184,4 +184,4 @@ Com `AGENT_BACKEND=claude-cli` o dashboard lista cada chamada ao CLI do Claude (
 
 ## Rejeições vão ao PO
 
-Quando a revisão ou o QA rejeita uma tarefa, o PO vê primeiro (`po_rework`): ele responde `DECISION: FIX` ou `SPEC`, com uma `DIRECTION:` para o desenvolvedor e, no `SPEC`, uma nova `DESCRIPTION:` da tarefa. O desenvolvedor recebe a orientação do PO acima do feedback dos revisores (linha do histórico `T2: po FIX -> mid-1 | ...`). A tarefa sem rodadas fica bloqueada sem nova ida ao PO.
+Quando a revisão ou o QA rejeita uma tarefa, o PO vê primeiro (`po_rework`): ele responde `DECISION: FIX` ou `SPEC`, com uma `DIRECTION:` para o desenvolvedor e, no `SPEC`, uma nova `DESCRIPTION:` da tarefa. O desenvolvedor recebe a orientação do PO acima do feedback dos revisores (linha do histórico `T2: po FIX -> mid-1 | ...`). A tarefa que esgota as rodadas vai ao PO mais uma vez, que a reabre para uma nova série de rodadas (`MaxPOTrips`) ou a divide (`DECISION: SPLIT`, linhas `SUBTASK|título|descrição`) depois de ver todas as rejeições; só depois disso fica bloqueada. Um request pode reabrir ou dividir no máximo `MaxReopens` (4) tarefas.

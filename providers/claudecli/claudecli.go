@@ -41,7 +41,7 @@ import (
 type Chat struct {
 	Model      string        // model id or alias passed to --model, e.g. "claude-sonnet-5-5" or "sonnet"
 	Bin        string        // default $CLAUDE_BIN, else "claude"
-	Timeout    time.Duration // per call; default 5 minutes
+	Timeout    time.Duration // per call; default $CLAUDE_CLI_TIMEOUT (a duration such as 20m, or seconds), else 10 minutes
 	Effort     string        // optional --effort level
 	KeepAPIEnv bool          // keep ANTHROPIC_* credentials in the child's environment
 	Defaults   []models.Option
@@ -76,6 +76,20 @@ var slots = func() chan struct{} {
 	}
 	return make(chan struct{}, n)
 }()
+
+// envTimeout is CLAUDE_CLI_TIMEOUT: a Go duration ("20m") or a number of seconds.
+// A call that reads many files can run for minutes; the CLI is killed when it
+// ends, which shows as "signal: killed".
+func envTimeout() time.Duration {
+	v := os.Getenv("CLAUDE_CLI_TIMEOUT")
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return d
+	}
+	if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		return time.Duration(n) * time.Second
+	}
+	return 10 * time.Minute
+}
 
 const maxArg = 100 << 10 // a command-line argument is limited to 128 KiB on Linux
 
@@ -120,7 +134,7 @@ func (c *Chat) Generate(ctx context.Context, msgs []messages.Message, opts ...mo
 		}
 		timeout := c.Timeout
 		if timeout <= 0 {
-			timeout = 5 * time.Minute
+			timeout = envTimeout()
 		}
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()

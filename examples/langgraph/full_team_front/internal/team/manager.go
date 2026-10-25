@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/fsvxavier/golang-chain-eco/agents"
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
@@ -22,6 +23,14 @@ import (
 
 // MaxRounds is how many times a task may be returned before it is blocked.
 const MaxRounds = 3
+
+// MaxPOTrips is how many times a task that used all its rounds goes back to the
+// PO for a new series of rounds before it is blocked.
+const MaxPOTrips = 1
+
+// MaxReopens bounds, for the whole request, how many exhausted tasks the PO may
+// reopen or split, so a request of tasks that never pass cannot loop.
+const MaxReopens = 4
 
 // preference is who suits a task best, in order. High-complexity work never
 // goes to a junior.
@@ -38,6 +47,8 @@ type work struct {
 	Code, Feedback              string
 	Prefer                      string // worker id the leader suggests for the first attempt
 	Round                       int
+	POTrips                     int // series of rounds the PO has reopened
+	Rejections                  []string
 	Status                      string
 }
 
@@ -45,9 +56,10 @@ type work struct {
 // request; every other agent is reached through the hub queue. It never writes
 // code: its own agent only routes and reports.
 type manager struct {
-	hub   *HubClient
-	agent *graph.Compiled
-	track *tasktrack.Tracker
+	hub     *HubClient
+	agent   *graph.Compiled
+	track   *tasktrack.Tracker
+	reopens sync.Map // request id -> *atomic.Int32: tasks the PO reopened or split
 }
 
 // move records a status change. An illegal move is a bug in the flow, not in
@@ -459,10 +471,23 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 			}
 		}
 		// rejected by review or QA: the PO sees it before the developer does
-		if w.Round < MaxRounds {
-			if err := m.poRework(ctx, &w, &hist, brief); err != nil {
-				return w, hist, err
+		w.Rejections = append(w.Rejections, fmt.Sprintf("round %d: %s", w.Round, head(w.Feedback, 800)))
+		exhausted := w.Round >= MaxRounds
+		if exhausted && (w.POTrips >= MaxPOTrips || !m.reopen(ctx)) {
+			break
+		}
+		kids, err := m.poRework(ctx, &w, &hist, brief, exhausted)
+		if err != nil {
+			return w, hist, err
+		}
+		if len(kids) > 0 { // the PO split the task: the parts run one after the other
+			if m.runParts(ctx, &w, kids, &hist, brief) {
+				return w, hist, nil
 			}
+			break
+		}
+		if exhausted { // the PO reopens the task: a new series of rounds
+			w.Round, w.POTrips = 0, w.POTrips+1
 		}
 	}
 	w.Status = "blocked"
@@ -470,18 +495,26 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 	return w, hist, nil
 }
 
+// lastChance is the line that tells the PO a task has used all its rounds.
+func lastChance(exhausted bool) string {
+	if !exhausted {
+		return ""
+	}
+	return "This task used all its rounds and is blocked unless you reopen it: make the description smaller or clearer (SPEC) or give a precise direction (FIX); the next series is the last.\n\n"
+}
+
 // poRework sends a rejected task to the PO. The PO decides whether the work
 // needs a fix (the developer gets its direction) or the task's description
 // itself is wrong (it is replaced), and the developer then works from that, with
 // the reviewers' feedback below it. A PO that answers without the markers still
 // has its answer passed on as the direction.
-func (m *manager) poRework(ctx context.Context, w *work, hist *[]any, brief string) error {
+func (m *manager) poRework(ctx context.Context, w *work, hist *[]any, brief string, exhausted bool) ([]work, error) {
 	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.PORework, "po", "returned to the PO")
-	prompt := fmt.Sprintf("ROLE: po\nMODE: rework\n\n%s\n\n## Task returned\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nROUND: %d of %d\n\n## Submitted work\n%s\n\n## Rejection feedback\n%s\n\nDecide whether this is a fix for the developer or the task's description must change, and answer in this form:\nDECISION: FIX or SPEC\nDIRECTION: what the developer must do next, one short paragraph\nDESCRIPTION: (only for SPEC) the task's new description\n",
-		briefToken, w.ID, w.Title, w.Desc, w.Round, MaxRounds, head(w.Code, 4000), w.Feedback)
+	prompt := fmt.Sprintf("ROLE: po\nMODE: rework\n\n%s\n\n## Task returned\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nROUND: %d of %d\n\n## Submitted work\n%s\n\n## Rejection feedback\n%s\n\n%sDecide whether this is a fix for the developer or the task's description must change, and answer in this form:\nDECISION: FIX or SPEC\nDIRECTION: what the developer must do next, one short paragraph\nDESCRIPTION: (only for SPEC) the task's new description\n%s",
+		briefToken, w.ID, w.Title, w.Desc, w.Round, MaxRounds, head(w.Code, 4000), rejectionsOf(w, exhausted), lastChance(exhausted), splitHelp(exhausted))
 	j, err := m.dispatchBrief(ctx, []string{"po"}, w.ID+"-po-rework", prompt, w.Title+" "+w.Desc, brief)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	decision := strings.ToUpper(strings.Fields(field(j.Output, "DECISION:") + " FIX")[0])
 	dir := after(j.Output, "DIRECTION:")
@@ -497,7 +530,69 @@ func (m *manager) poRework(ctx context.Context, w *work, hist *[]any, brief stri
 	w.Feedback = fmt.Sprintf("PO direction (%s): %s\n\nWhat the reviewers said:\n%s", decision, head(dir, 1200), w.Feedback)
 	log.Printf("manager: po returned %s to the developer (%s)", w.ID, decision)
 	*hist = append(*hist, fmt.Sprintf("%s: po %s -> %s | %s", w.ID, decision, w.Assignee, head(dir, 120)))
-	return nil
+	if exhausted && decision == "SPLIT" {
+		return parts(j.Output), nil
+	}
+	return nil, nil
+}
+
+// rejectionsOf is what the PO is told was said about the task: the last
+// feedback, or, for a task out of rounds, every rejection it had.
+func rejectionsOf(w *work, exhausted bool) string {
+	if !exhausted || len(w.Rejections) == 0 {
+		return w.Feedback
+	}
+	return head(strings.Join(w.Rejections, "\n"), 4000)
+}
+
+func splitHelp(exhausted bool) string {
+	if !exhausted {
+		return ""
+	}
+	return "A task out of rounds may also be split: answer DECISION: SPLIT and one line per part, at most 4: SUBTASK|title|description\n"
+}
+
+// parts reads the SUBTASK|title|description lines of a PO answer.
+func parts(out string) []work {
+	var ws []work
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.SplitN(strings.TrimSpace(l), "|", 3)
+		if len(f) == 3 && strings.EqualFold(strings.TrimSpace(f[0]), "SUBTASK") && strings.TrimSpace(f[1]) != "" && len(ws) < 4 {
+			ws = append(ws, work{Title: strings.TrimSpace(f[1]), Desc: strings.TrimSpace(f[2])})
+		}
+	}
+	if len(ws) < 2 {
+		return nil // one part is no split
+	}
+	return ws
+}
+
+// runParts runs the parts of a split task one after the other. A part cannot
+// be split again (it starts with the PO's trips used). The task is approved
+// when every part is.
+func (m *manager) runParts(ctx context.Context, w *work, kids []work, hist *[]any, brief string) bool {
+	ok := true
+	for i, k := range kids {
+		k.ID, k.Complexity, k.POTrips = fmt.Sprintf("%s.%d", w.ID, i+1), w.Complexity, MaxPOTrips
+		m.move(ctx, tasktrack.Task, subject(ctx, k.ID), tasktrack.TaskAssignment, "po", k.Title)
+		kw, kh, err := m.runTask(ctx, k, brief)
+		*hist = append(*hist, kh...)
+		if err != nil || kw.Status != "approved" {
+			ok = false
+		}
+	}
+	if ok {
+		w.Status = "approved"
+		m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.Completed, "po", "split into parts, all approved")
+		*hist = append(*hist, w.ID+": approved as parts")
+	}
+	return ok
+}
+
+// reopen takes one of the request's MaxReopens; false when they are used up.
+func (m *manager) reopen(ctx context.Context) bool {
+	n, _ := m.reopens.LoadOrStore(requestID(ctx), new(atomic.Int32))
+	return n.(*atomic.Int32).Add(1) <= MaxReopens
 }
 
 // jointReview has the specialist and the tech lead judge the same submission in
