@@ -191,6 +191,8 @@ type Run struct {
 	ThreadID string `json:"thread_id"`
 	// Status: pending, running, error, success, timeout, interrupted.
 	Status string `json:"status"`
+	// Error is why a run ended in error.
+	Error string `json:"error,omitempty"`
 }
 
 func runsPath(threadID string) string {

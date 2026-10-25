@@ -176,7 +176,7 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # includes TestStart
 
 every role answers through `claude -p`, billed to your Claude subscription instead of API credit; needs `claude` logged in, no API key (any `ANTHROPIC_*` credential is removed from the child's environment). Slower than the API and tool use is emulated in the prompt; `CLAUDE_CLI_CONCURRENCY` (default 3) bounds the processes, `CLAUDE_BIN` points at the binary. Check your plan's terms before running it unattended. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mixes it per role
 
-`AGENT_BACKEND=claude-cli` (`providers/claudecli`).
+`AGENT_BACKEND=claude-cli` (`providers/claudecli`). `CLAUDE_CLI_TIMEOUT` (a duration such as `20m`, or seconds; default 10 minutes) bounds each call: a longer one is killed (`signal: killed`).
 
 ## Dashboard: CLI calls, conversations and chat agents
 

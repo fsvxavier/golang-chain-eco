@@ -176,7 +176,7 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # inclui TestStartLo
 
 todo papel responde por `claude -p`, cobrado na assinatura do Claude em vez do crédito da API; exige `claude` logado, sem chave de API (qualquer credencial `ANTHROPIC_*` é removida do ambiente do processo filho). Mais lento que a API e o uso de ferramentas é emulado no prompt; `CLAUDE_CLI_CONCURRENCY` (padrão 3) limita os processos, `CLAUDE_BIN` aponta o binário. Confira os termos do seu plano antes de rodar sem supervisão. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mistura por papel
 
-`AGENT_BACKEND=claude-cli` (`providers/claudecli`).
+`AGENT_BACKEND=claude-cli` (`providers/claudecli`). `CLAUDE_CLI_TIMEOUT` (uma duração como `20m`, ou segundos; padrão 10 minutos) limita cada chamada: a que passar disso é morta (`signal: killed`).
 
 ## Dashboard: chamadas CLI, conversas e agentes do chat
 
