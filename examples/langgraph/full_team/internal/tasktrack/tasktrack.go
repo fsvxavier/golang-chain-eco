@@ -68,7 +68,7 @@ var flows = map[Kind]map[Status][]Status{
 		ReviewApproved: {InQATesting},
 		InQATesting:    {QAApproved, QARejected},
 		QARejected:     {PORework, InDevelopment},
-		PORework:       {InDevelopment},
+		PORework:       {InDevelopment, Completed}, // Completed: the PO split it and every part passed
 		QAApproved:     {Committed},
 		Committed:      {Completed},
 	},
