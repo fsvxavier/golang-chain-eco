@@ -184,4 +184,4 @@ With `AGENT_BACKEND=claude-cli` the dashboard lists every claude CLI call (agent
 
 ## Rejections go to the PO
 
-When the review or QA rejects a task, the PO sees it first (`po_rework`): it answers `DECISION: FIX` or `SPEC`, with a `DIRECTION:` for the developer and, for `SPEC`, a new task `DESCRIPTION:`. The developer gets the PO's direction above the reviewers' feedback (history line `T2: po FIX -> mid-1 | ...`). A task out of rounds is blocked without another trip to the PO.
+When the review or QA rejects a task, the PO sees it first (`po_rework`): it answers `DECISION: FIX` or `SPEC`, with a `DIRECTION:` for the developer and, for `SPEC`, a new task `DESCRIPTION:`. The developer gets the PO's direction above the reviewers' feedback (history line `T2: po FIX -> mid-1 | ...`). A task that uses all its rounds goes to the PO once more, which reopens it for one new series of rounds (`MaxPOTrips`); only after that is it blocked.

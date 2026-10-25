@@ -184,4 +184,4 @@ Con `AGENT_BACKEND=claude-cli` el dashboard lista cada llamada al CLI de Claude 
 
 ## Los rechazos van al PO
 
-Cuando la revisión o el QA rechaza una tarea, el PO la ve primero (`po_rework`): responde `DECISION: FIX` o `SPEC`, con una `DIRECTION:` para el desarrollador y, en `SPEC`, una nueva `DESCRIPTION:` de la tarea. El desarrollador recibe la orientación del PO sobre el feedback de los revisores (línea del historial `T2: po FIX -> mid-1 | ...`). La tarea sin rondas queda bloqueada sin otro viaje al PO.
+Cuando la revisión o el QA rechaza una tarea, el PO la ve primero (`po_rework`): responde `DECISION: FIX` o `SPEC`, con una `DIRECTION:` para el desarrollador y, en `SPEC`, una nueva `DESCRIPTION:` de la tarea. El desarrollador recibe la orientación del PO sobre el feedback de los revisores (línea del historial `T2: po FIX -> mid-1 | ...`). La tarea que agota las rondas va al PO una vez más, que la reabre para una nueva serie de rondas (`MaxPOTrips`); solo después queda bloqueada.

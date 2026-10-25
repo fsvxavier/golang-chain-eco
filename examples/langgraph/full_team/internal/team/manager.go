@@ -22,6 +22,10 @@ import (
 // MaxRounds is how many times a task may be returned before it is blocked.
 const MaxRounds = 3
 
+// MaxPOTrips is how many times a task that used all its rounds goes back to the
+// PO for a new series of rounds before it is blocked.
+const MaxPOTrips = 1
+
 // preference is who suits a task best, in order. High-complexity work never
 // goes to a junior.
 var preference = map[string][]string{
@@ -36,6 +40,7 @@ type work struct {
 	Assignee, Level             string // worker id and role that built it
 	Code, Feedback              string
 	Round                       int
+	POTrips                     int // series of rounds the PO has reopened
 	Status                      string
 }
 
@@ -316,10 +321,15 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 			}
 		}
 		// rejected by review or QA: the PO sees it before the developer does
-		if w.Round < MaxRounds {
-			if err := m.poRework(ctx, &w, &hist, brief); err != nil {
-				return w, hist, err
-			}
+		exhausted := w.Round >= MaxRounds
+		if exhausted && w.POTrips >= MaxPOTrips {
+			break
+		}
+		if err := m.poRework(ctx, &w, &hist, brief, exhausted); err != nil {
+			return w, hist, err
+		}
+		if exhausted { // the PO reopens the task: a new series of rounds
+			w.Round, w.POTrips = 0, w.POTrips+1
 		}
 	}
 	w.Status = "blocked"
@@ -327,15 +337,23 @@ func (m *manager) runTask(ctx context.Context, w work, brief string) (work, []an
 	return w, hist, nil
 }
 
+// lastChance is the line that tells the PO a task has used all its rounds.
+func lastChance(exhausted bool) string {
+	if !exhausted {
+		return ""
+	}
+	return "This task used all its rounds and is blocked unless you reopen it: make the description smaller or clearer (SPEC) or give a precise direction (FIX); the next series is the last.\n\n"
+}
+
 // poRework sends a rejected task to the PO. The PO decides whether the work
 // needs a fix (the developer gets its direction) or the task's description
 // itself is wrong (it is replaced), and the developer then works from that, with
 // the reviewers' feedback below it. A PO that answers without the markers still
 // has its answer passed on as the direction.
-func (m *manager) poRework(ctx context.Context, w *work, hist *[]any, brief string) error {
+func (m *manager) poRework(ctx context.Context, w *work, hist *[]any, brief string, exhausted bool) error {
 	m.move(ctx, tasktrack.Task, subject(ctx, w.ID), tasktrack.PORework, "po", "returned to the PO")
-	prompt := fmt.Sprintf("ROLE: po\nMODE: rework\n\n%s\n\n## Task returned\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nROUND: %d of %d\n\n## Submitted work\n%s\n\n## Rejection feedback\n%s\n\nDecide whether this is a fix for the developer or the task's description must change, and answer in this form:\nDECISION: FIX or SPEC\nDIRECTION: what the developer must do next, one short paragraph\nDESCRIPTION: (only for SPEC) the task's new description\n",
-		briefToken, w.ID, w.Title, w.Desc, w.Round, MaxRounds, head(w.Code, 4000), w.Feedback)
+	prompt := fmt.Sprintf("ROLE: po\nMODE: rework\n\n%s\n\n## Task returned\nTASK: %s\nTITLE: %s\nDESCRIPTION: %s\nROUND: %d of %d\n\n## Submitted work\n%s\n\n## Rejection feedback\n%s\n\n%sDecide whether this is a fix for the developer or the task's description must change, and answer in this form:\nDECISION: FIX or SPEC\nDIRECTION: what the developer must do next, one short paragraph\nDESCRIPTION: (only for SPEC) the task's new description\n",
+		briefToken, w.ID, w.Title, w.Desc, w.Round, MaxRounds, head(w.Code, 4000), w.Feedback, lastChance(exhausted))
 	j, err := m.dispatchBrief(ctx, []string{"po"}, w.ID+"-po-rework", prompt, w.Title+" "+w.Desc, brief)
 	if err != nil {
 		return err
