@@ -74,6 +74,8 @@ Se pasan a `Generate`/`Stream` o como predeterminados en `Init`/`models.Bind`:
 
 **Clientes nativos** (`providers/*`): `openai`, `azure_openai`, `anthropic`, `google_genai` (y `google_vertexai`), `cohere`, `bedrock`, `ollama`, `ibm`/`watsonx`, `replicate`.
 
+- Claude con servidores MCP remotos: `anthropic.Chat{MCPServers: []anthropic.MCPServer{{Name: "docs", URL: u, OAuth: &mcp.OAuth{TokenFile: "tok.json"}}}}` usa el conector MCP de la Messages API (Claude llama al servidor; el token OAuth viene de `mcp.OAuth`, vea el capítulo de MCP). Es facturación por API. Con la suscripción de Claude use `claudecli.Chat{MCPServers: map[string]string{"docs": u}}`: el CLI hace el OAuth con su propio login (autorice cada servidor una vez con `claude mcp`).
+
 | Proveedor | Prefijo | Chat | Tools | Stream | Embeddings |
 |---|---|---|---|---|---|
 | OpenAI | `openai` | sí | sí | SSE | sí |

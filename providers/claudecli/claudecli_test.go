@@ -128,3 +128,22 @@ func TestEnvTimeout(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPServers(t *testing.T) {
+	var got struct {
+		args  []string
+		stdin string
+		env   []string
+	}
+	m := fake("ok", &got)
+	m.MCPServers = map[string]string{"docs": "https://mcp.example.com/mcp"}
+	if _, err := m.Generate(context.Background(), []messages.Message{messages.Human("hi")}); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got.args, " ")
+	for _, want := range []string{"--strict-mcp-config", `--mcp-config {"mcpServers":{"docs":{"type":"http","url":"https://mcp.example.com/mcp"}}}`, "--allowedTools mcp__docs"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("args %q lack %q", joined, want)
+		}
+	}
+}

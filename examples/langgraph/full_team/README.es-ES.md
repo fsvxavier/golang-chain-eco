@@ -172,6 +172,15 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # incluye TestStartL
 - [independent_engineering_team](../independent_engineering_team/README.es-ES.md): el origen del equipo copiado, sin compresión
 - [compress_history_summary](../compress_history_summary/README.es-ES.md), [compress_shell_rtk](../compress_shell_rtk/README.es-ES.md), [decider_laya_http](../decider_laya_http/README.es-ES.md), [decider_laya_native](../decider_laya_native/README.es-ES.md)
 
+## Servidores MCP remotos con OAuth
+
+`AGENT_MCP=docs=https://mcp.ejemplo.com/mcp,wiki=...` da a cada rol Claude (`anthropic:` y `claude-cli:`) esos servidores MCP protegidos por OAuth; el propio modelo los llama.
+
+- **API (`ANTHROPIC_API_KEY`)**: ejecute `go run . mcp-login` una vez. Es opcional: el worker sin token imprime el enlace de autorización, lo abre en el navegador (si es posible) y espera hasta 5 minutos su aprobación, un login a la vez por servidor en cada proceso. Inicia sesión en cada servidor en el navegador y guarda los tokens en `AGENT_MCP_TOKENS` (por defecto `<directorio de config del usuario>/golang-chain-eco/mcp`, archivos `0600`); los workers los reutilizan y renuevan. Facturación por API.
+- **Suscripción (`AGENT_BACKEND=claude-cli`)**: sin `mcp-login`; autorice cada servidor una vez con `claude mcp` y el CLI hace el OAuth con el login de su suscripción.
+
+Las ejecuciones offline lo ignoran. El login OAuth autentica contra el servidor MCP, no contra Anthropic (`mcp.OAuth`, `anthropic.MCPServer`, `claudecli.Chat.MCPServers`).
+
 ## Suscripción en vez de API
 
 cada rol responde por `claude -p`, cobrado a tu suscripción de Claude en vez del crédito de la API; requiere `claude` con sesión iniciada, sin clave de API (cualquier credencial `ANTHROPIC_*` se quita del entorno del proceso hijo). Más lento que la API y el uso de herramientas se emula en el prompt; `CLAUDE_CLI_CONCURRENCY` (por defecto 3) limita los procesos, `CLAUDE_BIN` apunta al binario. Revisa los términos de tu plan antes de ejecutarlo sin supervisión. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mezcla por rol

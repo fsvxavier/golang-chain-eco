@@ -172,6 +172,15 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # inclui TestStartLo
 - [independent_engineering_team](../independent_engineering_team/README.pt-BR.md): a origem do time copiado, sem compressão
 - [compress_history_summary](../compress_history_summary/README.pt-BR.md), [compress_shell_rtk](../compress_shell_rtk/README.pt-BR.md), [decider_laya_http](../decider_laya_http/README.pt-BR.md), [decider_laya_native](../decider_laya_native/README.pt-BR.md)
 
+## Servidores MCP remotos com OAuth
+
+`AGENT_MCP=docs=https://mcp.exemplo.com/mcp,wiki=...` dá a todo papel Claude (`anthropic:` e `claude-cli:`) esses servidores MCP protegidos por OAuth; o próprio modelo os chama.
+
+- **API (`ANTHROPIC_API_KEY`)**: rode `go run . mcp-login` uma vez. É opcional: o worker sem token imprime o link de autorização, abre no navegador (se possível) e espera até 5 minutos pela sua aprovação, um login por vez por servidor em cada processo. Ele faz o login de cada servidor no navegador e salva os tokens em `AGENT_MCP_TOKENS` (padrão `<diretório de config do usuário>/golang-chain-eco/mcp`, arquivos `0600`); os workers reutilizam e renovam. Cobrança por API.
+- **Assinatura (`AGENT_BACKEND=claude-cli`)**: sem `mcp-login`; autorize cada servidor uma vez com `claude mcp` e o CLI faz o OAuth com o login da sua assinatura.
+
+Execuções offline ignoram. O login OAuth autentica no servidor MCP, não na Anthropic (`mcp.OAuth`, `anthropic.MCPServer`, `claudecli.Chat.MCPServers`).
+
 ## Assinatura em vez de API
 
 todo papel responde por `claude -p`, cobrado na assinatura do Claude em vez do crédito da API; exige `claude` logado, sem chave de API (qualquer credencial `ANTHROPIC_*` é removida do ambiente do processo filho). Mais lento que a API e o uso de ferramentas é emulado no prompt; `CLAUDE_CLI_CONCURRENCY` (padrão 3) limita os processos, `CLAUDE_BIN` aponta o binário. Confira os termos do seu plano antes de rodar sem supervisão. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mistura por papel

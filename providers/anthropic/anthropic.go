@@ -6,6 +6,7 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"iter"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
+	"github.com/fsvxavier/golang-chain-eco/mcp"
 	"github.com/fsvxavier/golang-chain-eco/providers/internal/httpx"
 )
 
@@ -24,6 +26,60 @@ type Chat struct {
 	MaxTokens int    // default 4096 (required by the API)
 	HTTP      *http.Client
 	Defaults  []models.Option
+	// MCPServers are remote MCP servers Claude itself calls during a request
+	// (the Messages API MCP connector); their tool calls and results never
+	// reach the caller, only the final answer does.
+	MCPServers []MCPServer
+}
+
+// MCPServer is a remote MCP server for the MCP connector. The access token is
+// Token, else OAuth's (which logs in or refreshes as needed), else none.
+type MCPServer struct {
+	Name  string
+	URL   string
+	Token string
+	OAuth *mcp.OAuth
+	// AllowedTools limits the server's tools; empty enables all of them.
+	AllowedTools []string
+}
+
+// mcpBetaHeader enables the MCP connector.
+const mcpBetaHeader = "mcp-client-2025-11-20"
+
+// addMCP adds the MCP connector fields to req, resolving OAuth tokens.
+func (c *Chat) addMCP(ctx context.Context, req map[string]any) error {
+	if len(c.MCPServers) == 0 {
+		return nil
+	}
+	var servers, toolsets []block
+	for _, s := range c.MCPServers {
+		srv := block{"type": "url", "name": s.Name, "url": s.URL}
+		tok := s.Token
+		if tok == "" && s.OAuth != nil {
+			var err error
+			if tok, err = s.OAuth.Access(ctx, s.URL); err != nil {
+				return fmt.Errorf("anthropic: mcp server %q: %w", s.Name, err)
+			}
+		}
+		if tok != "" {
+			srv["authorization_token"] = tok
+		}
+		servers = append(servers, srv)
+		ts := block{"type": "mcp_toolset", "mcp_server_name": s.Name}
+		if len(s.AllowedTools) > 0 {
+			cfgs := block{}
+			for _, n := range s.AllowedTools {
+				cfgs[n] = block{"enabled": true}
+			}
+			ts["default_config"] = block{"enabled": false}
+			ts["configs"] = cfgs
+		}
+		toolsets = append(toolsets, ts)
+	}
+	req["mcp_servers"] = servers
+	all, _ := req["tools"].([]block)
+	req["tools"] = append(all, toolsets...)
+	return nil
 }
 
 // New creates a Claude chat model.
@@ -52,6 +108,9 @@ func (c *Chat) client() *httpx.Client {
 	}
 	if tok := os.Getenv("ANTHROPIC_AUTH_TOKEN"); tok != "" {
 		h["Authorization"] = "Bearer " + tok
+	}
+	if len(c.MCPServers) > 0 {
+		h["anthropic-beta"] = mcpBetaHeader
 	}
 	return &httpx.Client{HTTP: c.HTTP, BaseURL: base, Headers: h}
 }
@@ -234,7 +293,11 @@ func (c *Chat) Generate(ctx context.Context, msgs []messages.Message, opts ...mo
 	o := models.Apply(append(append([]models.Option(nil), c.Defaults...), opts...)...)
 	return models.Track(ctx, c.ModelID(), msgs, func(ctx context.Context) (messages.Message, error) {
 		var r apiResponse
-		if err := c.client().PostJSON(ctx, "/v1/messages", c.request(msgs, o, false), &r); err != nil {
+		body := c.request(msgs, o, false)
+		if err := c.addMCP(ctx, body); err != nil {
+			return messages.Message{}, err
+		}
+		if err := c.client().PostJSON(ctx, "/v1/messages", body, &r); err != nil {
 			return messages.Message{}, err
 		}
 		out := messages.Message{Role: messages.RoleAI, ID: r.ID, Usage: r.Usage.toUsage(),
@@ -297,7 +360,12 @@ func (c *Chat) Stream(ctx context.Context, msgs []messages.Message, opts ...mode
 	o := models.Apply(append(append([]models.Option(nil), c.Defaults...), opts...)...)
 	return func(yield func(messages.Message, error) bool) {
 		_, _ = models.Track(ctx, c.ModelID(), msgs, func(ctx context.Context) (messages.Message, error) {
-			resp, err := c.client().Post(ctx, "/v1/messages", c.request(msgs, o, true))
+			body := c.request(msgs, o, true)
+			err := c.addMCP(ctx, body)
+			var resp *http.Response
+			if err == nil {
+				resp, err = c.client().Post(ctx, "/v1/messages", body)
+			}
 			if err != nil {
 				yield(messages.Message{}, err)
 				return messages.Message{}, err
@@ -307,6 +375,7 @@ func (c *Chat) Stream(ctx context.Context, msgs []messages.Message, opts ...mode
 			var id string
 			var failed error
 			stopped := false
+			hidden := map[int]bool{} // MCP connector blocks, not for the caller
 			perr := httpx.SSE(resp.Body, func(_, data string) bool {
 				var ev streamEvent
 				if json.Unmarshal([]byte(data), &ev) != nil {
@@ -319,12 +388,19 @@ func (c *Chat) Stream(ctx context.Context, msgs []messages.Message, opts ...mode
 					chunk.ID = id
 					chunk.Usage = ev.Message.Usage.toUsage()
 				case "content_block_start":
+					if t := ev.ContentBlock.Type; t == "mcp_tool_use" || t == "mcp_tool_result" {
+						hidden[ev.Index] = true
+						return true
+					}
 					if ev.ContentBlock.Type == "tool_use" {
 						chunk.ToolCallChunks = []messages.ToolCallChunk{{Index: ev.Index, ID: ev.ContentBlock.ID, Name: ev.ContentBlock.Name}}
 					} else {
 						return true
 					}
 				case "content_block_delta":
+					if hidden[ev.Index] {
+						return true
+					}
 					switch ev.Delta.Type {
 					case "text_delta":
 						chunk.Content = ev.Delta.Text
