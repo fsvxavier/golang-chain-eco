@@ -55,6 +55,12 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "mcp-login" {
+		if err := team.MCPLogin(context.Background()); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	if _, err := run(ctx, os.Stdout); err != nil {

@@ -437,6 +437,16 @@ Os testes de serve que acionam o time offline (`TestServeListsTeamTools`, `TestS
 8. Abra o painel (`http://127.0.0.1:8088/` redireciona para a página do projeto; a linha de log `dashboard: ...` traz a URL) enquanto uma demanda roda. O pedido e suas tarefas devem passar pelos status, cada persona deve aparecer `busy` com sua skill e o que está fazendo, e a contagem de tokens deve crescer (modelo real; offline não há). Suba um segundo projeto com outro `WORKSPACE_ROOT`: ele deve aparecer no seletor de projetos.
 9. Chame `team_cancel` com o `thread_id` de uma demanda em execução. O painel deve mostrar o pedido e suas tarefas abertas como `cancelled`, os workers devem voltar a `idle` e o `team_status` deve parar de avançar. Depois de uma demanda que muda o que é verdade, rode `git diff` nos `docs_roots` que você passou para ver o que o PO gravou.
 
+## Servidores MCP remotos com OAuth
+
+`AGENT_MCP=docs=https://mcp.exemplo.com/mcp,wiki=...` dá a todo papel Claude (`anthropic:` e `claude-cli:`) esses servidores MCP protegidos por OAuth; o próprio modelo os chama.
+
+- **API (`ANTHROPIC_API_KEY`)**: rode `go run . mcp-login` uma vez. É opcional: o worker sem token imprime o link de autorização, abre no navegador (se possível) e espera até 5 minutos pela sua aprovação, um login por vez por servidor em cada processo. Ele faz o login de cada servidor no navegador e salva os tokens em `AGENT_MCP_TOKENS` (padrão `<diretório de config do usuário>/golang-chain-eco/mcp`, arquivos `0600`); os workers reutilizam e renovam. Cobrança por API.
+- **Assinatura (`AGENT_BACKEND=claude-cli`)**: sem `mcp-login`; autorize cada servidor uma vez com `claude mcp` e o CLI faz o OAuth com o login da sua assinatura.
+
+Execuções offline ignoram. O login OAuth autentica no servidor MCP, não na Anthropic (`mcp.OAuth`, `anthropic.MCPServer`, `claudecli.Chat.MCPServers`).
+
+
 ## Veja também
 
 - [full_team](../full_team/README.pt-BR.md): o time copiado, com a camada de compressão documentada por completo

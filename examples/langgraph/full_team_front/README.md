@@ -437,6 +437,16 @@ The serve tests that drive the offline team (`TestServeListsTeamTools`, `TestSer
 8. Open the dashboard (`http://127.0.0.1:8088/` redirects to the project page; the log line `dashboard: ...` has the URL) while a demand runs. The request and its tasks must move through the statuses, each persona must show `busy` with its skill and what it is doing, and the token counts must grow (a live model; offline there are none). Start a second project with its own `WORKSPACE_ROOT`: it must appear in the project selector.
 9. Call `team_cancel` with the `thread_id` of a running demand. The dashboard must show the request and its open tasks as `cancelled`, the workers must go back to `idle`, and `team_status` must stop advancing. After a demand that changes what is true, run `git diff` on the `docs_roots` you passed to see what the PO wrote.
 
+## Remote MCP servers with OAuth
+
+`AGENT_MCP=docs=https://mcp.example.com/mcp,wiki=...` gives every Claude role (`anthropic:` and `claude-cli:`) those OAuth-protected MCP servers; the model calls them itself.
+
+- **API (`ANTHROPIC_API_KEY`)**: run `go run . mcp-login` once. It is optional: a worker without a token prints the authorization link, opens it in the browser (best effort) and waits up to 5 minutes for you to approve, one login at a time per server in a process. It signs you in to each server in the browser and saves the tokens in `AGENT_MCP_TOKENS` (default `<user config dir>/golang-chain-eco/mcp`, files `0600`); every worker then reuses and refreshes them. Billed to the API.
+- **Subscription (`AGENT_BACKEND=claude-cli`)**: no `mcp-login`; authorize each server once with `claude mcp` and the CLI does the OAuth with your subscription login.
+
+Offline runs ignore it. The OAuth login authenticates against the MCP server, not against Anthropic (`mcp.OAuth`, `anthropic.MCPServer`, `claudecli.Chat.MCPServers`).
+
+
 ## See also
 
 - [full_team](../full_team/README.md): the copied team, with the compression layer documented in full
