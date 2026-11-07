@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -45,6 +46,11 @@ type Chat struct {
 	Effort     string        // optional --effort level
 	KeepAPIEnv bool          // keep ANTHROPIC_* credentials in the child's environment
 	Defaults   []models.Option
+	// MCPServers maps a name to the URL of a remote MCP server the CLI itself
+	// calls during a run (its tools are named mcp__<name>__*). The CLI does the
+	// OAuth with the subscription login it already has: authorize each server
+	// once with `claude mcp` (or /mcp in an interactive session).
+	MCPServers map[string]string
 	// Persist keeps each call's session on disk (~/.claude/projects) instead of
 	// discarding it, so the conversation of every call can be read afterwards;
 	// Dir is the working directory of the calls (default a temp folder), which
@@ -146,6 +152,17 @@ func (c *Chat) Generate(ctx context.Context, msgs []messages.Message, opts ...mo
 		session := newUUID()
 		args := []string{"-p", "--output-format", "json", "--tools", "", "--strict-mcp-config",
 			"--disable-slash-commands", "--setting-sources", ""}
+		if len(c.MCPServers) > 0 {
+			cfg := map[string]any{}
+			var allow []string
+			for name, u := range c.MCPServers {
+				cfg[name] = map[string]string{"type": "http", "url": u}
+				allow = append(allow, "mcp__"+name)
+			}
+			b, _ := json.Marshal(map[string]any{"mcpServers": cfg})
+			sort.Strings(allow)
+			args = append(args, "--mcp-config", string(b), "--allowedTools", strings.Join(allow, ","))
+		}
 		if c.Persist {
 			args = append(args, "--session-id", session)
 		} else {

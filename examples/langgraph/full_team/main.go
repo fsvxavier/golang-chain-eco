@@ -12,6 +12,7 @@
 // rewritten to a shorter form). Offline, every worker calls open_tasks once per
 // turn, so the list of tasks reaches the model as JSON and gets rewritten.
 //
+// "mcp-login" signs in to the AGENT_MCP servers (see internal/team/mcpserver.go).
 // "serve" runs the same team as an MCP server on stdio, for a chat (see serve.go).
 package main
 
@@ -48,6 +49,12 @@ func main() {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		go func() { <-ctx.Done(); stop() }() // a second signal kills the process
 		if err := serve(ctx, os.Stdin, os.Stdout, os.Stderr); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "mcp-login" {
+		if err := team.MCPLogin(context.Background()); err != nil {
 			log.Fatal(err)
 		}
 		return

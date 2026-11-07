@@ -837,3 +837,7 @@ Detalles de diseño en [docs/es-ES/ARCHITECTURE.md](docs/es-ES/ARCHITECTURE.md).
 - Las integraciones de SaaS/API de pago solo tienen pruebas de contrato; 123 proveedores de la lista de LangChain dependen de documentación de API que no estaba disponible ([docs/es-ES/PROVIDERS-ANALISE.md](docs/es-ES/PROVIDERS-ANALISE.md)).
 - Los vector stores `Flat`/`Annoy`/`HNSW` son equivalentes en Go puro a FAISS/Annoy/hnswlib. `LoadAnnoyFile` y `LoadFAISSFlat` leen los archivos nativos (solo lectura; Annoy angular/euclidiano, FAISS flat e IDMap; no IVF, PQ ni HNSW de FAISS). Ambos se prueban contra archivos generados por annoy 1.17.3 y faiss-cpu 1.15.1.
 - Las herramientas de envío (SMS) y de lectura de datos (SOQL) actúan sobre sistemas reales: restringe destinos/alcance y exige aprobación humana.
+
+## Licencia
+
+Distribuido bajo la [Licencia Apache 2.0](LICENSE).

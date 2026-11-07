@@ -48,6 +48,9 @@ func normalize(spec string) string {
 //	                     ANTHROPIC_BASE_URL points the Anthropic provider at the gateway)
 //	OPENAI_API_KEY       openai:gpt-4o-mini
 //
+// AGENT_MCP=name=url,... gives the Claude models (anthropic, claude-cli) those OAuth-protected
+// remote MCP servers (see mcpserver.go).
+//
 // An empty result means "run offline with the scripted model".
 func ModelSpec(role string) string {
 	if s := os.Getenv("AGENT_MODEL_" + strings.ToUpper(role)); s != "" {
@@ -79,6 +82,9 @@ func NewModel(role string, fake func([]messages.Message) messages.Message) (mode
 	m, err := chatmodels.Init(spec)
 	if err != nil {
 		return nil, "", fmt.Errorf("role %s: model %q: %w", role, spec, err)
+	}
+	if err := attachMCP(m); err != nil {
+		return nil, "", fmt.Errorf("role %s: %w", role, err)
 	}
 	return m, spec, nil
 }

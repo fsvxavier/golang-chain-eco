@@ -437,6 +437,16 @@ Las pruebas de serve que activan el equipo sin conexión (`TestServeListsTeamToo
 8. Abra el panel (`http://127.0.0.1:8088/` redirige a la página del proyecto; la línea de log `dashboard: ...` trae la URL) mientras corre una demanda. El pedido y sus tareas deben pasar por los estados, cada persona debe aparecer `busy` con su skill y lo que hace, y el conteo de tokens debe crecer (modelo real; offline no hay). Inicie un segundo proyecto con otro `WORKSPACE_ROOT`: debe aparecer en el selector de proyectos.
 9. Llame a `team_cancel` con el `thread_id` de una demanda en ejecución. El panel debe mostrar el pedido y sus tareas abiertas como `cancelled`, los workers deben volver a `idle` y `team_status` debe dejar de avanzar. Después de una demanda que cambia lo que es cierto, ejecute `git diff` en los `docs_roots` que pasó para ver qué escribió el PO.
 
+## Servidores MCP remotos con OAuth
+
+`AGENT_MCP=docs=https://mcp.ejemplo.com/mcp,wiki=...` da a cada rol Claude (`anthropic:` y `claude-cli:`) esos servidores MCP protegidos por OAuth; el propio modelo los llama.
+
+- **API (`ANTHROPIC_API_KEY`)**: ejecute `go run . mcp-login` una vez. Es opcional: el worker sin token imprime el enlace de autorización, lo abre en el navegador (si es posible) y espera hasta 5 minutos su aprobación, un login a la vez por servidor en cada proceso. Inicia sesión en cada servidor en el navegador y guarda los tokens en `AGENT_MCP_TOKENS` (por defecto `<directorio de config del usuario>/golang-chain-eco/mcp`, archivos `0600`); los workers los reutilizan y renuevan. Facturación por API.
+- **Suscripción (`AGENT_BACKEND=claude-cli`)**: sin `mcp-login`; autorice cada servidor una vez con `claude mcp` y el CLI hace el OAuth con el login de su suscripción.
+
+Las ejecuciones offline lo ignoran. El login OAuth autentica contra el servidor MCP, no contra Anthropic (`mcp.OAuth`, `anthropic.MCPServer`, `claudecli.Chat.MCPServers`).
+
+
 ## Véase también
 
 - [full_team](../full_team/README.es-ES.md): el equipo copiado, con la capa de compresión documentada por completo

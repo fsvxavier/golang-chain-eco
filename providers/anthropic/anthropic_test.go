@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/fsvxavier/golang-chain-eco/core/messages"
 	"github.com/fsvxavier/golang-chain-eco/core/models"
 	"github.com/fsvxavier/golang-chain-eco/core/tools"
+	"github.com/fsvxavier/golang-chain-eco/mcp"
 	"github.com/fsvxavier/golang-chain-eco/providers/anthropic"
 )
 
@@ -159,5 +162,51 @@ func TestSystemCacheControlReachesTheAPI(t *testing.T) {
 	b := req["system"].([]any)[0].(map[string]any)
 	if b["text"] != "skill" || b["cache_control"].(map[string]any)["type"] != "ephemeral" {
 		t.Fatalf("system block: %v", b)
+	}
+}
+
+func TestMCPConnectorWithOAuthToken(t *testing.T) {
+	var req map[string]any
+	var beta string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		beta = r.Header.Get("anthropic-beta")
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req["stream"] == true {
+			w.Header().Set("Content-Type", "text/event-stream")
+			for _, ev := range []string{
+				`{"type":"content_block_start","index":0,"content_block":{"type":"mcp_tool_use","id":"m1","name":"search","server_name":"docs","input":{}}}`,
+				`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"q\":1}"}}`,
+				`{"type":"content_block_start","index":1,"content_block":{"type":"mcp_tool_result","tool_use_id":"m1","content":[]}}`,
+				`{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"done"}}`,
+			} {
+				fmt.Fprintf(w, "data: %s\n\n", ev)
+			}
+			return
+		}
+		fmt.Fprint(w, `{"content":[{"type":"mcp_tool_use","id":"m1","name":"search","input":{}},{"type":"mcp_tool_result","tool_use_id":"m1","content":[]},{"type":"text","text":"done"}]}`)
+	}))
+	defer srv.Close()
+	// a token already on disk: no login, no network
+	file := t.TempDir() + "/tok.json"
+	if err := os.WriteFile(file, []byte(`{"access_token":"oauth-tok"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := &anthropic.Chat{Model: "claude-x", APIKey: "ak", BaseURL: srv.URL, MCPServers: []anthropic.MCPServer{
+		{Name: "docs", URL: "https://mcp.example.com/mcp", OAuth: &mcp.OAuth{TokenFile: file}, AllowedTools: []string{"search"}},
+	}}
+	hist := []messages.Message{messages.Human("hi")}
+	out, err := m.Generate(context.Background(), hist)
+	if err != nil || out.Content != "done" || len(out.ToolCalls) != 0 {
+		t.Fatalf("%v %+v", err, out)
+	}
+	srvs := req["mcp_servers"].([]any)[0].(map[string]any)
+	ts := req["tools"].([]any)[0].(map[string]any)
+	if beta == "" || srvs["authorization_token"] != "oauth-tok" || srvs["url"] != "https://mcp.example.com/mcp" ||
+		ts["type"] != "mcp_toolset" || ts["mcp_server_name"] != "docs" || ts["configs"].(map[string]any)["search"] == nil {
+		t.Fatalf("beta=%q req=%v", beta, req)
+	}
+	out, err = models.Collect(m.Stream(context.Background(), hist))
+	if err != nil || strings.TrimSpace(out.Content) != "done" || len(out.ToolCalls) != 0 {
+		t.Fatalf("stream: %v %+v", err, out)
 	}
 }

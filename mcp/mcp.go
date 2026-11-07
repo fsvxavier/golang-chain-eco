@@ -312,6 +312,7 @@ type httpTransport struct {
 	url     string
 	headers map[string]string
 	hc      *http.Client
+	oauth   *OAuth
 	mu      sync.Mutex
 	session string
 }
@@ -321,7 +322,38 @@ func HTTP(url string, headers map[string]string) Transport {
 	return &httpTransport{url: url, headers: headers, hc: http.DefaultClient}
 }
 
+// HTTPOAuth is HTTP for a server protected by OAuth 2.1 (MCP authorization):
+// it sends the access token, and on a 401 logs in (or refreshes) and retries once.
+func HTTPOAuth(url string, headers map[string]string, o *OAuth) Transport {
+	return &httpTransport{url: url, headers: headers, hc: http.DefaultClient, oauth: o}
+}
+
 func (t *httpTransport) post(ctx context.Context, b []byte) (*http.Response, error) {
+	var tok string
+	if t.oauth != nil {
+		tok = t.oauth.token(ctx)
+	}
+	resp, err := t.send(ctx, b, tok)
+	if err == nil && resp.StatusCode == http.StatusUnauthorized && t.oauth != nil {
+		challenge := resp.Header.Get("WWW-Authenticate")
+		resp.Body.Close()
+		if err := t.oauth.login(ctx, t.url, challenge, tok); err != nil {
+			return nil, err
+		}
+		resp, err = t.send(ctx, b, t.oauth.token(ctx))
+	}
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("mcp: http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return resp, nil
+}
+
+func (t *httpTransport) send(ctx context.Context, b []byte, bearer string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(b))
 	if err != nil {
 		return nil, err
@@ -331,6 +363,9 @@ func (t *httpTransport) post(ctx context.Context, b []byte) (*http.Response, err
 	req.Header.Set("MCP-Protocol-Version", protocolVersion)
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	t.mu.Lock()
 	if t.session != "" {
@@ -345,11 +380,6 @@ func (t *httpTransport) post(ctx context.Context, b []byte) (*http.Response, err
 		t.mu.Lock()
 		t.session = s
 		t.mu.Unlock()
-	}
-	if resp.StatusCode >= 400 {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("mcp: http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return resp, nil
 }
@@ -403,6 +433,8 @@ type ServerConfig struct {
 	// streamable http
 	URL     string
 	Headers map[string]string
+	// OAuth, when set, authenticates the http server with OAuth 2.1 (one value per server).
+	OAuth *OAuth
 }
 
 // LoadTools connects to every configured server and returns all their tools
@@ -423,7 +455,11 @@ func LoadTools(ctx context.Context, servers map[string]ServerConfig) ([]tools.To
 		var err error
 		switch {
 		case cfg.URL != "":
-			t = HTTP(cfg.URL, cfg.Headers)
+			if cfg.OAuth != nil {
+				t = HTTPOAuth(cfg.URL, cfg.Headers, cfg.OAuth)
+			} else {
+				t = HTTP(cfg.URL, cfg.Headers)
+			}
 		case cfg.Command != "":
 			t, err = stdio(ctx, cfg.Command, cfg.Args, cfg.Env, cfg.Quiet)
 		default:

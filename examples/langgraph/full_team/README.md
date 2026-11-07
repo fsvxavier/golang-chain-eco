@@ -172,6 +172,15 @@ go test -race -count=1 ./examples/langgraph/full_team/...   # includes TestStart
 - [independent_engineering_team](../independent_engineering_team/README.md): the source of the copied team, without compression
 - [compress_history_summary](../compress_history_summary/README.md), [compress_shell_rtk](../compress_shell_rtk/README.md), [decider_laya_http](../decider_laya_http/README.md), [decider_laya_native](../decider_laya_native/README.md)
 
+## Remote MCP servers with OAuth
+
+`AGENT_MCP=docs=https://mcp.example.com/mcp,wiki=...` gives every Claude role (`anthropic:` and `claude-cli:`) those OAuth-protected MCP servers; the model calls them itself.
+
+- **API (`ANTHROPIC_API_KEY`)**: run `go run . mcp-login` once. It is optional: a worker without a token prints the authorization link, opens it in the browser (best effort) and waits up to 5 minutes for you to approve, one login at a time per server in a process. It signs you in to each server in the browser and saves the tokens in `AGENT_MCP_TOKENS` (default `<user config dir>/golang-chain-eco/mcp`, files `0600`); every worker then reuses and refreshes them. Billed to the API.
+- **Subscription (`AGENT_BACKEND=claude-cli`)**: no `mcp-login`; authorize each server once with `claude mcp` and the CLI does the OAuth with your subscription login.
+
+Offline runs ignore it. The OAuth login authenticates against the MCP server, not against Anthropic (`mcp.OAuth`, `anthropic.MCPServer`, `claudecli.Chat.MCPServers`).
+
 ## Subscription instead of API
 
 every role answers through `claude -p`, billed to your Claude subscription instead of API credit; needs `claude` logged in, no API key (any `ANTHROPIC_*` credential is removed from the child's environment). Slower than the API and tool use is emulated in the prompt; `CLAUDE_CLI_CONCURRENCY` (default 3) bounds the processes, `CLAUDE_BIN` points at the binary. Check your plan's terms before running it unattended. `AGENT_MODEL_<ROLE>=claude-cli:sonnet_5_5` mixes it per role

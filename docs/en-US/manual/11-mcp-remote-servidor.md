@@ -25,6 +25,7 @@ agent, _ := agents.Create(agents.Options{Model: m, Tools: ts})
 
 - The tools get the `<server>_` prefix (`fs_read_file`, `docs_search`...).
 - `ServerConfig` has two modes: stdio (`Command`, `Args`, `Env`) or HTTP (`URL`, `Headers`).
+- OAuth 2.1 servers: set `ServerConfig.OAuth = &mcp.OAuth{TokenFile: "tok.json"}` (or `mcp.HTTPOAuth(url, headers, o)`). On a 401 the client discovers the authorization server, registers itself, prints a URL for you to open, receives the code on a loopback port (PKCE) and retries; later runs refresh the saved token. One `OAuth` value per server; public clients only. This authenticates against the MCP server, not against Anthropic.
 - `closeAll()` closes all sessions and child processes.
 
 ### Low-level use
